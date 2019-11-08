@@ -1,4 +1,4 @@
-package broker
+package queue
 
 import (
 	"sync/atomic"

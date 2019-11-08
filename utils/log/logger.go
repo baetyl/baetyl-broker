@@ -8,6 +8,7 @@ import (
 )
 
 var log Logger
+var level = logrus.InfoLevel
 
 // Logger the logger interface
 type Logger interface {
@@ -20,9 +21,9 @@ type Logger interface {
 
 func init() {
 	entry := logrus.NewEntry(logrus.New())
-	entry.Level = logrus.DebugLevel
+	entry.Level = level
 	entry.Logger.Out = os.Stdout
-	entry.Logger.Level = logrus.DebugLevel
+	entry.Logger.Level = level
 	entry.Logger.Formatter = newFormatter("text")
 	log = entry
 }

@@ -1,4 +1,4 @@
-package broker
+package queue
 
 import (
 	"sync"
@@ -83,6 +83,7 @@ loop:
 				buf = q.put(buf)
 			}
 		case <-ticker.C:
+			log.Debugf("periodic put")
 			buf = q.put(buf)
 		case <-q.tomb.Dying():
 			break loop
