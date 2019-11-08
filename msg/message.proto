@@ -1,0 +1,18 @@
+syntax = "proto3";
+
+package message;
+
+message Message {
+	Context Context = 1;
+	bytes Content   = 2;
+}
+
+message Context {
+	uint64 ID     = 1;
+	uint64 TS     = 2;
+	uint32 QOS    = 3;
+	uint32 Retain = 4;
+	string Topic  = 5;
+}
+
+//  protoc --go_out=. *.proto
