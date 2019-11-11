@@ -71,9 +71,10 @@ func (q *QueuePersistent) batchingPut() error {
 	buf := []*Event{}
 	max := cap(q.input)
 	// ? Is it possible to remove the ticker?
-	ticker := time.NewTicker(time.Millisecond * 10)
+	duration := time.Millisecond * 10
+	timer := time.NewTimer(duration)
+	defer timer.Stop()
 
-loop:
 	for {
 		select {
 		case e := <-q.input:
@@ -82,21 +83,14 @@ loop:
 			if len(buf) == max {
 				buf = q.put(buf)
 			}
-		case <-ticker.C:
-			log.Debugf("periodic put")
+			//  if receive timeout to put messages in buffer
+			timer.Reset(duration)
+		case <-timer.C:
+			log.Debugf("put when timeout")
 			buf = q.put(buf)
 		case <-q.tomb.Dying():
-			break loop
-		}
-	}
-
-	// try to put all messages
-	for {
-		select {
-		case e := <-q.input:
-			buf = append(buf, e)
-		default:
-			q.put(buf)
+			log.Debugf("put when close")
+			buf = q.put(buf)
 			return nil
 		}
 	}
@@ -147,16 +141,26 @@ func (q *QueuePersistent) batchingDel() error {
 
 	buf := []uint64{}
 	max := cap(q.edel)
+	// ? Is it possible to remove the timer?
+	duration := time.Millisecond * 100
+	timer := time.NewTimer(duration)
+	defer timer.Stop()
 
 	for {
 		select {
 		case e := <-q.edel:
+			timer.Reset(time.Second)
 			log.Debugf("received a delete event")
 			buf = append(buf, e)
 			if len(buf) == max {
 				buf = q.delete(buf)
 			}
+			timer.Reset(duration)
+		case <-timer.C:
+			log.Debugf("delete when timeout")
+			buf = q.delete(buf)
 		case <-q.tomb.Dying():
+			log.Debugf("delete when close")
 			buf = q.delete(buf)
 			return nil
 		}

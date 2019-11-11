@@ -5,9 +5,11 @@ import (
 	"os"
 	"path"
 	"testing"
+	"time"
 
 	"github.com/baetyl/baetyl-broker/db/sqldb"
 	message "github.com/baetyl/baetyl-broker/msg"
+	"github.com/gogo/protobuf/proto"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -110,4 +112,29 @@ func BenchmarkMemoryQueueParallel(b *testing.B) {
 			q.Get()
 		}
 	})
+}
+
+func BenchmarkTimer(b *testing.B) {
+	timer := time.NewTimer(time.Millisecond * 10)
+	defer timer.Stop()
+	b.ResetTimer()
+	for index := 0; index < b.N; index++ {
+		timer.Reset(time.Millisecond * 10)
+	}
+}
+
+func BenchmarkUnmarshal(b *testing.B) {
+	m := new(message.Message)
+	m.Content = []byte("hi")
+	m.Context = new(message.Context)
+	m.Context.ID = 111
+	m.Context.TS = 123
+	m.Context.QOS = 1
+	m.Context.Topic = "b"
+	d, err := proto.Marshal(m)
+	assert.NoError(b, err)
+	b.ResetTimer()
+	for index := 0; index < b.N; index++ {
+		proto.Unmarshal(d, m)
+	}
 }
