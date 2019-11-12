@@ -1,36 +1,26 @@
 package queue
 
 import (
-	"errors"
 	"log"
 	"sync"
 )
 
-// // QueueMemoryConfig is the configuration of in-memory queue
-// type QueueMemoryConfig struct {
-// 	Capacity   int
-// 	DropIfFull bool
-// }
-
-// ErrQueueClosed queue is closed
-var ErrQueueClosed = errors.New("queue is closed")
-
-// QueueMemory is an in-memory queue
-type QueueMemory struct {
+// Memory is an in-memory queue
+type Memory struct {
 	events chan *Event
 	_put   func(*Event) error
 	quit   chan bool
 	once   sync.Once
 }
 
-// NewQueueMemory creates a new in-memory queue
-func NewQueueMemory(capacity int, dropIfFull bool) Queue {
-	q := &QueueMemory{
+// NewMemory creates a new in-memory queue
+func NewMemory(capacity int, dropIfFull bool) Queue {
+	q := &Memory{
 		events: make(chan *Event, capacity),
 		quit:   make(chan bool),
 	}
 	if dropIfFull {
-		q._put = q.putIfNotFull
+		q._put = q.putDropIfFull
 	} else {
 		q._put = q.put
 	}
@@ -38,7 +28,7 @@ func NewQueueMemory(capacity int, dropIfFull bool) Queue {
 }
 
 // Get gets a message
-func (q *QueueMemory) Get() (*Event, error) {
+func (q *Memory) Get() (*Event, error) {
 	select {
 	case e := <-q.events:
 		return e, nil
@@ -48,12 +38,12 @@ func (q *QueueMemory) Get() (*Event, error) {
 }
 
 // Put puts a message
-func (q *QueueMemory) Put(e *Event) error {
+func (q *Memory) Put(e *Event) error {
 	defer e.Done()
 	return q._put(e)
 }
 
-func (q *QueueMemory) put(e *Event) error {
+func (q *Memory) put(e *Event) error {
 	select {
 	case q.events <- e:
 		return nil
@@ -62,7 +52,7 @@ func (q *QueueMemory) put(e *Event) error {
 	}
 }
 
-func (q *QueueMemory) putIfNotFull(e *Event) error {
+func (q *Memory) putDropIfFull(e *Event) error {
 	select {
 	case q.events <- e:
 		return nil
@@ -75,11 +65,11 @@ func (q *QueueMemory) putIfNotFull(e *Event) error {
 }
 
 // Close closes this queue
-func (q *QueueMemory) Close() error {
+func (q *Memory) Close() error {
 	q.once.Do(q.close)
 	return nil
 }
 
-func (q *QueueMemory) close() {
+func (q *Memory) close() {
 	close(q.quit)
 }

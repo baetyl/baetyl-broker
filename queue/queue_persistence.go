@@ -10,14 +10,8 @@ import (
 	"github.com/baetyl/baetyl-broker/utils/log"
 )
 
-// // QueuePersistentConfig is the configuration of in-memory queue
-// type QueuePersistentConfig struct {
-// 	Capacity   int
-// 	DropIfFull bool
-// }
-
-// QueuePersistent is an in-memory queue
-type QueuePersistent struct {
+// Persistence is a persistent queue
+type Persistence struct {
 	backend db.DB
 	input   chan *Event
 	output  chan *Event
@@ -27,9 +21,9 @@ type QueuePersistent struct {
 	once    sync.Once
 }
 
-// NewQueuePersistent creates a new in-memory queue
-func NewQueuePersistent(capacity int, backend db.DB) Queue {
-	q := &QueuePersistent{
+// NewPersistence creates a new in-memory queue
+func NewPersistence(capacity int, backend db.DB) Queue {
+	q := &Persistence{
 		backend: backend,
 		input:   make(chan *Event, capacity),
 		output:  make(chan *Event, capacity),
@@ -45,7 +39,7 @@ func NewQueuePersistent(capacity int, backend db.DB) Queue {
 }
 
 // Get gets a message
-func (q *QueuePersistent) Get() (*Event, error) {
+func (q *Persistence) Get() (*Event, error) {
 	select {
 	case e := <-q.output:
 		return e, nil
@@ -55,7 +49,7 @@ func (q *QueuePersistent) Get() (*Event, error) {
 }
 
 // Put puts a message
-func (q *QueuePersistent) Put(e *Event) (err error) {
+func (q *Persistence) Put(e *Event) (err error) {
 	select {
 	case q.input <- e:
 		return nil
@@ -64,14 +58,14 @@ func (q *QueuePersistent) Put(e *Event) (err error) {
 	}
 }
 
-func (q *QueuePersistent) batchingPut() error {
+func (q *Persistence) batchingPut() error {
 	log.Debugf("batching put")
 	defer utils.Trace("batching put")()
 
 	buf := []*Event{}
 	max := cap(q.input)
-	// ? Is it possible to remove the ticker?
-	duration := time.Millisecond * 10
+	// ? Is it possible to remove the timer?
+	duration := time.Millisecond * 100
 	timer := time.NewTimer(duration)
 	defer timer.Stop()
 
@@ -96,7 +90,7 @@ func (q *QueuePersistent) batchingPut() error {
 	}
 }
 
-func (q *QueuePersistent) batchingGet() error {
+func (q *Persistence) batchingGet() error {
 	log.Debugf("batching get")
 	defer utils.Trace("batching get")()
 
@@ -135,14 +129,14 @@ func (q *QueuePersistent) batchingGet() error {
 	}
 }
 
-func (q *QueuePersistent) batchingDel() error {
+func (q *Persistence) batchingDel() error {
 	log.Debugf("batching del")
 	defer utils.Trace("batching del")()
 
 	buf := []uint64{}
 	max := cap(q.edel)
 	// ? Is it possible to remove the timer?
-	duration := time.Millisecond * 100
+	duration := time.Millisecond * 500
 	timer := time.NewTimer(duration)
 	defer timer.Stop()
 
@@ -168,7 +162,7 @@ func (q *QueuePersistent) batchingDel() error {
 }
 
 // put all buffered messages to backend database in batch mode
-func (q *QueuePersistent) get(offset uint64, length int) ([]*Event, error) {
+func (q *Persistence) get(offset uint64, length int) ([]*Event, error) {
 	start := time.Now()
 
 	msgs, err := q.backend.Get(offset, length)
@@ -185,7 +179,7 @@ func (q *QueuePersistent) get(offset uint64, length int) ([]*Event, error) {
 }
 
 // put all buffered messages to backend database in batch mode
-func (q *QueuePersistent) put(buf []*Event) []*Event {
+func (q *Persistence) put(buf []*Event) []*Event {
 	if len(buf) == 0 {
 		return buf
 	}
@@ -209,7 +203,7 @@ func (q *QueuePersistent) put(buf []*Event) []*Event {
 }
 
 // deletes all acknowledged message from backend database in batch mode
-func (q *QueuePersistent) delete(buf []uint64) []uint64 {
+func (q *Persistence) delete(buf []uint64) []uint64 {
 	if len(buf) == 0 {
 		return buf
 	}
@@ -223,7 +217,7 @@ func (q *QueuePersistent) delete(buf []uint64) []uint64 {
 }
 
 // triggers an event to get message from backend database in batch mode
-func (q *QueuePersistent) trigger() {
+func (q *Persistence) trigger() {
 	select {
 	case q.eget <- true:
 	default:
@@ -231,7 +225,7 @@ func (q *QueuePersistent) trigger() {
 }
 
 // acknowledge all acknowledged message from backend database in batch mode
-func (q *QueuePersistent) acknowledge(id uint64) {
+func (q *Persistence) acknowledge(id uint64) {
 	select {
 	case q.edel <- id:
 	case <-q.tomb.Dying():
@@ -239,7 +233,7 @@ func (q *QueuePersistent) acknowledge(id uint64) {
 }
 
 // Close closes this queue
-func (q *QueuePersistent) Close() error {
+func (q *Persistence) Close() error {
 	q.once.Do(func() {
 		q.tomb.Kill(nil)
 	})

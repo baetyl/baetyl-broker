@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/baetyl/baetyl-broker/msg"
+	message "github.com/baetyl/baetyl-broker/msg"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -73,4 +73,44 @@ func TestSQLDB(t *testing.T) {
 	msgs, err = db.Get(5, 10)
 	assert.NoError(t, err)
 	assert.Len(t, msgs, 0)
+}
+
+func BenchmarkSQLDB(b *testing.B) {
+	dir, err := ioutil.TempDir("", "")
+	assert.NoError(b, err)
+	defer os.RemoveAll(dir)
+	db, err := NewSQLDB(path.Join(dir, "queue.db"))
+	assert.NoError(b, err)
+	assert.NotNil(b, db)
+	defer db.Close()
+
+	msgs, err := db.Get(0, 1)
+	assert.NoError(b, err)
+	assert.Len(b, msgs, 0)
+
+	tt := uint64(time.Now().UnixNano())
+	msg := new(message.Message)
+	msg.Content = []byte("hi")
+	msg.Context = new(message.Context)
+	msg.Context.ID = 111
+	msg.Context.TS = tt
+	msg.Context.QOS = 1
+	msg.Context.Topic = "b"
+
+	b.ResetTimer()
+	b.Run("put", func(b *testing.B) {
+		for i := 0; i < b.N; i++ {
+			db.Put([]*message.Message{msg})
+		}
+	})
+	b.Run("get", func(b *testing.B) {
+		for i := 0; i < b.N; i++ {
+			db.Get(1, 10)
+		}
+	})
+	b.Run("del", func(b *testing.B) {
+		for i := 0; i < b.N; i++ {
+			db.Del([]uint64{uint64(i)})
+		}
+	})
 }
