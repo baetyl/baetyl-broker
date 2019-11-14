@@ -1,1 +1,1 @@
-# baetyl-hub
+# baetyl-broker
