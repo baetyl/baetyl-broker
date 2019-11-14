@@ -1,6 +1,6 @@
 syntax = "proto3";
 
-package message;
+package common;
 
 message Message {
 	Context Context = 1;

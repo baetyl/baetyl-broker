@@ -7,25 +7,26 @@ import (
 	"testing"
 	"time"
 
-	"github.com/baetyl/baetyl-broker/db/sqldb"
-	message "github.com/baetyl/baetyl-broker/msg"
+	"github.com/baetyl/baetyl-broker/common"
+	"github.com/baetyl/baetyl-broker/database"
 	"github.com/gogo/protobuf/proto"
+	_ "github.com/mattn/go-sqlite3"
 	"github.com/stretchr/testify/assert"
 )
 
-func TestMemoryQueue(t *testing.T) {
-	b := NewMemory(100, true)
+func TestTemporaryQueue(t *testing.T) {
+	b := NewTemporary(100, true)
 	assert.NotNil(t, b)
 	defer b.Close()
 
-	m := new(message.Message)
+	m := new(common.Message)
 	m.Content = []byte("hi")
-	m.Context = new(message.Context)
+	m.Context = new(common.Context)
 	m.Context.ID = 111
 	m.Context.TS = 123
 	m.Context.QOS = 1
 	m.Context.Topic = "t"
-	e := NewEvent(m, 0, nil)
+	e := common.NewEvent(m, 0, nil)
 	err := b.Put(e)
 	assert.NoError(t, err)
 	err = b.Put(e)
@@ -48,23 +49,24 @@ func TestPersistentQueue(t *testing.T) {
 	dir, err := ioutil.TempDir("", "")
 	assert.NoError(t, err)
 	defer os.RemoveAll(dir)
-	db, err := sqldb.NewSQLDB(path.Join(dir, "queue.db"))
-	assert.NoError(t, err)
-	assert.NotNil(t, db)
-	defer db.Close()
 
-	b := NewPersistence(100, db)
+	be, err := NewBackend(database.Conf{Driver: "sqlite3", Source: path.Join(dir, "queue.db")})
+	assert.NoError(t, err)
+	assert.NotNil(t, be)
+	defer be.Close()
+
+	b := NewPersistence(100, be)
 	assert.NotNil(t, b)
 	defer b.Close()
 
-	m := new(message.Message)
+	m := new(common.Message)
 	m.Content = []byte("hi")
-	m.Context = new(message.Context)
+	m.Context = new(common.Context)
 	m.Context.ID = 111
 	m.Context.TS = 123
 	m.Context.QOS = 1
 	m.Context.Topic = "t"
-	e := NewEvent(m, 0, nil)
+	e := common.NewEvent(m, 0, nil)
 	err = b.Put(e)
 	assert.NoError(t, err)
 	err = b.Put(e)
@@ -79,20 +81,20 @@ func TestPersistentQueue(t *testing.T) {
 	assert.NoError(t, err)
 	assert.Equal(t, "Context:<ID:2 TS:123 QOS:1 Topic:\"t\" > Content:\"hi\" ", e2.String())
 
-	ms, err := db.Get(1, 10)
+	ms, err := be.Get(1, 10)
 	assert.NoError(t, err)
 	assert.Len(t, ms, 3)
 
 	e1.Done()
 	e2.Done()
 
-	ms, err = db.Get(1, 10)
+	ms, err = be.Get(1, 10)
 	assert.NoError(t, err)
 	assert.Len(t, ms, 3)
 
 	time.Sleep(time.Millisecond * 600)
 
-	ms, err = db.Get(1, 10)
+	ms, err = be.Get(1, 10)
 	assert.NoError(t, err)
 	assert.Len(t, ms, 1)
 
@@ -103,7 +105,7 @@ func TestPersistentQueue(t *testing.T) {
 	e3.Done()
 	time.Sleep(time.Millisecond * 600)
 
-	ms, err = db.Get(1, 10)
+	ms, err = be.Get(1, 10)
 	assert.NoError(t, err)
 	assert.Len(t, ms, 0)
 }
@@ -112,23 +114,23 @@ func BenchmarkPersistentQueue(b *testing.B) {
 	dir, err := ioutil.TempDir("", "")
 	assert.NoError(b, err)
 	defer os.RemoveAll(dir)
-	db, err := sqldb.NewSQLDB(path.Join(dir, "queue.db"))
+	be, err := NewBackend(database.Conf{Driver: "sqlite3", Source: path.Join(dir, "queue.db")})
 	assert.NoError(b, err)
-	assert.NotNil(b, db)
-	defer db.Close()
+	assert.NotNil(b, be)
+	defer be.Close()
 
-	q := NewPersistence(100, db)
+	q := NewPersistence(100, be)
 	assert.NotNil(b, q)
 	defer q.Close()
 
-	m := new(message.Message)
+	m := new(common.Message)
 	m.Content = []byte("hi")
-	m.Context = new(message.Context)
+	m.Context = new(common.Context)
 	m.Context.ID = 111
 	m.Context.TS = 123
 	m.Context.QOS = 1
 	m.Context.Topic = "b"
-	e := NewEvent(m, 0, nil)
+	e := common.NewEvent(m, 0, nil)
 
 	b.ResetTimer()
 	b.Run("put", func(b *testing.B) {
@@ -159,23 +161,23 @@ func BenchmarkPersistentQueueParallel(b *testing.B) {
 	dir, err := ioutil.TempDir("", "")
 	assert.NoError(b, err)
 	defer os.RemoveAll(dir)
-	db, err := sqldb.NewSQLDB(path.Join(dir, "queue.db"))
+	be, err := NewBackend(database.Conf{Driver: "sqlite3", Source: path.Join(dir, "queue.db")})
 	assert.NoError(b, err)
-	assert.NotNil(b, db)
-	defer db.Close()
+	assert.NotNil(b, be)
+	defer be.Close()
 
-	q := NewPersistence(100, db)
+	q := NewPersistence(100, be)
 	assert.NotNil(b, q)
 	defer q.Close()
 
-	m := new(message.Message)
+	m := new(common.Message)
 	m.Content = []byte("hi")
-	m.Context = new(message.Context)
+	m.Context = new(common.Context)
 	m.Context.ID = 111
 	m.Context.TS = 123
 	m.Context.QOS = 1
 	m.Context.Topic = "b"
-	e := NewEvent(m, 0, nil)
+	e := common.NewEvent(m, 0, nil)
 
 	b.ResetTimer()
 	b.RunParallel(func(pb *testing.PB) {
@@ -186,19 +188,19 @@ func BenchmarkPersistentQueueParallel(b *testing.B) {
 	})
 }
 
-func BenchmarkMemoryQueueParallel(b *testing.B) {
-	q := NewMemory(100, true)
+func BenchmarkTemporaryQueueParallel(b *testing.B) {
+	q := NewTemporary(100, true)
 	assert.NotNil(b, q)
 	defer q.Close()
 
-	m := new(message.Message)
+	m := new(common.Message)
 	m.Content = []byte("hi")
-	m.Context = new(message.Context)
+	m.Context = new(common.Context)
 	m.Context.ID = 111
 	m.Context.TS = 123
 	m.Context.QOS = 1
 	m.Context.Topic = "b"
-	e := NewEvent(m, 0, nil)
+	e := common.NewEvent(m, 0, nil)
 
 	b.ResetTimer()
 	b.RunParallel(func(pb *testing.PB) {
@@ -219,9 +221,9 @@ func BenchmarkTimer(b *testing.B) {
 }
 
 func BenchmarkUnmarshal(b *testing.B) {
-	m := new(message.Message)
+	m := new(common.Message)
 	m.Content = []byte("hi")
-	m.Context = new(message.Context)
+	m.Context = new(common.Context)
 	m.Context.ID = 111
 	m.Context.TS = 123
 	m.Context.QOS = 1

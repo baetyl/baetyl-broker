@@ -4,17 +4,16 @@ import (
 	"sync"
 	"time"
 
-	"github.com/baetyl/baetyl-broker/db"
-	message "github.com/baetyl/baetyl-broker/msg"
+	"github.com/baetyl/baetyl-broker/common"
 	"github.com/baetyl/baetyl-broker/utils"
 	"github.com/baetyl/baetyl-broker/utils/log"
 )
 
 // Persistence is a persistent queue
 type Persistence struct {
-	backend db.DB
-	input   chan *Event
-	output  chan *Event
+	backend *Backend
+	input   chan common.Event
+	output  chan common.Event
 	edel    chan uint64 // del events with message id
 	eget    chan bool   // get events
 	tomb    utils.Tomb
@@ -22,11 +21,11 @@ type Persistence struct {
 }
 
 // NewPersistence creates a new in-memory queue
-func NewPersistence(capacity int, backend db.DB) Queue {
+func NewPersistence(capacity int, backend *Backend) Queue {
 	q := &Persistence{
 		backend: backend,
-		input:   make(chan *Event, capacity),
-		output:  make(chan *Event, capacity),
+		input:   make(chan common.Event, capacity),
+		output:  make(chan common.Event, capacity),
 		edel:    make(chan uint64, capacity),
 		eget:    make(chan bool, 1),
 	}
@@ -39,7 +38,7 @@ func NewPersistence(capacity int, backend db.DB) Queue {
 }
 
 // Get gets a message
-func (q *Persistence) Get() (*Event, error) {
+func (q *Persistence) Get() (common.Event, error) {
 	select {
 	case e := <-q.output:
 		return e, nil
@@ -49,7 +48,7 @@ func (q *Persistence) Get() (*Event, error) {
 }
 
 // Put puts a message
-func (q *Persistence) Put(e *Event) (err error) {
+func (q *Persistence) Put(e common.Event) (err error) {
 	select {
 	case q.input <- e:
 		return nil
@@ -62,7 +61,7 @@ func (q *Persistence) batchingPut() error {
 	log.Debugf("batching put")
 	defer utils.Trace("batching put")()
 
-	buf := []*Event{}
+	buf := []common.Event{}
 	max := cap(q.input)
 	// ? Is it possible to remove the timer?
 	duration := time.Millisecond * 100
@@ -95,7 +94,7 @@ func (q *Persistence) batchingGet() error {
 	defer utils.Trace("batching get")()
 
 	var err error
-	var buf []*Event
+	var buf []common.Event
 	length := 0
 	offset := uint64(1)
 	max := cap(q.output)
@@ -162,16 +161,16 @@ func (q *Persistence) batchingDel() error {
 }
 
 // put all buffered messages to backend database in batch mode
-func (q *Persistence) get(offset uint64, length int) ([]*Event, error) {
+func (q *Persistence) get(offset uint64, length int) ([]common.Event, error) {
 	start := time.Now()
 
 	msgs, err := q.backend.Get(offset, length)
 	if err != nil {
 		return nil, err
 	}
-	events := []*Event{}
+	events := []common.Event{}
 	for _, m := range msgs {
-		events = append(events, NewEvent(m, 1, q.acknowledge))
+		events = append(events, common.NewEvent(m.(*common.Message), 1, q.acknowledge))
 	}
 
 	log.Debugf("get %d message(s) from backend database <-- elapsed time: %v", len(msgs), time.Since(start))
@@ -179,15 +178,15 @@ func (q *Persistence) get(offset uint64, length int) ([]*Event, error) {
 }
 
 // put all buffered messages to backend database in batch mode
-func (q *Persistence) put(buf []*Event) []*Event {
+func (q *Persistence) put(buf []common.Event) []common.Event {
 	if len(buf) == 0 {
 		return buf
 	}
 
 	defer utils.Trace("put %d message(s) to backend database", len(buf))()
-	msgs := []*message.Message{}
+	msgs := []interface{}{}
 	for _, e := range buf {
-		msgs = append(msgs, e.message)
+		msgs = append(msgs, e.Message())
 	}
 	err := q.backend.Put(msgs)
 	if err == nil {
@@ -199,7 +198,7 @@ func (q *Persistence) put(buf []*Event) []*Event {
 	} else {
 		log.Errorf("failed to put messages to backend database: %s", err.Error())
 	}
-	return []*Event{}
+	return []common.Event{}
 }
 
 // deletes all acknowledged message from backend database in batch mode
