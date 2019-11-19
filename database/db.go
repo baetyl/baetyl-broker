@@ -6,26 +6,28 @@ import (
 )
 
 // Factories of database
-var Factories = map[string]func(conf Conf, encode Encode) (DB, error){}
+var Factories = map[string]func(conf Conf, encoder Encoder) (DB, error){}
 
-// Encode value encode/decode interface
-type Encode interface {
+// Encoder value encode/decode interface
+type Encoder interface {
 	Encode(interface{}) []byte
-	Decode(uint64, []byte) interface{}
+	Decode([]byte, ...interface{}) interface{}
 }
 
 // DB the backend database
 type DB interface {
 	Conf() Conf
 
+	// for queue
 	Put([]interface{}) error
 	Get(uint64, int) ([]interface{}, error)
 	Del([]uint64) error
 
-	PutKV(k, v []byte) error
-	GetKV(k []byte) (v []byte, err error)
-	DelKV(k []byte) error
-	ListKV() (vs [][]byte, err error)
+	// for kv
+	SetKV(k, v interface{}) error
+	GetKV(k interface{}) (v interface{}, err error)
+	DelKV(k interface{}) error
+	ListKV() (vs []interface{}, err error)
 
 	io.Closer
 }
@@ -34,13 +36,12 @@ type DB interface {
 type Conf struct {
 	Driver string
 	Source string
-	Path   string
 }
 
 // New engine by given name
-func New(conf Conf, encode Encode) (DB, error) {
+func New(conf Conf, encoder Encoder) (DB, error) {
 	if f, ok := Factories[conf.Driver]; ok {
-		return f(conf, encode)
+		return f(conf, encoder)
 	}
-	return nil, errors.New("no such kind database")
+	return nil, errors.New("database driver not found")
 }

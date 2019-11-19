@@ -13,7 +13,7 @@ type Dialer struct {
 }
 
 // NewDialer returns a new Dialer.
-func NewDialer(c utils.Certificate) (*Dialer, error) {
+func NewDialer(c *utils.Certificate) (*Dialer, error) {
 	tls, err := utils.NewTLSConfigClient(c)
 	if err != nil {
 		return nil, err
@@ -24,7 +24,7 @@ func NewDialer(c utils.Certificate) (*Dialer, error) {
 }
 
 // Dial initiates a connection based in information extracted from an URL.
-func (d *Dialer) Dial(urlString string) (trans.Conn, error) {
+func (d *Dialer) Dial(urlString string) (Connection, error) {
 	uri, err := url.ParseRequestURI(urlString)
 	if err != nil {
 		return nil, err

@@ -12,7 +12,8 @@ var ErrQueueClosed = errors.New("queue is closed")
 
 // Queue interfaces
 type Queue interface {
-	Put(common.Event) error
-	Get() (common.Event, error)
+	Push(*common.Event) error
+	Pop() (*common.Event, error)
+	Chan() <-chan *common.Event
 	io.Closer
 }

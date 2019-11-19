@@ -1,14 +1,14 @@
 package queue
 
 import (
+	"fmt"
 	"io/ioutil"
 	"os"
-	"path"
+	"sync"
 	"testing"
 	"time"
 
 	"github.com/baetyl/baetyl-broker/common"
-	"github.com/baetyl/baetyl-broker/database"
 	"github.com/gogo/protobuf/proto"
 	_ "github.com/mattn/go-sqlite3"
 	"github.com/stretchr/testify/assert"
@@ -27,20 +27,20 @@ func TestTemporaryQueue(t *testing.T) {
 	m.Context.QOS = 1
 	m.Context.Topic = "t"
 	e := common.NewEvent(m, 0, nil)
-	err := b.Put(e)
+	err := b.Push(e)
 	assert.NoError(t, err)
-	err = b.Put(e)
+	err = b.Push(e)
 	assert.NoError(t, err)
-	err = b.Put(e)
+	err = b.Push(e)
 	assert.NoError(t, err)
 
-	e, err = b.Get()
+	e, err = b.Pop()
 	assert.NoError(t, err)
 	assert.Equal(t, "Context:<ID:111 TS:123 QOS:1 Topic:\"t\" > Content:\"hi\" ", e.String())
-	e, err = b.Get()
+	e, err = b.Pop()
 	assert.NoError(t, err)
 	assert.Equal(t, "Context:<ID:111 TS:123 QOS:1 Topic:\"t\" > Content:\"hi\" ", e.String())
-	e, err = b.Get()
+	e, err = b.Pop()
 	assert.NoError(t, err)
 	assert.Equal(t, "Context:<ID:111 TS:123 QOS:1 Topic:\"t\" > Content:\"hi\" ", e.String())
 }
@@ -50,7 +50,7 @@ func TestPersistentQueue(t *testing.T) {
 	assert.NoError(t, err)
 	defer os.RemoveAll(dir)
 
-	be, err := NewBackend(database.Conf{Driver: "sqlite3", Source: path.Join(dir, "queue.db")})
+	be, err := NewBackend(Config{Name: "queue", Driver: "sqlite3", Location: dir})
 	assert.NoError(t, err)
 	assert.NotNil(t, be)
 	defer be.Close()
@@ -67,17 +67,17 @@ func TestPersistentQueue(t *testing.T) {
 	m.Context.QOS = 1
 	m.Context.Topic = "t"
 	e := common.NewEvent(m, 0, nil)
-	err = b.Put(e)
+	err = b.Push(e)
 	assert.NoError(t, err)
-	err = b.Put(e)
+	err = b.Push(e)
 	assert.NoError(t, err)
-	err = b.Put(e)
+	err = b.Push(e)
 	assert.NoError(t, err)
 
-	e1, err := b.Get()
+	e1, err := b.Pop()
 	assert.NoError(t, err)
 	assert.Equal(t, "Context:<ID:1 TS:123 QOS:1 Topic:\"t\" > Content:\"hi\" ", e1.String())
-	e2, err := b.Get()
+	e2, err := b.Pop()
 	assert.NoError(t, err)
 	assert.Equal(t, "Context:<ID:2 TS:123 QOS:1 Topic:\"t\" > Content:\"hi\" ", e2.String())
 
@@ -98,7 +98,7 @@ func TestPersistentQueue(t *testing.T) {
 	assert.NoError(t, err)
 	assert.Len(t, ms, 1)
 
-	e3, err := b.Get()
+	e3, err := b.Pop()
 	assert.NoError(t, err)
 	assert.Equal(t, "Context:<ID:3 TS:123 QOS:1 Topic:\"t\" > Content:\"hi\" ", e3.String())
 
@@ -114,7 +114,8 @@ func BenchmarkPersistentQueue(b *testing.B) {
 	dir, err := ioutil.TempDir("", "")
 	assert.NoError(b, err)
 	defer os.RemoveAll(dir)
-	be, err := NewBackend(database.Conf{Driver: "sqlite3", Source: path.Join(dir, "queue.db")})
+	
+	be, err := NewBackend(Config{Name: "queue", Driver: "sqlite3", Location: dir})
 	assert.NoError(b, err)
 	assert.NotNil(b, be)
 	defer be.Close()
@@ -133,26 +134,26 @@ func BenchmarkPersistentQueue(b *testing.B) {
 	e := common.NewEvent(m, 0, nil)
 
 	b.ResetTimer()
-	b.Run("put", func(b *testing.B) {
+	b.Run("Push", func(b *testing.B) {
 		for i := 0; i < b.N; i++ {
-			q.Put(e)
+			q.Push(e)
 		}
 	})
-	b.Run("get", func(b *testing.B) {
+	b.Run("Pop", func(b *testing.B) {
 		for i := 0; i < b.N; i++ {
-			q.Put(e)
+			q.Push(e)
 		}
 		b.ResetTimer()
 		for i := 0; i < b.N; i++ {
-			q.Get()
+			q.Pop()
 		}
 	})
-	b.Run("put-get", func(b *testing.B) {
+	b.Run("PushPop", func(b *testing.B) {
 		for i := 0; i < b.N; i++ {
-			q.Put(e)
+			q.Push(e)
 		}
 		for i := 0; i < b.N; i++ {
-			q.Get()
+			q.Pop()
 		}
 	})
 }
@@ -161,7 +162,8 @@ func BenchmarkPersistentQueueParallel(b *testing.B) {
 	dir, err := ioutil.TempDir("", "")
 	assert.NoError(b, err)
 	defer os.RemoveAll(dir)
-	be, err := NewBackend(database.Conf{Driver: "sqlite3", Source: path.Join(dir, "queue.db")})
+
+	be, err := NewBackend(Config{Name: "queue", Driver: "sqlite3", Location: dir})
 	assert.NoError(b, err)
 	assert.NotNil(b, be)
 	defer be.Close()
@@ -182,8 +184,8 @@ func BenchmarkPersistentQueueParallel(b *testing.B) {
 	b.ResetTimer()
 	b.RunParallel(func(pb *testing.PB) {
 		for pb.Next() {
-			q.Put(e)
-			q.Get()
+			q.Push(e)
+			q.Pop()
 		}
 	})
 }
@@ -205,8 +207,8 @@ func BenchmarkTemporaryQueueParallel(b *testing.B) {
 	b.ResetTimer()
 	b.RunParallel(func(pb *testing.PB) {
 		for pb.Next() {
-			q.Put(e)
-			q.Get()
+			q.Push(e)
+			q.Pop()
 		}
 	})
 }
@@ -234,4 +236,45 @@ func BenchmarkUnmarshal(b *testing.B) {
 	for index := 0; index < b.N; index++ {
 		proto.Unmarshal(d, m)
 	}
+}
+
+func TestChannelLB(t *testing.T) {
+	t.Skip("only for dev test")
+	var wg sync.WaitGroup
+	quit := make(chan int)
+	queue := make(chan int, 100)
+	for index := 0; index < 10; index++ {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			var count int
+			for {
+				select {
+				case <-queue:
+					count++
+					time.Sleep(time.Millisecond * 10)
+				case <-quit:
+					fmt.Printf("%d --> %d\n", i, count)
+					return
+				}
+			}
+		}(index)
+	}
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		var count int
+		for {
+			count++
+			select {
+			case queue <- count:
+			case <-quit:
+				fmt.Printf("\n%d\n", count)
+				return
+			}
+		}
+	}()
+	time.Sleep(time.Second * 10)
+	close(quit)
+	wg.Wait()
 }

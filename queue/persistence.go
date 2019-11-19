@@ -12,8 +12,8 @@ import (
 // Persistence is a persistent queue
 type Persistence struct {
 	backend *Backend
-	input   chan common.Event
-	output  chan common.Event
+	input   chan *common.Event
+	output  chan *common.Event
 	edel    chan uint64 // del events with message id
 	eget    chan bool   // get events
 	tomb    utils.Tomb
@@ -24,21 +24,26 @@ type Persistence struct {
 func NewPersistence(capacity int, backend *Backend) Queue {
 	q := &Persistence{
 		backend: backend,
-		input:   make(chan common.Event, capacity),
-		output:  make(chan common.Event, capacity),
+		input:   make(chan *common.Event, capacity),
+		output:  make(chan *common.Event, capacity),
 		edel:    make(chan uint64, capacity),
 		eget:    make(chan bool, 1),
 	}
 	// to read persistent message
 	q.trigger()
-	q.tomb.Go(q.batchingPut)
-	q.tomb.Go(q.batchingGet)
-	q.tomb.Go(q.batchingDel)
+	q.tomb.Go(q.writing)
+	q.tomb.Go(q.reading)
+	q.tomb.Go(q.deleting)
 	return q
 }
 
-// Get gets a message
-func (q *Persistence) Get() (common.Event, error) {
+// Chan returns message channel
+func (q *Persistence) Chan() <-chan *common.Event {
+	return q.output
+}
+
+// Pop pops a message from queue
+func (q *Persistence) Pop() (*common.Event, error) {
 	select {
 	case e := <-q.output:
 		return e, nil
@@ -47,8 +52,8 @@ func (q *Persistence) Get() (common.Event, error) {
 	}
 }
 
-// Put puts a message
-func (q *Persistence) Put(e common.Event) (err error) {
+// Push pushes a message into queue
+func (q *Persistence) Push(e *common.Event) (err error) {
 	select {
 	case q.input <- e:
 		return nil
@@ -57,11 +62,11 @@ func (q *Persistence) Put(e common.Event) (err error) {
 	}
 }
 
-func (q *Persistence) batchingPut() error {
-	log.Debugf("batching put")
-	defer utils.Trace("batching put")()
+func (q *Persistence) writing() error {
+	log.Infof("queue (%s) starts to write messages into backend in batch mode", q.backend.Name())
+	defer utils.Trace(log.Infof, "queue (%s) has stopped writing messages", q.backend.Name())()
 
-	buf := []common.Event{}
+	buf := []*common.Event{}
 	max := cap(q.input)
 	// ? Is it possible to remove the timer?
 	duration := time.Millisecond * 100
@@ -74,27 +79,27 @@ func (q *Persistence) batchingPut() error {
 			log.Debugf("received a message: %s", e)
 			buf = append(buf, e)
 			if len(buf) == max {
-				buf = q.put(buf)
+				buf = q.add(buf)
 			}
-			//  if receive timeout to put messages in buffer
+			//  if receive timeout to add messages in buffer
 			timer.Reset(duration)
 		case <-timer.C:
-			log.Debugf("put when timeout")
-			buf = q.put(buf)
+			log.Debugf("add when timeout")
+			buf = q.add(buf)
 		case <-q.tomb.Dying():
-			log.Debugf("put when close")
-			buf = q.put(buf)
+			log.Debugf("add when close")
+			buf = q.add(buf)
 			return nil
 		}
 	}
 }
 
-func (q *Persistence) batchingGet() error {
-	log.Debugf("batching get")
-	defer utils.Trace("batching get")()
+func (q *Persistence) reading() error {
+	log.Infof("queue (%s) starts to read messages from backend in batch mode", q.backend.Name())
+	defer utils.Trace(log.Infof, "queue (%s) has stopped reading messages", q.backend.Name())()
 
 	var err error
-	var buf []common.Event
+	var buf []*common.Event
 	length := 0
 	offset := uint64(1)
 	max := cap(q.output)
@@ -128,9 +133,9 @@ func (q *Persistence) batchingGet() error {
 	}
 }
 
-func (q *Persistence) batchingDel() error {
-	log.Debugf("batching del")
-	defer utils.Trace("batching del")()
+func (q *Persistence) deleting() error {
+	log.Infof("queue (%s) starts to delete messages from backend in batch mode", q.backend.Name())
+	defer utils.Trace(log.Infof, "queue (%s) has stopped deleting messages", q.backend.Name())()
 
 	buf := []uint64{}
 	max := cap(q.edel)
@@ -160,33 +165,34 @@ func (q *Persistence) batchingDel() error {
 	}
 }
 
-// put all buffered messages to backend database in batch mode
-func (q *Persistence) get(offset uint64, length int) ([]common.Event, error) {
+// get gets messages from backend database in batch mode
+func (q *Persistence) get(offset uint64, length int) ([]*common.Event, error) {
 	start := time.Now()
 
 	msgs, err := q.backend.Get(offset, length)
 	if err != nil {
 		return nil, err
 	}
-	events := []common.Event{}
+	events := []*common.Event{}
 	for _, m := range msgs {
 		events = append(events, common.NewEvent(m.(*common.Message), 1, q.acknowledge))
 	}
 
-	log.Debugf("get %d message(s) from backend database <-- elapsed time: %v", len(msgs), time.Since(start))
+	log.Debugf("queue (%s) has read %d message(s) from backend <-- elapsed time: %v", q.backend.Name(), len(msgs), time.Since(start))
 	return events, nil
 }
 
-// put all buffered messages to backend database in batch mode
-func (q *Persistence) put(buf []common.Event) []common.Event {
+// add all buffered messages to backend database in batch mode
+func (q *Persistence) add(buf []*common.Event) []*common.Event {
 	if len(buf) == 0 {
 		return buf
 	}
 
-	defer utils.Trace("put %d message(s) to backend database", len(buf))()
+	defer utils.Trace(log.Debugf, "queue (%s) has written %d message(s) to backend", q.backend.Name(), len(buf))()
+
 	msgs := []interface{}{}
 	for _, e := range buf {
-		msgs = append(msgs, e.Message())
+		msgs = append(msgs, e.Message)
 	}
 	err := q.backend.Put(msgs)
 	if err == nil {
@@ -196,9 +202,9 @@ func (q *Persistence) put(buf []common.Event) []common.Event {
 			e.Done()
 		}
 	} else {
-		log.Errorf("failed to put messages to backend database: %s", err.Error())
+		log.Errorf("failed to add messages to backend database: %s", err.Error())
 	}
-	return []common.Event{}
+	return []*common.Event{}
 }
 
 // deletes all acknowledged message from backend database in batch mode
@@ -207,7 +213,8 @@ func (q *Persistence) delete(buf []uint64) []uint64 {
 		return buf
 	}
 
-	defer utils.Trace("deleted %d message(s) from backend database", len(buf))()
+	defer utils.Trace(log.Debugf, "queue (%s) has deleted %d message(s) to backend", q.backend.Name(), len(buf))()
+
 	err := q.backend.Del(buf)
 	if err != nil {
 		log.Errorf("failed to delete messages from backend database: %s", err.Error())

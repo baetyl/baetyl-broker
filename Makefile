@@ -5,7 +5,7 @@ SRC_FILES:=$(shell find . -type f -name '*.go')
 .PHONY: all
 all: $(SRC_FILES)
 	@echo "BUILD $@"
-	@env CGO_ENABLED=1 go build ./...
+	@env CGO_ENABLED=1 go build -o baetyl-broker
 
 .PHONY: test
 test:

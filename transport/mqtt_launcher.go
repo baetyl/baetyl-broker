@@ -13,7 +13,7 @@ type Launcher struct {
 }
 
 // NewLauncher returns a new Launcher.
-func NewLauncher(c utils.Certificate) (*Launcher, error) {
+func NewLauncher(c *utils.Certificate) (*Launcher, error) {
 	t, err := utils.NewTLSConfigServer(c)
 	if err != nil {
 		return nil, err

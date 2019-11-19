@@ -2,14 +2,10 @@ package common
 
 import (
 	"sync/atomic"
-)
+	"time"
 
-// Event interface
-type Event interface {
-	Done()
-	String() string
-	Message() *Message
-}
+	"github.com/256dpi/gomqtt/packet"
+)
 
 type acknowledge struct {
 	count int32
@@ -28,48 +24,75 @@ func (a *acknowledge) _done(id uint64) {
 }
 
 // Wait waits until acknowledged or cancelled
-func (a *acknowledge) _wait(cancel <-chan struct{}) bool {
+func (a *acknowledge) _wait(timeout <-chan time.Time, cancel <-chan struct{}) bool {
 	if a.done == nil {
 		return true
 	}
 	select {
-	case <-cancel:
-		return false
 	case <-a.done:
 		return true
+	case <-timeout:
+		return false
+	case <-cancel:
+		return false
 	}
 }
 
-type event struct {
-	msg *Message
+// Event event with message and acknowledge
+type Event struct {
+	*Message
 	ack *acknowledge
 }
 
-func (e *event) Done() {
+// Done the event is acknowledged
+func (e *Event) Done() {
 	if e.ack != nil {
-		e.ack._done(e.msg.Context.ID)
+		e.ack._done(e.Context.ID)
 	}
 }
 
-func (e *event) String() string {
-	return e.msg.String()
+// Wait waits until acknowledged (returns true), cancelled or timed out
+func (e *Event) Wait(timeout <-chan time.Time, cancel <-chan struct{}) bool {
+	return e.ack._wait(timeout, cancel)
 }
 
-func (e *event) Message() *Message {
-	return e.msg
+// Packet converts event to publish packet
+func (e *Event) Packet() *Publish {
+	pkt := packet.NewPublish()
+	pkt.Message.QOS = packet.QOS(e.Context.QOS)
+	pkt.Message.Topic = e.Context.Topic
+	pkt.Message.Payload = e.Content
+	return pkt
 }
 
 // NewEvent creates a new event
-func NewEvent(msg *Message, count int32, call func(uint64)) Event {
+func NewEvent(msg *Message, count int32, call func(uint64)) *Event {
 	if count == 0 || call == nil {
-		return &event{msg: msg}
+		return &Event{Message: msg}
 	}
-	return &event{
-		msg: msg,
+	return &Event{
+		Message: msg,
 		ack: &acknowledge{
 			count: count,
 			call:  call,
 			done:  make(chan struct{}),
 		},
+	}
+}
+
+// NewMessage creates a new message by packet
+func NewMessage(pkt *Publish) *Message {
+	var flags uint32
+	if pkt.Message.Retain {
+		flags = 1
+	}
+	return &Message{
+		Context: &Context{
+			ID:    uint64(pkt.ID),
+			QOS:   uint32(pkt.Message.QOS),
+			Topic: pkt.Message.Topic,
+			Flags: flags,
+		},
+		Content: pkt.Message.Payload,
 	}
 }
