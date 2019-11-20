@@ -9,8 +9,8 @@ import (
 	"github.com/docker/distribution/uuid"
 )
 
-func (c *ClientMQTT) handling() error {
-	defer c.kill()
+func (c *ClientMQTT) receiving() error {
+	defer c.clean()
 
 	log.Infof("client starts to handle incoming messages")
 	defer utils.Trace(log.Infof, "client has stopped handling incoming messages")
@@ -135,19 +135,20 @@ func (c *ClientMQTT) onConnect(p *common.Connect) error {
 		info.CleanSession = true
 	}
 
-	ses, exists, err := c.store.Register(info)
+	exists, err := c.store.initSession(info, c)
 	if err != nil {
 		return err
 	}
+	c.Go(c.waiting)
+	c.Go(c.publishing)
+
 	// TODO: Re-check subscriptions, if subscription not permit, log error and skip
 	// TODO: err = c.session.saveWillMessage(p)
 	err = c.sendConnack(common.ConnectionAccepted, exists)
 	if err != nil {
 		return err
 	}
-	c.session = ses
-	c.Go(c.waiting)
-	c.Go(c.publishing)
+
 	log.Infof("[%s ] client is connected", info.ID)
 	return nil
 }
@@ -187,7 +188,7 @@ func (c *ClientMQTT) onPuback(p *common.Puback) error {
 
 func (c *ClientMQTT) onSubscribe(p *common.Subscribe) error {
 	sa, subs := c.genSuback(p)
-	err := c.session.Subscribe(subs)
+	err := c.store.Subscribe(c.session, subs)
 	if err != nil {
 		return err
 	}
@@ -202,7 +203,7 @@ func (c *ClientMQTT) onSubscribe(p *common.Subscribe) error {
 func (c *ClientMQTT) onUnsubscribe(p *common.Unsubscribe) error {
 	usa := &common.Unsuback{}
 	usa.ID = p.ID
-	err := c.session.Unsubscribe(p.Topics)
+	err := c.store.Unsubscribe(c.session, p.Topics)
 	if err != nil {
 		return err
 	}

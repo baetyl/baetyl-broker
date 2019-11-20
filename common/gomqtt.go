@@ -25,6 +25,9 @@ const (
 	NotAuthorized
 )
 
+// Type the packet type
+type Type = packet.Type
+
 // ID the packet id
 type ID = packet.ID
 

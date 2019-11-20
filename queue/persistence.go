@@ -84,10 +84,10 @@ func (q *Persistence) writing() error {
 			//  if receive timeout to add messages in buffer
 			timer.Reset(duration)
 		case <-timer.C:
-			log.Debugf("add when timeout")
+			log.Debugf("write message to backend when timeout")
 			buf = q.add(buf)
 		case <-q.tomb.Dying():
-			log.Debugf("add when close")
+			log.Debugf("write message to backend during closing")
 			buf = q.add(buf)
 			return nil
 		}
@@ -155,10 +155,10 @@ func (q *Persistence) deleting() error {
 			}
 			timer.Reset(duration)
 		case <-timer.C:
-			log.Debugf("delete when timeout")
+			log.Debugf("delete message from backend when timeout")
 			buf = q.delete(buf)
 		case <-q.tomb.Dying():
-			log.Debugf("delete when close")
+			log.Debugf("delete message from backend during closing")
 			buf = q.delete(buf)
 			return nil
 		}

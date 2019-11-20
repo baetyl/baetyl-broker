@@ -69,10 +69,10 @@ func (c *ClientMQTT) acknowledge(p *common.Puback) {
 }
 
 func (c *ClientMQTT) publishing() (err error) {
-	defer c.kill()
+	defer c.clean()
 
-	log.Infof("client (%s) starts to publish messages", c.session.ID())
-	defer utils.Trace(log.Infof, "client (%s) has stopped publishing messages", c.session.ID())
+	log.Infof("client (%s) starts to publish messages", c.session.ID)
+	defer utils.Trace(log.Infof, "client (%s) has stopped publishing messages", c.session.ID)
 
 	var e *common.Event
 	qos0 := c.session.qos0.Chan()
@@ -93,10 +93,10 @@ func (c *ClientMQTT) publishing() (err error) {
 }
 
 func (c *ClientMQTT) waiting() error {
-	defer c.kill()
+	defer c.clean()
 
-	log.Infof("client (%s) starts to wait for message acknowledgement", c.session.ID())
-	defer utils.Trace(log.Infof, "client (%s) has stopped waiting", c.session.ID())
+	log.Infof("client (%s) starts to wait for message acknowledgement", c.session.ID)
+	defer utils.Trace(log.Infof, "client (%s) has stopped waiting", c.session.ID)
 
 	var m *pm
 	timer := time.NewTimer(c.publisher.d)
@@ -133,7 +133,7 @@ func (c *ClientMQTT) send(pkt common.Packet, async bool) error {
 	err := c.connection.Send(pkt, async)
 	if err != nil {
 		log.Error("failed to send packet", err)
-		c.Close()
+		c.clean()
 		return err
 	}
 	if ent := log.Check(log.DebugLevel, "sent packet"); ent != nil {

@@ -14,14 +14,19 @@ func NewExchange() *Exchange {
 	return &Exchange{bindings: common.NewTrie()}
 }
 
-// Bind binds a new queue
+// Bind binds a new queue with a specify topic
 func (b *Exchange) Bind(topic string, queue common.Queue) {
 	b.bindings.Add(topic, queue)
 }
 
-// Unbind Unbinds a queue
+// Unbind unbinds a queue from a specify topic
 func (b *Exchange) Unbind(topic string, queue common.Queue) {
 	b.bindings.Remove(topic, queue)
+}
+
+// UnbindAll unbinds a queue from all topics
+func (b *Exchange) UnbindAll(queue common.Queue) {
+	b.bindings.Clear(queue)
 }
 
 // Route routes message to binding queues

@@ -61,9 +61,18 @@ func (b *Backend) Set(info *Info) error {
 	return b.db.SetKV(info.ID, info)
 }
 
+// Get gets session information
+func (b *Backend) Get(id string) (*Info, error) {
+	i, err := b.db.GetKV(id)
+	if err != nil {
+		return nil, err
+	}
+	return i.(*Info), nil
+}
+
 // Del deletes session information
-func (b *Backend) Del(info *Info) error {
-	return b.db.DelKV(info.ID)
+func (b *Backend) Del(id string) error {
+	return b.db.DelKV(id)
 }
 
 // List lists session information
