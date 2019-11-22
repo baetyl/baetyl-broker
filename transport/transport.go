@@ -13,7 +13,7 @@ type Server = trans.Server
 type Connection = trans.Conn
 
 // Handle handles connection
-type Handle func(Connection)
+type Handle func(Connection, bool)
 
 // Endpoint the endpoint
 type Endpoint struct {
@@ -49,13 +49,13 @@ func NewTransport(endpoints []*Endpoint, cert *utils.Certificate) (*Transport, e
 			return nil, err
 		}
 		tp.servers = append(tp.servers, svr)
-		tp.accepting(svr, endpoint.Handle)
+		tp.accepting(svr, endpoint.Handle, endpoint.Anonymous)
 	}
 	log.Info("transport has initialized")
 	return tp, nil
 }
 
-func (tp *Transport) accepting(svr Server, handle Handle) {
+func (tp *Transport) accepting(svr Server, handle Handle, anonymous bool) {
 	tp.Go(func() error {
 		log.Infof("server (%s) starts to accept", svr.Addr().String())
 		defer utils.Trace(log.Infof, "server (%s) has stopped accepting", svr.Addr().String())()
@@ -70,7 +70,7 @@ func (tp *Transport) accepting(svr Server, handle Handle) {
 				log.Error("failed to accept connection", err)
 				return err
 			}
-			handle(conn)
+			handle(conn, anonymous)
 		}
 	})
 }

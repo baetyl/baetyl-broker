@@ -6,16 +6,17 @@ import (
 	"testing"
 	"time"
 
+	"github.com/baetyl/baetyl-broker/auth"
 	"github.com/baetyl/baetyl-broker/common"
-	"github.com/baetyl/baetyl-broker/exchange"
 	"github.com/baetyl/baetyl-broker/transport"
 	"github.com/creasty/defaults"
 	"github.com/stretchr/testify/assert"
 )
 
 type mockConfig struct {
-	Session   Config
-	Endpoints []*transport.Endpoint
+	Session    Config
+	Endpoints  []*transport.Endpoint
+	Principals []auth.Principal
 }
 
 type mockBroker struct {
@@ -29,7 +30,23 @@ func newMockBroker(t *testing.T) *mockBroker {
 	var err error
 	b := &mockBroker{t: t}
 	defaults.Set(&b.cfg.Session)
-	b.store, err = NewStore(b.cfg.Session, exchange.NewExchange())
+	b.cfg.Principals = []auth.Principal{{
+		Username: "u1",
+		Password: "p1",
+		Permissions: []auth.Permission{{
+			Action:  "sub",
+			Permits: []string{"test", "talks", "talks1", "talks2"},
+		}, {
+			Action:  "pub",
+			Permits: []string{"test", "talks"},
+		}}}, {
+		Username: "u2",
+		Password: "p2",
+		Permissions: []auth.Permission{{
+			Action:  "pub",
+			Permits: []string{"test", "talks", "talks1", "talks2"},
+		}}}}
+	b.store, err = NewStore(b.cfg.Session, newMockExchange(), auth.NewAuth(b.cfg.Principals))
 	assert.NoError(t, err)
 	return b
 }
@@ -37,7 +54,11 @@ func newMockBroker(t *testing.T) *mockBroker {
 func (b *mockBroker) assertSession(id string, expect string) {
 	ses, err := b.store.backend.Get(id)
 	assert.NoError(b.t, err)
-	assert.Equal(b.t, expect, ses.String())
+	if expect == "" {
+		assert.Nil(b.t, ses)
+	} else {
+		assert.Equal(b.t, expect, ses.String())
+	}
 }
 
 func (b *mockBroker) close() {
@@ -142,6 +163,47 @@ func (c *mockConn) LocalAddr() net.Addr {
 
 func (c *mockConn) RemoteAddr() net.Addr {
 	return nil
+}
+
+// mockExchange the message exchange
+type mockExchange struct {
+	bindings *common.Trie
+}
+
+// NewExchange creates a new exchange
+func newMockExchange() *mockExchange {
+	return &mockExchange{bindings: common.NewTrie()}
+}
+
+// Bind binds a new queue with a specify topic
+func (b *mockExchange) Bind(topic string, queue common.Queue) {
+	b.bindings.Add(topic, queue)
+}
+
+// Unbind unbinds a queue from a specify topic
+func (b *mockExchange) Unbind(topic string, queue common.Queue) {
+	b.bindings.Remove(topic, queue)
+}
+
+// UnbindAll unbinds a queue from all topics
+func (b *mockExchange) UnbindAll(queue common.Queue) {
+	b.bindings.Clear(queue)
+}
+
+// Route routes message to binding queues
+func (b *mockExchange) Route(msg *common.Message, cb func(uint64)) {
+	sss := b.bindings.Match(msg.Context.Topic)
+	length := len(sss)
+	if length == 0 {
+		if cb != nil {
+			cb(msg.Context.ID)
+		}
+		return
+	}
+	event := common.NewEvent(msg, int32(length), cb)
+	for _, s := range sss {
+		s.(common.Queue).Push(event)
+	}
 }
 
 // func (c *mockConn) assertConnect(name, u, p string, v byte, ca common.ConnackCode) {

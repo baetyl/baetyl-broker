@@ -67,6 +67,9 @@ func (b *Backend) Get(id string) (*Info, error) {
 	if err != nil {
 		return nil, err
 	}
+	if i == nil {
+		return nil, nil
+	}
 	return i.(*Info), nil
 }
 

@@ -14,7 +14,7 @@ import (
 )
 
 func TestMqttTcp(t *testing.T) {
-	handle := func(conn Connection) {
+	handle := func(conn Connection, _ bool) {
 		p, err := conn.Receive()
 		assert.NoError(t, err)
 		err = conn.Send(p, false)
@@ -60,7 +60,7 @@ func TestMqttTcp(t *testing.T) {
 
 func TestMqttTcpTls(t *testing.T) {
 	count := int32(0)
-	handle := func(conn Connection) {
+	handle := func(conn Connection, _ bool) {
 		c := atomic.AddInt32(&count, 1)
 		p, err := conn.Receive()
 
@@ -142,7 +142,7 @@ func TestMqttTcpTls(t *testing.T) {
 }
 
 func TestMqttWebSocket(t *testing.T) {
-	handle := func(conn Connection) {
+	handle := func(conn Connection, _ bool) {
 		p, err := conn.Receive()
 		assert.NoError(t, err)
 		err = conn.Send(p, false)
@@ -199,7 +199,7 @@ func TestMqttWebSocket(t *testing.T) {
 
 func TestMqttWebSocketTls(t *testing.T) {
 	count := int32(0)
-	handle := func(conn Connection) {
+	handle := func(conn Connection, _ bool) {
 		c := atomic.AddInt32(&count, 1)
 		fmt.Println(count, conn.LocalAddr())
 		p, err := conn.Receive()
@@ -291,7 +291,7 @@ func TestMqttWebSocketTls(t *testing.T) {
 }
 
 func TestServerException(t *testing.T) {
-	handle := func(conn Connection) {
+	handle := func(conn Connection, _ bool) {
 		p, err := conn.Receive()
 		assert.NoError(t, err)
 		err = conn.Send(p, false)

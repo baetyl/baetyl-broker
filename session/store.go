@@ -5,6 +5,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/baetyl/baetyl-broker/auth"
 	"github.com/baetyl/baetyl-broker/common"
 	"github.com/baetyl/baetyl-broker/queue"
 	"github.com/baetyl/baetyl-broker/transport"
@@ -39,6 +40,7 @@ type Config struct {
 
 // Store the store of sessions
 type Store struct {
+	auth     *auth.Auth
 	config   Config
 	backend  *Backend
 	exchange Exchange
@@ -48,7 +50,7 @@ type Store struct {
 }
 
 // NewStore create a new session store
-func NewStore(config Config, exchange Exchange) (*Store, error) {
+func NewStore(config Config, exchange Exchange, auth *auth.Auth) (*Store, error) {
 	backend, err := NewSessionBackend(config)
 	if err != nil {
 		return nil, err
@@ -60,6 +62,7 @@ func NewStore(config Config, exchange Exchange) (*Store, error) {
 		return nil, err
 	}
 	store := &Store{
+		auth:     auth,
 		config:   config,
 		backend:  backend,
 		exchange: exchange,
@@ -108,10 +111,11 @@ func (s *Store) Close() error {
 }
 
 // NewClientMQTT creates a new MQTT client
-func (s *Store) NewClientMQTT(c transport.Connection) {
+func (s *Store) NewClientMQTT(c transport.Connection, anonymous bool) {
 	cli := &ClientMQTT{
 		store:      s,
 		connection: c,
+		anonymous:  anonymous,
 		publisher:  newPublisher(s.config.RepublishInterval, s.config.MaxInflightQOS1Messages),
 	}
 	s.Lock()
@@ -198,7 +202,7 @@ func (s *Store) newSession(info *Info) (*Session, error) {
 }
 
 // Subscribe subscribes topics
-func (s *Store) Subscribe(ses *Session, subs []common.Subscription) error {
+func (s *Store) subscribe(ses *Session, subs []common.Subscription) error {
 	s.Lock()
 	defer s.Unlock()
 
@@ -214,7 +218,7 @@ func (s *Store) Subscribe(ses *Session, subs []common.Subscription) error {
 }
 
 // Unsubscribe unsubscribes topics
-func (s *Store) Unsubscribe(ses *Session, topics []string) error {
+func (s *Store) unsubscribe(ses *Session, topics []string) error {
 	s.Lock()
 	defer s.Unlock()
 

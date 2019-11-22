@@ -13,31 +13,107 @@ func TestSessionConnect(t *testing.T) {
 	b := newMockBroker(t)
 	defer b.close()
 
+	// connect
 	c := newMockConn(t)
-	b.store.NewClientMQTT(c)
+	b.store.NewClientMQTT(c, false)
 
 	c.sendC2S(&common.Connect{ClientID: t.Name(), Username: "u1", Password: "p1", Version: 3})
 	c.assertS2CPacket("<Connack SessionPresent=false ReturnCode=0>")
 	b.assertSession(t.Name(), "{\"ID\":\"TestSessionConnect\",\"CleanSession\":false,\"Subscriptions\":null}")
 
+	// disconnect
 	c.sendC2S(&common.Disconnect{})
 	c.assertS2CPacketTimeout()
 	c.assertClosed(true)
 	b.assertSession(t.Name(), "{\"ID\":\"TestSessionConnect\",\"CleanSession\":false,\"Subscriptions\":null}")
 
-	// c.assertOnConnect(t.Name(), "u1", "p1", 3, "", packet.ConnectionAccepted)
+	// connect again
+	c = newMockConn(t)
+	b.store.NewClientMQTT(c, false)
 
-	// // Round 1
-	// c = newMockConn(t, r.sessions)
-	// assert.NotNil(t, c)
-	// defer c.close()
-	// c.assertOnConnect(t.Name(), "u1", "p1", 2, "MQTT protocol version (2) invalid", packet.InvalidProtocolVersion)
+	c.sendC2S(&common.Connect{ClientID: t.Name(), Username: "u1", Password: "p1", Version: 3})
+	c.assertS2CPacket("<Connack SessionPresent=true ReturnCode=0>")
+	b.assertSession(t.Name(), "{\"ID\":\"TestSessionConnect\",\"CleanSession\":false,\"Subscriptions\":null}")
 
-	// // Round 2
-	// c = newMockConn(t, r.sessions)
-	// assert.NotNil(t, c)
-	// defer c.close()
-	// c.assertOnConnect(t.Name(), "u", "p", 3, "username (u) or password not permitted", packet.BadUsernameOrPassword)
+	// connect again after connect
+	c.sendC2S(&common.Connect{ClientID: t.Name(), Username: "u1", Password: "p1", Version: 3})
+	c.assertS2CPacketTimeout()
+	c.assertClosed(true)
+
+	// connect again anonymous
+	c = newMockConn(t)
+	b.store.NewClientMQTT(c, true)
+
+	c.sendC2S(&common.Connect{ClientID: t.Name(), Version: 3})
+	c.assertS2CPacket("<Connack SessionPresent=true ReturnCode=0>")
+	c.sendC2S(&common.Disconnect{})
+	c.assertS2CPacketTimeout()
+	c.assertClosed(true)
+	b.assertSession(t.Name(), "{\"ID\":\"TestSessionConnect\",\"CleanSession\":false,\"Subscriptions\":null}")
+
+	// connect again cleansession=true
+	c = newMockConn(t)
+	b.store.NewClientMQTT(c, true)
+
+	c.sendC2S(&common.Connect{ClientID: t.Name(), CleanSession: true, Version: 3})
+	c.assertS2CPacket("<Connack SessionPresent=true ReturnCode=0>")
+	c.sendC2S(&common.Disconnect{})
+	c.assertS2CPacketTimeout()
+	c.assertClosed(true)
+	b.assertSession(t.Name(), "")
+
+}
+
+func TestSessionConnectException(t *testing.T) {
+	b := newMockBroker(t)
+	defer b.close()
+
+	// connect again with wrong version
+	c := newMockConn(t)
+	b.store.NewClientMQTT(c, false)
+
+	c.sendC2S(&common.Connect{ClientID: t.Name(), Username: "u1", Password: "p1", Version: 0})
+	c.assertS2CPacket("<Connack SessionPresent=false ReturnCode=1>")
+	c.assertS2CPacketTimeout()
+	c.assertClosed(true)
+
+	// connect again with wrong client id
+	c = newMockConn(t)
+	b.store.NewClientMQTT(c, false)
+
+	c.sendC2S(&common.Connect{ClientID: "~!@#$%^&*()_+", Username: "u1", Password: "p1", Version: 3})
+	c.assertS2CPacket("<Connack SessionPresent=false ReturnCode=2>")
+	c.assertS2CPacketTimeout()
+	c.assertClosed(true)
+
+	// connect again with wrong password
+	c = newMockConn(t)
+	b.store.NewClientMQTT(c, false)
+
+	c.sendC2S(&common.Connect{ClientID: t.Name(), Username: "u1", Password: "p1x", Version: 3})
+	c.assertS2CPacket("<Connack SessionPresent=false ReturnCode=4>")
+	c.assertS2CPacketTimeout()
+	c.assertClosed(true)
+
+	// connect again with empty username
+	c = newMockConn(t)
+	b.store.NewClientMQTT(c, false)
+
+	c.sendC2S(&common.Connect{ClientID: t.Name(), Password: "p1", Version: 3})
+	c.assertS2CPacket("<Connack SessionPresent=false ReturnCode=4>")
+	c.assertS2CPacketTimeout()
+	c.assertClosed(true)
+
+	// connect again with empty password
+	c = newMockConn(t)
+	b.store.NewClientMQTT(c, false)
+
+	c.sendC2S(&common.Connect{ClientID: t.Name(), Username: "u1", Version: 3})
+	c.assertS2CPacket("<Connack SessionPresent=false ReturnCode=4>")
+	c.assertS2CPacketTimeout()
+	c.assertClosed(true)
+
+	b.assertSession(t.Name(), "")
 }
 
 // func TestSessionSub(t *testing.T) {

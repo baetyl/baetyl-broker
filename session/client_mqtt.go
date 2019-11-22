@@ -6,6 +6,7 @@ import (
 	"regexp"
 	"sync"
 
+	"github.com/baetyl/baetyl-broker/auth"
 	"github.com/baetyl/baetyl-broker/transport"
 	"github.com/baetyl/baetyl-broker/utils"
 	"github.com/baetyl/baetyl-broker/utils/log"
@@ -26,6 +27,8 @@ type ClientMQTT struct {
 	session    *Session
 	publisher  *publisher
 	connection transport.Connection
+	anonymous  bool
+	authorizer *auth.Authorizer
 	utils.Tomb
 	sync.Mutex
 	sync.Once
@@ -65,6 +68,7 @@ func (c *ClientMQTT) Close() error {
 
 // checkClientID checks clientID
 func checkClientID(v string) bool {
-	r := regexp.MustCompile("^[0-9A-Za-z_-]{0,128}$")
-	return r.MatchString(v)
+	return regexpClientID.MatchString(v)
 }
+
+var regexpClientID = regexp.MustCompile("^[0-9A-Za-z_-]{0,128}$")

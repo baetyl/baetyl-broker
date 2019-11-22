@@ -1,4 +1,4 @@
-package exchange
+package main
 
 import (
 	"github.com/baetyl/baetyl-broker/common"

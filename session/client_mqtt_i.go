@@ -84,41 +84,37 @@ func (c *ClientMQTT) onConnect(p *common.Connect) error {
 		CleanSession: p.CleanSession,
 	}
 
-	// TODO: check auth
 	if p.Version != common.Version31 && p.Version != common.Version311 {
 		c.sendConnack(common.InvalidProtocolVersion, false)
 		return fmt.Errorf("[%s] mqtt protocol version (%d) invalid", info.ID, p.Version)
-	}
-	// username must set
-	if p.Username == "" {
-		c.sendConnack(common.BadUsernameOrPassword, false)
-		return fmt.Errorf("[%s] username not set", info.ID)
-	}
-	if p.Password != "" {
-		// // if password is set, to use account auth
-		// c.authorizer = c.manager.auth.AuthenticateAccount(p.Username, p.Password)
-		// if c.authorizer == nil {
-		// 	c.sendConnack(common.BadUsernameOrPassword)
-		// 	return fmt.Errorf("username (%s) or password not permitted", p.Username)
-		// }
-	} else if utils.IsBidirectionalAuthentication(c.connection) {
-		// // if it is two-way tls, to use cert auth
-		// c.authorizer = c.manager.auth.AuthenticateCert(p.Username)
-		// if c.authorizer == nil {
-		// 	c.sendConnack(common.BadUsernameOrPassword)
-		// 	return fmt.Errorf("username (%s) is not permitted over tls", p.Username)
-		// }
-	} else {
-		c.sendConnack(common.BadUsernameOrPassword, false)
-		return fmt.Errorf("[%s] password not set", info.ID)
 	}
 
 	if !checkClientID(info.ID) {
 		c.sendConnack(common.IdentifierRejected, false)
 		return fmt.Errorf("[%s] client ID invalid", info.ID)
 	}
+
+	if !c.anonymous && c.store.auth != nil {
+		// TODO: support tls bidirectional authentication, use CN as username
+
+		// username/password authentication
+		if p.Username == "" {
+			c.sendConnack(common.BadUsernameOrPassword, false)
+			return fmt.Errorf("[%s] username not set", info.ID)
+		}
+		if p.Password == "" {
+			c.sendConnack(common.BadUsernameOrPassword, false)
+			return fmt.Errorf("[%s] password not set", info.ID)
+		}
+		c.authorizer = c.store.auth.AuthenticateAccount(p.Username, p.Password)
+		if c.authorizer == nil {
+			c.sendConnack(common.BadUsernameOrPassword, false)
+			return fmt.Errorf("[%s] username (%s) or password not permitted", info.ID, p.Username)
+		}
+	}
+
 	if p.Will != nil {
-		// // TODO: remove?
+		// TODO: remove?
 		// if !common.PubTopicValidate(p.Will.Topic) {
 		// 	return fmt.Errorf("will topic (%s) invalid", p.Will.Topic)
 		// }
@@ -130,6 +126,7 @@ func (c *ClientMQTT) onConnect(p *common.Connect) error {
 		// 	return fmt.Errorf("will QOS (%d) not supported", p.Will.QOS)
 		// }
 	}
+
 	if info.ID == "" {
 		info.ID = uuid.Generate().String()
 		info.CleanSession = true
@@ -144,6 +141,7 @@ func (c *ClientMQTT) onConnect(p *common.Connect) error {
 
 	// TODO: Re-check subscriptions, if subscription not permit, log error and skip
 	// TODO: err = c.session.saveWillMessage(p)
+
 	err = c.sendConnack(common.ConnectionAccepted, exists)
 	if err != nil {
 		return err
@@ -188,7 +186,7 @@ func (c *ClientMQTT) onPuback(p *common.Puback) error {
 
 func (c *ClientMQTT) onSubscribe(p *common.Subscribe) error {
 	sa, subs := c.genSuback(p)
-	err := c.store.Subscribe(c.session, subs)
+	err := c.store.subscribe(c.session, subs)
 	if err != nil {
 		return err
 	}
@@ -203,7 +201,7 @@ func (c *ClientMQTT) onSubscribe(p *common.Subscribe) error {
 func (c *ClientMQTT) onUnsubscribe(p *common.Unsubscribe) error {
 	usa := &common.Unsuback{}
 	usa.ID = p.ID
-	err := c.store.Unsubscribe(c.session, p.Topics)
+	err := c.store.unsubscribe(c.session, p.Topics)
 	if err != nil {
 		return err
 	}
