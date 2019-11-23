@@ -42,17 +42,19 @@ func main() {
 		return
 	}
 
+	l := log.With()
+	defer l.Sync()
+
 	// baetyl.Run(func(ctx baetyl.Context) error {
 	var cfg config
 	if utils.FileExists(c) {
 		utils.LoadYAML(c, &cfg)
 	} else {
-		log.Warn("configuration file not found, to use default configuration", nil)
 		utils.SetDefaults(&cfg)
 	}
 	b, err := newBroker(cfg)
 	if err != nil {
-		log.Fatal("failed to create broker", err)
+		l.Fatal("failed to create broker", log.Error(err))
 	}
 	defer b.close()
 

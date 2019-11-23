@@ -1,10 +1,10 @@
 package queue
 
 import (
-	"log"
 	"sync"
 
 	"github.com/baetyl/baetyl-broker/common"
+	"github.com/baetyl/baetyl-broker/utils/log"
 )
 
 // Temporary is an temporary queue in memory
@@ -12,14 +12,16 @@ type Temporary struct {
 	events chan *common.Event
 	push   func(*common.Event) error
 	quit   chan bool
-	once   sync.Once
+	log    *log.Logger
+	sync.Once
 }
 
 // NewTemporary creates a new temporary queue
-func NewTemporary(capacity int, dropIfFull bool) Queue {
+func NewTemporary(id string, capacity int, dropIfFull bool) Queue {
 	q := &Temporary{
 		events: make(chan *common.Event, capacity),
 		quit:   make(chan bool),
+		log:    log.With(log.String("queue", "temp"),log.String("id", id)),
 	}
 	if dropIfFull {
 		q.push = q.putOrDrop
@@ -66,15 +68,18 @@ func (q *Temporary) putOrDrop(e *common.Event) error {
 	case <-q.quit:
 		return ErrQueueClosed
 	default:
-		log.Printf("dropped event: %s", e.String())
+		if ent := q.log.Check(log.DebugLevel, "queue drops en event"); ent != nil {
+			ent.Write(log.String("event", e.String()))
+		}
 		return nil
 	}
 }
 
 // Close closes this queue
 func (q *Temporary) Close() error {
-	q.once.Do(func() {
+	q.Do(func() {
 		close(q.quit)
+		q.log.Info("queue has closed")
 	})
 	return nil
 }

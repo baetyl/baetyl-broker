@@ -2,6 +2,7 @@ package log
 
 import (
 	"testing"
+	"time"
 
 	"github.com/pkg/errors"
 	"github.com/stretchr/testify/assert"
@@ -9,30 +10,16 @@ import (
 )
 
 func TestLogger(t *testing.T) {
-	Debugf("Debugf %d", 1)
-	Infof("Infof %d", 2)
-	Warnf("Warnf %d", 3)
-	Errorf("Errorf %d", 4)
-	// zap.Fatalf("Fatalf %d", 5)
-
-	err := Error("failed to do", nil)
+	log, err := zap.NewDevelopment()
 	assert.NoError(t, err)
-	err = errors.New("xxx")
-	err = Error("failed to do", err)
-	assert.EqualError(t, err, "xxx")
-}
+	Init(log)
 
-func TestZap(t *testing.T) {
-	logger, _ := zap.NewProduction()
-	defer logger.Sync()
-	logger.Info("failed to xxx", zap.String("t", "1"))
-	logger.Debug("xxx", zap.String("t", "1"))
-}
-
-func TestError(t *testing.T) {
-	logger, _ := zap.NewProduction()
-	defer logger.Sync()
-	logger.Error("failed to do", zap.Error(do2()))
+	log = With(String("t", "1"))
+	log.Info("failed to xxx", Duration("cost", time.Duration(1)))
+	if ent := log.Check(DebugLevel, "xxx"); ent != nil {
+		ent.Write(Int("c", 1))
+	}
+	log.Error("failed to do", Error(do2()))
 }
 
 func do1() error {

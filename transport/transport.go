@@ -26,6 +26,7 @@ type Endpoint struct {
 type Transport struct {
 	endpoints []*Endpoint
 	servers   []Server
+	log       *log.Logger
 	utils.Tomb
 }
 
@@ -38,6 +39,7 @@ func NewTransport(endpoints []*Endpoint, cert *utils.Certificate) (*Transport, e
 	tp := &Transport{
 		endpoints: endpoints,
 		servers:   make([]Server, 0),
+		log:       log.With(log.String("transport", "mqtt")),
 	}
 	for _, endpoint := range endpoints {
 		if endpoint.Handle == nil {
@@ -51,23 +53,24 @@ func NewTransport(endpoints []*Endpoint, cert *utils.Certificate) (*Transport, e
 		tp.servers = append(tp.servers, svr)
 		tp.accepting(svr, endpoint.Handle, endpoint.Anonymous)
 	}
-	log.Info("transport has initialized")
+	tp.log.Info("transport has initialized")
 	return tp, nil
 }
 
 func (tp *Transport) accepting(svr Server, handle Handle, anonymous bool) {
 	tp.Go(func() error {
-		log.Infof("server (%s) starts to accept", svr.Addr().String())
-		defer utils.Trace(log.Infof, "server (%s) has stopped accepting", svr.Addr().String())()
+		l := log.With(log.String("server", svr.Addr().String()))
+		l.Info("server starts to accept")
+		defer utils.Trace(l.Info, "server has stopped accepting")()
 
 		for {
 			conn, err := svr.Accept()
 			if err != nil {
 				if !tp.Alive() {
-					log.Debugf("failed to accept connection: %s", err.Error())
+					l.Debug("failed to accept connection", log.Error(err))
 					return nil
 				}
-				log.Error("failed to accept connection", err)
+				l.Error("failed to accept connection", log.Error(err))
 				return err
 			}
 			handle(conn, anonymous)
@@ -77,8 +80,8 @@ func (tp *Transport) accepting(svr Server, handle Handle, anonymous bool) {
 
 // Close closes service
 func (tp *Transport) Close() error {
-	log.Info("transport is closing")
-	defer log.Info("transport has closed")
+	tp.log.Info("transport is closing")
+	defer tp.log.Info("transport has closed")
 
 	tp.Kill(nil)
 	for _, svr := range tp.servers {

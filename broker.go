@@ -4,7 +4,6 @@ import (
 	"github.com/baetyl/baetyl-broker/auth"
 	"github.com/baetyl/baetyl-broker/session"
 	"github.com/baetyl/baetyl-broker/transport"
-	"github.com/baetyl/baetyl-broker/utils/log"
 )
 
 type broker struct {
@@ -24,7 +23,6 @@ func newBroker(cfg config) (*broker, error) {
 	if err != nil {
 		return nil, err
 	}
-	log.Info("session store starts")
 
 	endpoints := []*transport.Endpoint{}
 	for _, addr := range cfg.Addresses {

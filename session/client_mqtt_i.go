@@ -1,7 +1,7 @@
 package session
 
 import (
-	"fmt"
+	"errors"
 
 	"github.com/256dpi/gomqtt/packet"
 	"github.com/baetyl/baetyl-broker/auth"
@@ -14,8 +14,8 @@ import (
 func (c *ClientMQTT) receiving() error {
 	defer c.clean()
 
-	log.Infof("client starts to handle incoming messages")
-	defer utils.Trace(log.Infof, "client has stopped handling incoming messages")
+	c.log.Info("client starts to handle incoming messages")
+	defer utils.Trace(c.log.Info, "client has stopped handling incoming messages")
 
 	var err error
 	var pkt common.Packet
@@ -25,17 +25,20 @@ func (c *ClientMQTT) receiving() error {
 		if !c.Alive() {
 			return nil
 		}
-		return log.Warn("failed to receive packet", err)
+		c.log.Warn("failed to receive packet", log.Error(err))
+		return err
 	}
-	if ent := log.Check(log.DebugLevel, "received packet"); ent != nil {
-		ent.Write(log.String("pkt", pkt.String()))
+	if ent := c.log.Check(log.DebugLevel, "client receives a packet"); ent != nil {
+		ent.Write(log.String("packet", pkt.String()))
 	}
 	p, ok := pkt.(*common.Connect)
 	if !ok {
-		return log.Error("only connect packet is allowed before auth", nil)
+		c.log.Error("only connect packet is allowed before auth", log.Error(err))
+		return err
 	}
 	if err = c.onConnect(p); err != nil {
-		return log.Warn("failed to handle connect packet", err)
+		c.log.Warn("failed to handle connect packet", log.Error(err))
+		return err
 	}
 
 	for {
@@ -48,10 +51,11 @@ func (c *ClientMQTT) receiving() error {
 			if !c.Alive() {
 				return nil
 			}
-			return log.Warn("failed to receive packet", err)
+			c.log.Warn("failed to receive packet", log.Error(err))
+			return err
 		}
-		if ent := log.Check(log.DebugLevel, "received packet"); ent != nil {
-			ent.Write(log.String("cid", c.session.ID), log.String("pkt", pkt.String()))
+		if ent := c.log.Check(log.DebugLevel, "client receives packet"); ent != nil {
+			ent.Write(log.String("packet", pkt.String()))
 		}
 		switch p := pkt.(type) {
 		case *common.Publish:
@@ -75,7 +79,8 @@ func (c *ClientMQTT) receiving() error {
 		}
 
 		if err != nil {
-			return log.Warn("failed to handle packet", err)
+			c.log.Warn("failed to handle packet", log.Error(err))
+			return err
 		}
 	}
 }
@@ -88,11 +93,11 @@ func (c *ClientMQTT) onConnect(p *common.Connect) error {
 
 	if p.Version != common.Version31 && p.Version != common.Version311 {
 		c.sendConnack(common.InvalidProtocolVersion, false)
-		return fmt.Errorf("[%s] mqtt protocol version (%d) invalid", info.ID, p.Version)
+		return errors.New("protocol version invalid")
 	}
 	if !checkClientID(info.ID) {
 		c.sendConnack(common.IdentifierRejected, false)
-		return fmt.Errorf("[%s] client ID invalid", info.ID)
+		return errors.New("client ID invalid")
 	}
 	if !c.anonymous && c.store.auth != nil {
 		// TODO: support tls bidirectional authentication, use CN as username
@@ -100,30 +105,30 @@ func (c *ClientMQTT) onConnect(p *common.Connect) error {
 		// username/password authentication
 		if p.Username == "" {
 			c.sendConnack(common.BadUsernameOrPassword, false)
-			return fmt.Errorf("[%s] username not set", info.ID)
+			return errors.New("username not set")
 		}
 		if p.Password == "" {
 			c.sendConnack(common.BadUsernameOrPassword, false)
-			return fmt.Errorf("[%s] password not set", info.ID)
+			return errors.New("password not set")
 		}
 		c.authorizer = c.store.auth.AuthenticateAccount(p.Username, p.Password)
 		if c.authorizer == nil {
 			c.sendConnack(common.BadUsernameOrPassword, false)
-			return fmt.Errorf("[%s] username (%s) or password not permitted", info.ID, p.Username)
+			return errors.New("username or password not permitted")
 		}
 	}
 
 	if p.Will != nil {
 		// TODO: remove?
 		// if !common.PubTopicValidate(p.Will.Topic) {
-		// 	return fmt.Errorf("will topic (%s) invalid", p.Will.Topic)
+		// 	return errors.New("will topic (%s) invalid", p.Will.Topic)
 		// }
 		// if !c.authorize(auth.Publish, p.Will.Topic) {
 		// 	c.sendConnack(common.NotAuthorized)
-		// 	return fmt.Errorf("will topic (%s) not permitted", p.Will.Topic)
+		// 	return errors.New("will topic (%s) not permitted", p.Will.Topic)
 		// }
 		// if p.Will.QOS > 1 {
-		// 	return fmt.Errorf("will QOS (%d) not supported", p.Will.QOS)
+		// 	return errors.New("will QOS (%d) not supported", p.Will.QOS)
 		// }
 	}
 
@@ -136,8 +141,7 @@ func (c *ClientMQTT) onConnect(p *common.Connect) error {
 	if err != nil {
 		return err
 	}
-	c.Go(c.waiting)
-	c.Go(c.publishing)
+	c.Go(c.waiting, c.publishing)
 
 	// TODO: Re-check subscriptions, if subscription not permit, log error and skip
 	// TODO: err = c.session.saveWillMessage(p)
@@ -147,20 +151,20 @@ func (c *ClientMQTT) onConnect(p *common.Connect) error {
 		return err
 	}
 
-	log.Infof("[%s] client is connected", info.ID)
+	c.log.Info("client is connected")
 	return nil
 }
 
 func (c *ClientMQTT) onPublish(p *common.Publish) error {
 	// TODO: improvement, cache auth result
 	if p.Message.QOS > 1 {
-		return fmt.Errorf("[%s] publish QOS (%d) not supported", c.session.ID, p.Message.QOS)
+		return errors.New("publish QOS not supported")
 	}
 	if !common.CheckTopic(p.Message.Topic, false) {
-		return fmt.Errorf("[%s] publish topic (%s) invalid", c.session.ID, p.Message.Topic)
+		return errors.New("publish topic invalid")
 	}
 	if !c.authorize(auth.Publish, p.Message.Topic) {
-		return fmt.Errorf("[%s] publish topic (%s) not permitted", c.session.ID, p.Message.Topic)
+		return errors.New("publish topic not permitted")
 	}
 
 	// TODO: err := c.retainMessage(&p.Message)
@@ -222,13 +226,13 @@ func (c *ClientMQTT) genSuback(p *common.Subscribe) (*common.Suback, []common.Su
 	subs := []common.Subscription{}
 	for i, sub := range p.Subscriptions {
 		if !common.CheckTopic(sub.Topic, true) {
-			log.Errorf("[%s] subscribe topic (%s) invalid", c.session.ID, sub.Topic)
+			c.log.Error("subscribe topic invalid", log.String("topic", sub.Topic))
 			sa.ReturnCodes[i] = packet.QOSFailure
 		} else if sub.QOS > 1 {
-			log.Errorf("[%s] subscribe QOS (%d) not supported", c.session.ID, sub.QOS)
+			c.log.Error("subscribe QOS not supported", log.Int("qos", int(sub.QOS)))
 			sa.ReturnCodes[i] = packet.QOSFailure
 		} else if !c.authorize(auth.Subscribe, sub.Topic) {
-			log.Errorf("[%s] subscribe topic (%s) not permitted", c.session.ID, sub.Topic)
+			c.log.Error("subscribe topic not permitted", log.String("topic", sub.Topic))
 			sa.ReturnCodes[i] = packet.QOSFailure
 		} else {
 			sa.ReturnCodes[i] = sub.QOS

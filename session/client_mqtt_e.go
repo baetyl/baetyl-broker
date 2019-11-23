@@ -38,7 +38,7 @@ func (c *ClientMQTT) publish(e *common.Event) error {
 	}
 	m.p.ID = c.publisher.n.NextID()
 	if o, ok := c.publisher.m.LoadOrStore(m.p.ID, m); ok {
-		log.Error("packet id conflict, to acknowledge old one", nil)
+		c.log.Error("packet id conflict, to acknowledge old one")
 		o.(*pm).e.Done()
 	}
 	err := c.send(m.p, true)
@@ -62,7 +62,7 @@ func (c *ClientMQTT) republish(m *pm) error {
 func (c *ClientMQTT) acknowledge(p *common.Puback) {
 	m, ok := c.publisher.m.Load(p.ID)
 	if !ok {
-		log.Warnf("puback(pid=%d) not found", p.ID)
+		c.log.Warn("puback not found", log.Int("id", int(p.ID)))
 		return
 	}
 	c.publisher.m.Delete(p.ID)
@@ -72,8 +72,8 @@ func (c *ClientMQTT) acknowledge(p *common.Puback) {
 func (c *ClientMQTT) publishing() (err error) {
 	defer c.clean()
 
-	log.Infof("client (%s) starts to publish messages", c.session.ID)
-	defer utils.Trace(log.Infof, "client (%s) has stopped publishing messages", c.session.ID)
+	c.log.Info("client starts to publish messages")
+	defer utils.Trace(c.log.Info, "client has stopped publishing messages")
 
 	var e *common.Event
 	qos0 := c.session.qos0.Chan()
@@ -93,8 +93,8 @@ func (c *ClientMQTT) publishing() (err error) {
 func (c *ClientMQTT) waiting() error {
 	defer c.clean()
 
-	log.Infof("client (%s) starts to wait for message acknowledgement", c.session.ID)
-	defer utils.Trace(log.Infof, "client (%s) has stopped waiting", c.session.ID)
+	c.log.Info("client starts to wait for message acknowledgement")
+	defer utils.Trace(c.log.Info, "client has stopped waiting")
 
 	var m *pm
 	timer := time.NewTimer(c.publisher.d)
@@ -130,16 +130,12 @@ func (c *ClientMQTT) send(pkt common.Packet, async bool) error {
 
 	err := c.connection.Send(pkt, async)
 	if err != nil {
-		log.Error("failed to send packet", err)
+		c.log.Error("failed to send packet", log.Error(err))
 		c.clean()
 		return err
 	}
-	if ent := log.Check(log.DebugLevel, "sent packet"); ent != nil {
-		if c.session != nil {
-			ent.Write(log.String("cid", c.session.ID), log.String("pkt", pkt.String()))
-		} else {
-			ent.Write(log.String("pkt", pkt.String()))
-		}
+	if ent := c.log.Check(log.DebugLevel, "client sent a packet"); ent != nil {
+		ent.Write(log.String("packet", pkt.String()))
 	}
 	return nil
 }

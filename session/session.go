@@ -27,6 +27,7 @@ type Session struct {
 	subs *common.Trie
 	qos0 queue.Queue // queue for qos0
 	qos1 queue.Queue // queue for qos1
+	log  *log.Logger
 	sync.Once
 }
 
@@ -52,15 +53,15 @@ func (s *Session) Push(e *common.Event) error {
 // Close closes session
 func (s *Session) Close() error {
 	s.Do(func() {
-		log.Infof("session (%s) is closing", s.ID)
-		defer log.Infof("session (%s) has closed", s.ID)
+		s.log.Info("session is closing")
+		defer s.log.Info("session has closed")
 		err := s.qos0.Close()
 		if err != nil {
-			log.Warn("failed to close qos0 queue", err)
+			s.log.Warn("failed to close qos0 queue", log.Error(err))
 		}
 		err = s.qos1.Close()
 		if err != nil {
-			log.Warn("failed to close qos1 queue", err)
+			s.log.Warn("failed to close qos1 queue", log.Error(err))
 		}
 	})
 	return nil

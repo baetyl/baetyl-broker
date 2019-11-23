@@ -2,7 +2,6 @@ package session
 
 import (
 	"errors"
-	"fmt"
 	"regexp"
 	"sync"
 
@@ -29,20 +28,15 @@ type ClientMQTT struct {
 	connection transport.Connection
 	anonymous  bool
 	authorizer *auth.Authorizer
+	log        *log.Logger
 	utils.Tomb
 	sync.Mutex
 	sync.Once
 }
 
-func (c *ClientMQTT) id() string {
-	if c.session != nil {
-		return c.session.ID
-	}
-	return fmt.Sprintf("sessionless(%p)", c)
-}
-
 func (c *ClientMQTT) setSession(ses *Session) {
 	c.session = ses
+	c.log = c.log.With(log.String("id", ses.ID))
 }
 
 func (c *ClientMQTT) authorize(action, topic string) bool {
@@ -56,16 +50,10 @@ func (c *ClientMQTT) clean() {
 // Close closes mqtt client
 func (c *ClientMQTT) Close() error {
 	c.Do(func() {
-		log.Infof("client (%s) is closing", c.id())
+		c.log.Info("client is closing")
 		c.Kill(nil)
-
-		log.Infof("client (%s) is waiting to close", c.id())
 		err := c.connection.Close()
-		if err != nil {
-			log.Infof("client (%s) has closed with error: %s", c.id(), err.Error())
-			return
-		}
-		log.Infof("client (%s) has closed", c.id())
+		c.log.Info("client has closed", log.Error(err))
 	})
 	return nil
 }

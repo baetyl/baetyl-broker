@@ -16,24 +16,24 @@ type Persistence struct {
 	output  chan *common.Event
 	edel    chan uint64 // del events with message id
 	eget    chan bool   // get events
-	tomb    utils.Tomb
-	once    sync.Once
+	log     *log.Logger
+	utils.Tomb
+	sync.Once
 }
 
 // NewPersistence creates a new in-memory queue
-func NewPersistence(capacity int, backend *Backend) Queue {
+func NewPersistence(id string, capacity int, backend *Backend) Queue {
 	q := &Persistence{
 		backend: backend,
 		input:   make(chan *common.Event, capacity),
 		output:  make(chan *common.Event, capacity),
 		edel:    make(chan uint64, capacity),
 		eget:    make(chan bool, 1),
+		log:     log.With(log.String("queue", "persist"), log.String("id", id)),
 	}
 	// to read persistent message
 	q.trigger()
-	q.tomb.Go(q.writing)
-	q.tomb.Go(q.reading)
-	q.tomb.Go(q.deleting)
+	q.Go(q.writing, q.reading, q.deleting)
 	return q
 }
 
@@ -47,7 +47,7 @@ func (q *Persistence) Pop() (*common.Event, error) {
 	select {
 	case e := <-q.output:
 		return e, nil
-	case <-q.tomb.Dying():
+	case <-q.Dying():
 		return nil, ErrQueueClosed
 	}
 }
@@ -57,14 +57,14 @@ func (q *Persistence) Push(e *common.Event) (err error) {
 	select {
 	case q.input <- e:
 		return nil
-	case <-q.tomb.Dying():
+	case <-q.Dying():
 		return ErrQueueClosed
 	}
 }
 
 func (q *Persistence) writing() error {
-	log.Infof("queue (%s) starts to write messages into backend in batch mode", q.backend.Name())
-	defer utils.Trace(log.Infof, "queue (%s) has stopped writing messages", q.backend.Name())()
+	q.log.Info("queue starts to write messages into backend in batch mode")
+	defer utils.Trace(q.log.Info, "queue has stopped writing messages")()
 
 	buf := []*common.Event{}
 	max := cap(q.input)
@@ -76,7 +76,9 @@ func (q *Persistence) writing() error {
 	for {
 		select {
 		case e := <-q.input:
-			log.Debugf("queue (%s) receives a message: %s", q.backend.Name(), e)
+			if ent := q.log.Check(log.DebugLevel, "queue receives a message"); ent != nil {
+				ent.Write(log.String("event", e.String()))
+			}
 			buf = append(buf, e)
 			if len(buf) == max {
 				buf = q.add(buf)
@@ -84,10 +86,10 @@ func (q *Persistence) writing() error {
 			//  if receive timeout to add messages in buffer
 			timer.Reset(duration)
 		case <-timer.C:
-			log.Debugf("queue (%s) writes message to backend when timeout", q.backend.Name())
+			q.log.Debug("queue writes message to backend when timeout")
 			buf = q.add(buf)
-		case <-q.tomb.Dying():
-			log.Debugf("queue (%s) writes message to backend during closing", q.backend.Name())
+		case <-q.Dying():
+			q.log.Debug("queue writes message to backend during closing")
 			buf = q.add(buf)
 			return nil
 		}
@@ -95,8 +97,8 @@ func (q *Persistence) writing() error {
 }
 
 func (q *Persistence) reading() error {
-	log.Infof("queue (%s) starts to read messages from backend in batch mode", q.backend.Name())
-	defer utils.Trace(log.Infof, "queue (%s) has stopped reading messages", q.backend.Name())()
+	q.log.Info("queue starts to read messages from backend in batch mode")
+	defer utils.Trace(q.log.Info, "queue has stopped reading messages")()
 
 	var err error
 	var buf []*common.Event
@@ -107,10 +109,10 @@ func (q *Persistence) reading() error {
 	for {
 		select {
 		case <-q.eget:
-			log.Debugf("queue (%s) receives a get event", q.backend.Name())
+			q.log.Debug("queue receives a get event")
 			buf, err = q.get(offset, max)
 			if err != nil {
-				log.Fatalf("failed to get message from backend database: %s", err.Error())
+				q.log.Error("failed to get message from backend database", log.Error(err))
 				continue
 			}
 			length = len(buf)
@@ -120,22 +122,22 @@ func (q *Persistence) reading() error {
 			for _, e := range buf {
 				select {
 				case q.output <- e:
-				case <-q.tomb.Dying():
+				case <-q.Dying():
 					return nil
 				}
 			}
 			offset += uint64(length)
 			// keep reading if any message is read
 			q.trigger()
-		case <-q.tomb.Dying():
+		case <-q.Dying():
 			return nil
 		}
 	}
 }
 
 func (q *Persistence) deleting() error {
-	log.Infof("queue (%s) starts to delete messages from backend in batch mode", q.backend.Name())
-	defer utils.Trace(log.Infof, "queue (%s) has stopped deleting messages", q.backend.Name())()
+	q.log.Info("queue starts to delete messages from backend in batch mode")
+	defer utils.Trace(q.log.Info, "queue has stopped deleting messages")()
 
 	buf := []uint64{}
 	max := cap(q.edel)
@@ -148,17 +150,17 @@ func (q *Persistence) deleting() error {
 		select {
 		case e := <-q.edel:
 			timer.Reset(time.Second)
-			log.Debugf("queue (%s) receives a delete event", q.backend.Name())
+			q.log.Debug("queue receives a delete event")
 			buf = append(buf, e)
 			if len(buf) == max {
 				buf = q.delete(buf)
 			}
 			timer.Reset(duration)
 		case <-timer.C:
-			log.Debugf("queue (%s) deletes message from backend when timeout", q.backend.Name())
+			q.log.Debug("queue deletes message from backend when timeout")
 			buf = q.delete(buf)
-		case <-q.tomb.Dying():
-			log.Debugf("queue (%s) deletes message from backend during closing", q.backend.Name())
+		case <-q.Dying():
+			q.log.Debug("queue deletes message from backend during closing")
 			buf = q.delete(buf)
 			return nil
 		}
@@ -178,7 +180,9 @@ func (q *Persistence) get(offset uint64, length int) ([]*common.Event, error) {
 		events = append(events, common.NewEvent(m.(*common.Message), 1, q.acknowledge))
 	}
 
-	log.Debugf("queue (%s) has read %d message(s) from backend <-- elapsed time: %v", q.backend.Name(), len(msgs), time.Since(start))
+	if ent := q.log.Check(log.DebugLevel, "queue has read message from backend"); ent != nil {
+		ent.Write(log.Int("count", len(msgs)), log.Duration("cost", time.Since(start)))
+	}
 	return events, nil
 }
 
@@ -188,7 +192,7 @@ func (q *Persistence) add(buf []*common.Event) []*common.Event {
 		return buf
 	}
 
-	defer utils.Trace(log.Debugf, "queue (%s) has written %d message(s) to backend", q.backend.Name(), len(buf))()
+	defer utils.Trace(q.log.Debug, "queue has written message to backend", log.Int("count", len(buf)))()
 
 	msgs := []interface{}{}
 	for _, e := range buf {
@@ -202,7 +206,7 @@ func (q *Persistence) add(buf []*common.Event) []*common.Event {
 			e.Done()
 		}
 	} else {
-		log.Errorf("failed to add messages to backend database: %s", err.Error())
+		q.log.Error("failed to add messages to backend database", log.Error(err))
 	}
 	return []*common.Event{}
 }
@@ -213,11 +217,11 @@ func (q *Persistence) delete(buf []uint64) []uint64 {
 		return buf
 	}
 
-	defer utils.Trace(log.Debugf, "queue (%s) has deleted %d message(s) to backend", q.backend.Name(), len(buf))()
+	defer utils.Trace(q.log.Debug, "queue has deleted message from backend", log.Int("count", len(buf)))()
 
 	err := q.backend.Del(buf)
 	if err != nil {
-		log.Errorf("failed to delete messages from backend database: %s", err.Error())
+		q.log.Error("failed to delete messages from backend database", log.Error(err))
 	}
 	return []uint64{}
 }
@@ -234,14 +238,15 @@ func (q *Persistence) trigger() {
 func (q *Persistence) acknowledge(id uint64) {
 	select {
 	case q.edel <- id:
-	case <-q.tomb.Dying():
+	case <-q.Dying():
 	}
 }
 
 // Close closes this queue
 func (q *Persistence) Close() error {
-	q.once.Do(func() {
-		q.tomb.Kill(nil)
+	q.Do(func() {
+		q.Kill(nil)
+		q.log.Info("queue has closed")
 	})
-	return q.tomb.Wait()
+	return q.Wait()
 }

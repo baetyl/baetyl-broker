@@ -46,6 +46,7 @@ type Store struct {
 	exchange Exchange
 	sessions map[string]*Session
 	clients  map[string]map[client]client
+	log      *log.Logger
 	sync.Mutex
 }
 
@@ -68,6 +69,7 @@ func NewStore(config Config, exchange Exchange, auth *auth.Auth) (*Store, error)
 		exchange: exchange,
 		sessions: map[string]*Session{},
 		clients:  map[string]map[client]client{},
+		log:      log.With(log.String("session", "store")),
 	}
 	// store all clients without session under sessionless key in map
 	store.clients[sessionless] = map[client]client{}
@@ -85,7 +87,7 @@ func NewStore(config Config, exchange Exchange, auth *auth.Auth) (*Store, error)
 			// TODO: it is unnecessary to subscribe messages with qos 0 for the session without any client
 		}
 	}
-	log.Info("session store has initialized")
+	store.log.Info("session store has initialized")
 	return store, nil
 }
 
@@ -94,8 +96,8 @@ func (s *Store) Close() error {
 	s.Lock()
 	defer s.Unlock()
 
-	log.Info("session store is closing")
-	defer log.Info("session store has closed")
+	s.log.Info("session store is closing")
+	defer s.log.Info("session store has closed")
 
 	for _, some := range s.clients {
 		for _, cli := range some {
@@ -117,6 +119,7 @@ func (s *Store) NewClientMQTT(c transport.Connection, anonymous bool) {
 		connection: c,
 		anonymous:  anonymous,
 		publisher:  newPublisher(s.config.RepublishInterval, s.config.MaxInflightQOS1Messages),
+		log:        log.With(log.String("client", "mqtt")),
 	}
 	s.Lock()
 	// session will be bound after connect packet is handled
@@ -174,7 +177,7 @@ func (s *Store) initSession(info *Info, cli client, unique bool) (bool, error) {
 		if info.CleanSession {
 			// delete session from backend if clean session is true
 			s.backend.Del(ses.ID)
-			log.Infof("session (%s) is stored", ses.ID)
+			ses.log.Info("session is stored")
 		}
 		return true, nil
 	}
@@ -191,7 +194,7 @@ func (s *Store) initSession(info *Info, cli client, unique bool) (bool, error) {
 	if !info.CleanSession {
 		// set new session into backend if clean session is false
 		s.backend.Set(info)
-		log.Infof("session (%s) is stored", ses.ID)
+		ses.log.Info("session is stored")
 	}
 	return false, nil
 }
@@ -199,15 +202,16 @@ func (s *Store) initSession(info *Info, cli client, unique bool) (bool, error) {
 func (s *Store) newSession(info *Info) (*Session, error) {
 	backend, err := s.backend.NewQueueBackend(info.ID)
 	if err != nil {
-		log.Errorf("failed to create session (%s): %s", info.ID, err)
+		s.log.Error("failed to create session", log.String("session", info.ID), log.Error(err))
 		return nil, err
 	}
-	defer log.Infof("session (%s) is created", info.ID)
+	defer s.log.Info("session is created", log.String("session", info.ID))
 	return &Session{
 		Info: *info,
 		subs: common.NewTrie(),
-		qos0: queue.NewTemporary(s.config.MaxInflightQOS0Messages, true),
-		qos1: queue.NewPersistence(s.config.MaxInflightQOS1Messages, backend),
+		qos0: queue.NewTemporary(info.ID, s.config.MaxInflightQOS0Messages, true),
+		qos1: queue.NewPersistence(info.ID, s.config.MaxInflightQOS1Messages, backend),
+		log:  s.log.With(log.String("id", info.ID)),
 	}, nil
 }
 
