@@ -45,6 +45,10 @@ func (c *ClientMQTT) setSession(ses *Session) {
 	c.session = ses
 }
 
+func (c *ClientMQTT) authorize(action, topic string) bool {
+	return c.authorizer == nil || c.authorizer.Authorize(action, topic)
+}
+
 func (c *ClientMQTT) clean() {
 	c.store.delClient(c.session, c)
 }

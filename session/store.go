@@ -34,8 +34,8 @@ type Config struct {
 	PersistenceLocation     string        `yaml:"persistenceLocation" json:"persistenceLocation" default:"var/lib/baetyl"`
 	MaxInflightQOS0Messages int           `yaml:"maxInflightQOS0Messages" json:"maxInflightQOS0Messages" default:"100" validate:"min=1"`
 	MaxInflightQOS1Messages int           `yaml:"maxInflightQOS1Messages" json:"maxInflightQOS1Messages" default:"20" validate:"min=1"`
-	MaxConnections          int           `yaml:"maxConnections" json:"maxConnections" default:"100" validate:"min=1"`
 	RepublishInterval       time.Duration `yaml:"republishInterval" json:"republishInterval" default:"20s"`
+	// MaxConnections          int           `yaml:"maxConnections" json:"maxConnections"`
 }
 
 // Store the store of sessions

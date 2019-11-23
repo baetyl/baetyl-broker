@@ -220,6 +220,23 @@ func TestSessionSubscribe(t *testing.T) {
 	c.assertS2CPacket("<Unsuback ID=1>")
 	b.assertSession(t.Name(), "{\"ID\":\"TestSessionSubscribe\",\"CleanSession\":false,\"Subscriptions\":{\"talks\":1,\"talks1\":0,\"talks2\":1}}")
 	b.assertExchangeCount(3)
+
+	c.sendC2S(&common.Disconnect{})
+	c.assertS2CPacketTimeout()
+	c.assertClosed(true)
+	b.assertExchangeCount(3)
+	b.assertClientCount(t.Name(), 0)
+
+	// anonymous
+	c = newMockConn(t)
+	b.store.NewClientMQTT(c, true)
+	c.sendC2S(&common.Connect{ClientID: t.Name(), Version: 3})
+	c.assertS2CPacket("<Connack SessionPresent=true ReturnCode=0>")
+	b.assertExchangeCount(3)
+	b.assertClientCount(t.Name(), 1)
+
+	c.sendC2S(&common.Subscribe{ID: 1, Subscriptions: []common.Subscription{{Topic: "temp", QOS: 1}}})
+	c.assertS2CPacket("<Suback ID=1 ReturnCodes=[1]>")
 }
 
 func TestSessionPublish(t *testing.T) {
@@ -239,18 +256,18 @@ func TestSessionPublish(t *testing.T) {
 	b.assertExchangeCount(1)
 
 	// publish test qos 0
-	pub := &common.Publish{}
-	pub.Message.Topic = "test"
-	pub.Message.Payload = []byte("hi")
-	c.sendC2S(pub)
+	pkt := &common.Publish{}
+	pkt.Message.Topic = "test"
+	pkt.Message.Payload = []byte("hi")
+	c.sendC2S(pkt)
 	c.assertS2CPacket("<Publish ID=0 Message=<Message Topic=\"test\" QOS=0 Retain=false Payload=[104 105]> Dup=false>")
 
 	// publish test qos 1
-	pub.ID = 2
-	pub.Message.QOS = 1
-	pub.Message.Topic = "test"
-	pub.Message.Payload = []byte("hi")
-	c.sendC2S(pub)
+	pkt.ID = 2
+	pkt.Message.QOS = 1
+	pkt.Message.Topic = "test"
+	pkt.Message.Payload = []byte("hi")
+	c.sendC2S(pkt)
 	c.assertS2CPacket("<Puback ID=2>")
 	c.assertS2CPacket("<Publish ID=1 Message=<Message Topic=\"test\" QOS=1 Retain=false Payload=[104 105]> Dup=false>")
 	c.assertS2CPacket("<Publish ID=1 Message=<Message Topic=\"test\" QOS=1 Retain=false Payload=[104 105]> Dup=true>")
@@ -258,8 +275,8 @@ func TestSessionPublish(t *testing.T) {
 	c.assertS2CPacketTimeout()
 
 	// publish with wrong qos
-	pub.Message.QOS = 2
-	c.sendC2S(pub)
+	pkt.Message.QOS = 2
+	c.sendC2S(pkt)
 	c.assertS2CPacketTimeout()
 	c.assertClosed(true)
 
@@ -269,11 +286,27 @@ func TestSessionPublish(t *testing.T) {
 	c.assertS2CPacket("<Connack SessionPresent=true ReturnCode=0>")
 
 	// publish without permit
-	pub.Message.QOS = 1
-	pub.Message.Topic = "no-permit"
-	c.sendC2S(pub)
+	pkt.Message.QOS = 1
+	pkt.Message.Topic = "no-permit"
+	c.sendC2S(pkt)
 	c.assertS2CPacketTimeout()
 	c.assertClosed(true)
+
+	// anonymous
+	c = newMockConn(t)
+	b.store.NewClientMQTT(c, true)
+	c.sendC2S(&common.Connect{ClientID: t.Name(), Version: 3})
+	c.assertS2CPacket("<Connack SessionPresent=true ReturnCode=0>")
+	b.assertExchangeCount(1)
+	b.assertClientCount(t.Name(), 1)
+
+	c.sendC2S(&common.Subscribe{ID: 1, Subscriptions: []common.Subscription{{Topic: "#", QOS: 1}}})
+	c.assertS2CPacket("<Suback ID=1 ReturnCodes=[1]>")
+
+	c.sendC2S(pkt)
+	c.assertS2CPacket("<Puback ID=2>")
+	c.assertS2CPacket("<Publish ID=1 Message=<Message Topic=\"no-permit\" QOS=1 Retain=false Payload=[104 105]> Dup=false>")
+	c.assertClosed(false)
 }
 
 func TestCleanSession(t *testing.T) {

@@ -63,6 +63,7 @@ func (c *ClientMQTT) acknowledge(p *common.Puback) {
 	m, ok := c.publisher.m.Load(p.ID)
 	if !ok {
 		log.Warnf("puback(pid=%d) not found", p.ID)
+		return
 	}
 	c.publisher.m.Delete(p.ID)
 	m.(*pm).e.Done()

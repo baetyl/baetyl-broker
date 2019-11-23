@@ -1,11 +1,9 @@
 package main
 
 import (
-	"fmt"
-	"net/http"
+	"flag"
 	"os"
 	"os/signal"
-	"runtime/trace"
 	"syscall"
 
 	"github.com/baetyl/baetyl-broker/utils"
@@ -13,32 +11,45 @@ import (
 	_ "github.com/mattn/go-sqlite3"
 )
 
+var (
+	h bool
+	c string
+)
+
+func init() {
+	flag.BoolVar(&h, "h", false, "this help")
+	flag.StringVar(&c, "c", "etc/baetyl/service.yml", "set configuration file")
+}
+
 func main() {
 
-	// go tool pprof http://localhost:6060/debug/pprof/profile
-	go func() {
-		err := http.ListenAndServe("localhost:6060", nil)
-		if err != nil {
-			fmt.Fprintln(os.Stderr, "Start profile failed: ", err.Error())
-			return
-		}
-	}()
+	// f, err := os.Create("trace.out")
+	// if err != nil {
+	// 	panic(err)
+	// }
+	// defer f.Close()
 
-	f, err := os.Create("trace.out")
-	if err != nil {
-		panic(err)
-	}
-	defer f.Close()
+	// err = trace.Start(f)
+	// if err != nil {
+	// 	panic(err)
+	// }
+	// defer trace.Stop()
 
-	err = trace.Start(f)
-	if err != nil {
-		panic(err)
+	flag.Parse()
+
+	if h {
+		flag.Usage()
+		return
 	}
-	defer trace.Stop()
 
 	// baetyl.Run(func(ctx baetyl.Context) error {
 	var cfg config
-	utils.SetDefaults(&cfg)
+	if utils.FileExists(c) {
+		utils.LoadYAML(c, &cfg)
+	} else {
+		log.Warn("configuration file not found, to use default configuration", nil)
+		utils.SetDefaults(&cfg)
+	}
 	b, err := newBroker(cfg)
 	if err != nil {
 		log.Fatal("failed to create broker", err)

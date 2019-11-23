@@ -118,7 +118,7 @@ func (c *ClientMQTT) onConnect(p *common.Connect) error {
 		// if !common.PubTopicValidate(p.Will.Topic) {
 		// 	return fmt.Errorf("will topic (%s) invalid", p.Will.Topic)
 		// }
-		// if !c.authorizer.Authorize(auth.Publish, p.Will.Topic) {
+		// if !c.authorize(auth.Publish, p.Will.Topic) {
 		// 	c.sendConnack(common.NotAuthorized)
 		// 	return fmt.Errorf("will topic (%s) not permitted", p.Will.Topic)
 		// }
@@ -159,7 +159,7 @@ func (c *ClientMQTT) onPublish(p *common.Publish) error {
 	if !common.CheckTopic(p.Message.Topic, false) {
 		return fmt.Errorf("[%s] publish topic (%s) invalid", c.session.ID, p.Message.Topic)
 	}
-	if !c.authorizer.Authorize(auth.Publish, p.Message.Topic) {
+	if !c.authorize(auth.Publish, p.Message.Topic) {
 		return fmt.Errorf("[%s] publish topic (%s) not permitted", c.session.ID, p.Message.Topic)
 	}
 
@@ -224,11 +224,11 @@ func (c *ClientMQTT) genSuback(p *common.Subscribe) (*common.Suback, []common.Su
 		if !common.CheckTopic(sub.Topic, true) {
 			log.Errorf("[%s] subscribe topic (%s) invalid", c.session.ID, sub.Topic)
 			sa.ReturnCodes[i] = packet.QOSFailure
-		} else if !c.authorizer.Authorize(auth.Subscribe, sub.Topic) {
-			log.Errorf("[%s] subscribe topic (%s) not permitted", c.session.ID, sub.Topic)
-			sa.ReturnCodes[i] = packet.QOSFailure
 		} else if sub.QOS > 1 {
 			log.Errorf("[%s] subscribe QOS (%d) not supported", c.session.ID, sub.QOS)
+			sa.ReturnCodes[i] = packet.QOSFailure
+		} else if !c.authorize(auth.Subscribe, sub.Topic) {
+			log.Errorf("[%s] subscribe topic (%s) not permitted", c.session.ID, sub.Topic)
 			sa.ReturnCodes[i] = packet.QOSFailure
 		} else {
 			sa.ReturnCodes[i] = sub.QOS
