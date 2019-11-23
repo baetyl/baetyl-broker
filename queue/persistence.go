@@ -76,7 +76,7 @@ func (q *Persistence) writing() error {
 	for {
 		select {
 		case e := <-q.input:
-			log.Debugf("received a message: %s", e)
+			log.Debugf("queue (%s) receives a message: %s", q.backend.Name(), e)
 			buf = append(buf, e)
 			if len(buf) == max {
 				buf = q.add(buf)
@@ -84,10 +84,10 @@ func (q *Persistence) writing() error {
 			//  if receive timeout to add messages in buffer
 			timer.Reset(duration)
 		case <-timer.C:
-			log.Debugf("write message to backend when timeout")
+			log.Debugf("queue (%s) writes message to backend when timeout", q.backend.Name())
 			buf = q.add(buf)
 		case <-q.tomb.Dying():
-			log.Debugf("write message to backend during closing")
+			log.Debugf("queue (%s) writes message to backend during closing", q.backend.Name())
 			buf = q.add(buf)
 			return nil
 		}
@@ -107,7 +107,7 @@ func (q *Persistence) reading() error {
 	for {
 		select {
 		case <-q.eget:
-			log.Debugf("received a get event")
+			log.Debugf("queue (%s) receives a get event", q.backend.Name())
 			buf, err = q.get(offset, max)
 			if err != nil {
 				log.Fatalf("failed to get message from backend database: %s", err.Error())
@@ -148,17 +148,17 @@ func (q *Persistence) deleting() error {
 		select {
 		case e := <-q.edel:
 			timer.Reset(time.Second)
-			log.Debugf("received a delete event")
+			log.Debugf("queue (%s) receives a delete event", q.backend.Name())
 			buf = append(buf, e)
 			if len(buf) == max {
 				buf = q.delete(buf)
 			}
 			timer.Reset(duration)
 		case <-timer.C:
-			log.Debugf("delete message from backend when timeout")
+			log.Debugf("queue (%s) deletes message from backend when timeout", q.backend.Name())
 			buf = q.delete(buf)
 		case <-q.tomb.Dying():
-			log.Debugf("delete message from backend during closing")
+			log.Debugf("queue (%s) deletes message from backend during closing", q.backend.Name())
 			buf = q.delete(buf)
 			return nil
 		}

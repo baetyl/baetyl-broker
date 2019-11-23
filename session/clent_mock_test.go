@@ -30,6 +30,7 @@ func newMockBroker(t *testing.T) *mockBroker {
 	var err error
 	b := &mockBroker{t: t}
 	defaults.Set(&b.cfg.Session)
+	b.cfg.Session.RepublishInterval = time.Millisecond * 200
 	b.cfg.Principals = []auth.Principal{{
 		Username: "u1",
 		Password: "p1",
@@ -59,6 +60,14 @@ func (b *mockBroker) assertSession(id string, expect string) {
 	} else {
 		assert.Equal(b.t, expect, ses.String())
 	}
+}
+
+func (b *mockBroker) assertExchangeCount(expect int) {
+	assert.Equal(b.t, expect, b.store.exchange.(*mockExchange).bindings.Count())
+}
+
+func (b *mockBroker) assertClientCount(session string, expect int) {
+	assert.Len(b.t, b.store.clients[session], expect)
 }
 
 func (b *mockBroker) close() {
@@ -205,188 +214,3 @@ func (b *mockExchange) Route(msg *common.Message, cb func(uint64)) {
 		s.(common.Queue).Push(event)
 	}
 }
-
-// func (c *mockConn) assertConnect(name, u, p string, v byte, ca common.ConnackCode) {
-// 	conn := &common.Connect{ClientID: name, Username: u, Password: p, Version: v}
-// 	c.sendC2S(conn)
-// 	pkt := c.receiveS2C()
-// 	connack := common.Connack{ReturnCode: ca}
-// 	assert.Equal(c.t, connack.String(), pkt.String())
-// }
-
-// func (c *mockConn) assertOnConnect(name, u, p string, v byte, m string, ca common.ConnackCode) {
-// 	conn := &common.Connect{ClientID: name, Username: u, Password: p, Version: v}
-// 	err := c.session.onConnect(conn)
-// 	if m == "" {
-// 		assert.NoError(c.t, err)
-// 	} else {
-// 		assert.EqualError(c.t, err, m)
-// 	}
-// 	pkt := c.receiveS2C()
-// 	connack := common.Connack{ReturnCode: ca}
-// 	assert.Equal(c.t, connack.String(), pkt.String())
-// }
-
-// func (c *mockConn) assertOnConnectSuccess(name string, cs bool, will *common.Message) {
-// 	conn := &common.Connect{ClientID: name, Username: "u1", Password: "p1", Version: 3, CleanSession: cs, Will: will}
-// 	err := c.session.onConnect(conn)
-// 	assert.NoError(c.t, err)
-// 	pkt := c.receiveS2C()
-// 	connack := common.Connack{ReturnCode: common.ConnectionAccepted}
-// 	assert.Equal(c.t, connack.String(), pkt.String())
-// }
-
-// func (c *mockConn) assertOnConnectFailure(name string, will *common.Message, e string) {
-// 	conn := &common.Connect{ClientID: name, Username: "u1", Password: "p1", Version: 3, Will: will}
-// 	err := c.session.onConnect(conn)
-// 	assert.EqualError(c.t, err, e)
-// }
-
-// func (c *mockConn) assertOnConnectFail(name string, will *common.Message) {
-// 	conn := &common.Connect{ClientID: name, Username: "u1", Password: "p1", Version: 3, Will: will}
-// 	err := c.session.onConnect(conn)
-// 	assert.EqualError(c.t, err, fmt.Sprintf("will topic (%s) not permitted", will.Topic))
-// 	pkt := c.receiveS2C()
-// 	connack := common.Connack{ReturnCode: common.NotAuthorized}
-// 	assert.Equal(c.t, connack.String(), pkt.String())
-// }
-
-// func (c *mockConn) assertSubscribe(subs []common.Subscription, codes []common.QOS) {
-// 	sub := &common.Subscribe{ID: 11, Subscriptions: subs}
-// 	c.Send(sub, true)
-// 	pkt := c.receiveS2C()
-// 	suback := common.Suback{ReturnCodes: codes, ID: 11}
-// 	assert.Equal(c.t, suback.String(), pkt.String())
-// }
-
-// func (c *mockConn) assertOnSubscribe(subs []common.Subscription, codes []common.QOS) {
-// 	sub := &common.Subscribe{ID: 12, Subscriptions: subs}
-// 	err := c.session.onSubscribe(sub)
-// 	assert.NoError(c.t, err)
-// 	pkt := c.receiveS2C()
-// 	suback := common.Suback{ReturnCodes: codes, ID: 12}
-// 	assert.Equal(c.t, suback.String(), pkt.String())
-// }
-
-// func (c *mockConn) assertOnSubscribeSuccess(subs []common.Subscription) {
-// 	sub := &common.Subscribe{ID: 11, Subscriptions: subs}
-// 	err := c.session.onSubscribe(sub)
-// 	assert.NoError(c.t, err)
-// 	pkt := c.receiveS2C()
-// 	codes := make([]common.QOS, len(subs))
-// 	for i, s := range subs {
-// 		codes[i] = s.QOS
-// 	}
-// 	suback := common.Suback{ReturnCodes: codes, ID: 11}
-// 	assert.Equal(c.t, suback.String(), pkt.String())
-// }
-
-// func (c *mockConn) assertOnUnsubscribe(topics []string) {
-// 	unsub := &common.Unsubscribe{Topics: topics, ID: 124}
-// 	err := c.session.onUnsubscribe(unsub)
-// 	assert.NoError(c.t, err)
-// 	pkt := c.receiveS2C()
-// 	unsuback := common.Unsuback{ID: 124}
-// 	assert.Equal(c.t, unsuback.String(), pkt.String())
-// }
-
-// func (c *mockConn) assertPublish(topic string, qos common.QOS, payload []byte, retain bool) {
-// 	msg := common.Message{Topic: topic, QOS: qos, Payload: payload, Retain: retain}
-// 	pub := &common.Publish{Message: msg, Dup: false, ID: 123}
-// 	c.Send(pub, true)
-// 	if qos == 1 {
-// 		pkt := c.receiveS2C()
-// 		puback := common.Puback{ID: 123}
-// 		assert.Equal(c.t, puback.String(), pkt.String())
-// 	}
-// }
-
-// func (c *mockConn) assertOnPublish(topic string, qos common.QOS, payload []byte, retain bool) {
-// 	msg := common.Message{Topic: topic, QOS: qos, Payload: payload, Retain: retain}
-// 	pub := &common.Publish{Message: msg, Dup: false, ID: 124}
-// 	err := c.session.onPublish(pub)
-// 	assert.NoError(c.t, err)
-// 	if qos == 1 {
-// 		pkt := c.receiveS2C()
-// 		puback := common.Puback{ID: 124}
-// 		assert.Equal(c.t, puback.String(), pkt.String())
-// 	}
-// }
-
-// func (c *mockConn) assertOnPublishError(topic string, qos common.QOS, payload []byte, e string) {
-// 	msg := common.Message{Topic: topic, QOS: qos, Payload: payload}
-// 	pub := &common.Publish{Message: msg, Dup: false, ID: 123}
-// 	err := c.session.onPublish(pub)
-// 	assert.EqualError(c.t, err, e)
-// }
-
-// func (c *mockConn) assertOnPuback(pid common.ID) {
-// 	puback := common.NewPuback()
-// 	puback.ID = pid
-// 	err := c.session.onPuback(puback)
-// 	assert.NoError(c.t, err)
-// }
-
-// func (c *mockConn) assertPersistedSubscriptions(l int) {
-// 	subs, err := c.session.manager.recorder.getSubs(c.session.id)
-// 	assert.NoError(c.t, err)
-// 	assert.Len(c.t, subs, l)
-// }
-
-// func (c *mockConn) assertPersistedWillMessage(expected *common.Message) {
-// 	will, err := c.session.manager.recorder.getWill(c.session.id)
-// 	assert.NoError(c.t, err)
-// 	if expected == nil {
-// 		assert.Nil(c.t, will)
-// 		return
-// 	}
-// 	assert.Equal(c.t, expected.QOS, will.QOS)
-// 	assert.Equal(c.t, expected.Topic, will.Topic)
-// 	assert.Equal(c.t, expected.Retain, will.Retain)
-// 	assert.Equal(c.t, expected.Payload, will.Payload)
-// }
-
-// func (c *mockConn) assertRetainedMessage(cid string, qos common.QOS, topic string, pld []byte) {
-// 	retained, err := c.session.manager.recorder.getRetained()
-// 	assert.NoError(c.t, err)
-// 	if cid == "" {
-// 		assert.Len(c.t, retained, 0)
-// 	} else {
-// 		assert.Len(c.t, retained, 1)
-// 		assert.Equal(c.t, qos, retained[0].QOS)
-// 		assert.Equal(c.t, topic, retained[0].Topic)
-// 		assert.Equal(c.t, pld, retained[0].Payload)
-// 		assert.True(c.t, retained[0].Retain)
-// 	}
-// }
-
-// func (c *mockConn) assertReceive(pid int, qos common.QOS, topic string, pld []byte, retain bool) {
-// 	select {
-// 	case pkt := <-c.s2c:
-// 		assert.NotNil(c.t, pkt)
-// 		assert.Equal(c.t, common.PUBLISH, pkt.Type())
-// 		p, ok := pkt.(*common.Publish)
-// 		assert.True(c.t, ok)
-// 		assert.False(c.t, p.Dup)
-// 		assert.Equal(c.t, retain, p.Message.Retain)
-// 		assert.Equal(c.t, common.ID(pid), p.ID)
-// 		assert.Equal(c.t, topic, p.Message.Topic)
-// 		assert.Equal(c.t, qos, p.Message.QOS)
-// 		assert.Equal(c.t, pld, p.Message.Payload)
-// 		if qos == 1 {
-// 			c.assertOnPuback(p.ID)
-// 		}
-// 	case <-time.After(time.Second * 3):
-// 		assert.FailNow(c.t, "receive common timeout")
-// 	}
-// }
-
-// func (c *mockConn) assertReceiveTimeout() {
-// 	select {
-// 	case pkt := <-c.c:
-// 		assert.FailNow(c.t, "common is not expected : %s", pkt.String())
-// 		return
-// 	case <-time.After(time.Second):
-// 		return
-// 	}
-// }

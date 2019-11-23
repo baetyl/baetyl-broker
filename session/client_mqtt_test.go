@@ -1,6 +1,7 @@
 package session
 
 import (
+	"fmt"
 	"math/rand"
 	"testing"
 
@@ -64,6 +65,52 @@ func TestSessionConnect(t *testing.T) {
 
 }
 
+func TestConnectWithSameClientID(t *testing.T) {
+	b := newMockBroker(t)
+	defer b.close()
+
+	// client to publish
+	pub := newMockConn(t)
+	b.store.NewClientMQTT(pub, false)
+	pub.sendC2S(&common.Connect{ClientID: "pub", Username: "u2", Password: "p2", Version: 3})
+	pub.assertS2CPacket("<Connack SessionPresent=false ReturnCode=0>")
+
+	// client 1
+	c1 := newMockConn(t)
+	b.store.NewClientMQTT(c1, false)
+	c1.sendC2S(&common.Connect{ClientID: t.Name(), Username: "u1", Password: "p1", Version: 3})
+	c1.assertS2CPacket("<Connack SessionPresent=false ReturnCode=0>")
+	c1.sendC2S(&common.Subscribe{ID: 1, Subscriptions: []common.Subscription{{Topic: "test", QOS: 0}}})
+	c1.assertS2CPacket("<Suback ID=1 ReturnCodes=[0]>")
+	b.assertSession(t.Name(), "{\"ID\":\"TestConnectWithSameClientID\",\"CleanSession\":false,\"Subscriptions\":{\"test\":0}}")
+	b.assertExchangeCount(1)
+	b.assertClientCount(t.Name(), 1)
+
+	pkt := &common.Publish{}
+	pkt.Message.Topic = "test"
+	pkt.Message.Payload = []byte("hi")
+	pub.sendC2S(pkt)
+	c1.assertS2CPacket("<Publish ID=0 Message=<Message Topic=\"test\" QOS=0 Retain=false Payload=[104 105]> Dup=false>")
+
+	// client 2
+	c2 := newMockConn(t)
+	b.store.NewClientMQTT(c2, false)
+	c2.sendC2S(&common.Connect{ClientID: t.Name(), Username: "u1", Password: "p1", Version: 3})
+	c2.assertS2CPacket("<Connack SessionPresent=true ReturnCode=0>")
+	c2.sendC2S(&common.Subscribe{ID: 1, Subscriptions: []common.Subscription{{Topic: "test", QOS: 0}}})
+	c2.assertS2CPacket("<Suback ID=1 ReturnCodes=[0]>")
+	b.assertSession(t.Name(), "{\"ID\":\"TestConnectWithSameClientID\",\"CleanSession\":false,\"Subscriptions\":{\"test\":0}}")
+	b.assertExchangeCount(1)
+	b.assertClientCount(t.Name(), 1)
+
+	pub.sendC2S(pkt)
+	c2.assertS2CPacket("<Publish ID=0 Message=<Message Topic=\"test\" QOS=0 Retain=false Payload=[104 105]> Dup=false>")
+
+	// 'c1' is closed during 'c2' connecting
+	c1.assertClosed(true)
+	c2.assertClosed(false)
+}
+
 func TestSessionConnectException(t *testing.T) {
 	b := newMockBroker(t)
 	defer b.close()
@@ -116,96 +163,243 @@ func TestSessionConnectException(t *testing.T) {
 	b.assertSession(t.Name(), "")
 }
 
-// func TestSessionSub(t *testing.T) {
-// 	b := newMockBroker(t)
-// 	assert.NoError(t, err)
-// 	assert.NotNil(t, r)
-// 	defer b.close()
+func TestSessionSubscribe(t *testing.T) {
+	b := newMockBroker(t)
+	defer b.close()
 
-// 	c := newMockConn(t, r.sessions)
-// 	assert.NotNil(t, c)
-// 	defer c.close()
-// 	c.assertOnConnectSuccess(t.Name(), false, nil)
-// 	// Round 0
-// 	c.assertOnSubscribeSuccess([]packet.Subscription{{Topic: "test", QOS: 0}})
-// 	// Round 1
-// 	c.assertOnSubscribeSuccess([]packet.Subscription{{Topic: "talks"}, {Topic: "talks1", QOS: 1}, {Topic: "talks2", QOS: 1}})
-// 	// Round 2
-// 	c.assertOnSubscribeSuccess([]packet.Subscription{{Topic: "talks", QOS: 1}, {Topic: "talks1"}, {Topic: "talks2", QOS: 1}})
-// 	// Round 3
-// 	c.assertOnSubscribe([]packet.Subscription{{Topic: "test", QOS: 2}}, []packet.QOS{128})
-// 	// Round 4
-// 	c.assertOnSubscribe(
-// 		[]packet.Subscription{{Topic: "talks", QOS: 2}, {Topic: "talks1", QOS: 0}, {Topic: "talks2", QOS: 1}},
-// 		[]packet.QOS{128, 0, 1},
-// 	)
-// 	// Round 5
-// 	c.assertOnSubscribe(
-// 		[]packet.Subscription{{Topic: "talks", QOS: 2}, {Topic: "talks1", QOS: 0}, {Topic: "temp", QOS: 1}},
-// 		[]packet.QOS{128, 0, 128},
-// 	)
-// 	// Round 6
-// 	c.assertOnSubscribe(
-// 		[]packet.Subscription{{Topic: "talks", QOS: 2}, {Topic: "talks1#/", QOS: 0}, {Topic: "talks2", QOS: 1}},
-// 		[]packet.QOS{128, 128, 1},
-// 	)
-// 	// Round 7
-// 	c.assertOnSubscribe(
-// 		[]packet.Subscription{{Topic: "talks", QOS: 2}, {Topic: "talks1#/", QOS: 0}, {Topic: "temp", QOS: 1}},
-// 		[]packet.QOS{128, 128, 128},
-// 	)
-// }
+	c := newMockConn(t)
+	b.store.NewClientMQTT(c, false)
+	c.sendC2S(&common.Connect{ClientID: t.Name(), Username: "u1", Password: "p1", Version: 3})
+	c.assertS2CPacket("<Connack SessionPresent=false ReturnCode=0>")
+	b.assertExchangeCount(0)
 
-// func TestSessionPub(t *testing.T) {
-// 	b := newMockBroker(t)
-// 	assert.NoError(t, err)
-// 	assert.NotNil(t, r)
-// 	defer b.close()
+	// subscribe test
+	c.sendC2S(&common.Subscribe{ID: 1, Subscriptions: []common.Subscription{{Topic: "test", QOS: 0}}})
+	c.assertS2CPacket("<Suback ID=1 ReturnCodes=[0]>")
+	b.assertSession(t.Name(), "{\"ID\":\"TestSessionSubscribe\",\"CleanSession\":false,\"Subscriptions\":{\"test\":0}}")
+	b.assertExchangeCount(1)
 
-// 	c := newMockConn(t, r.sessions)
-// 	assert.NotNil(t, c)
-// 	defer c.close()
-// 	c.assertOnConnectSuccess(t.Name(), false, nil)
-// 	// Round 0
-// 	c.assertOnPublish("test", 0, []byte("hello"), false)
-// 	// Round 1
-// 	c.assertOnPublish("test", 1, []byte("hello"), false)
-// 	// Round 2
-// 	c.assertOnPublishError("test", 2, []byte("hello"), "publish QOS (2) not supported")
-// 	// Round 2
-// 	c.assertOnPublishError("haha", 1, []byte("hello"), "publish topic (haha) not permitted")
-// }
+	// subscribe talk
+	c.sendC2S(&common.Subscribe{ID: 1, Subscriptions: []common.Subscription{{Topic: "talks"}, {Topic: "talks1", QOS: 1}, {Topic: "talks2", QOS: 1}}})
+	c.assertS2CPacket("<Suback ID=1 ReturnCodes=[0, 1, 1]>")
+	b.assertSession(t.Name(), "{\"ID\":\"TestSessionSubscribe\",\"CleanSession\":false,\"Subscriptions\":{\"talks\":0,\"talks1\":1,\"talks2\":1,\"test\":0}}")
+	b.assertExchangeCount(4)
 
-// func TestSessionUnSub(t *testing.T) {
-// 	b := newMockBroker(t)
-// 	assert.NoError(t, err)
-// 	assert.NotNil(t, r)
-// 	defer b.close()
+	// subscribe talk again
+	c.sendC2S(&common.Subscribe{ID: 1, Subscriptions: []common.Subscription{{Topic: "talks", QOS: 1}, {Topic: "talks1", QOS: 1}, {Topic: "talks2", QOS: 0}}})
+	c.assertS2CPacket("<Suback ID=1 ReturnCodes=[1, 1, 0]>")
+	b.assertSession(t.Name(), "{\"ID\":\"TestSessionSubscribe\",\"CleanSession\":false,\"Subscriptions\":{\"talks\":1,\"talks1\":1,\"talks2\":0,\"test\":0}}")
+	b.assertExchangeCount(4)
 
-// 	//sub client
-// 	subC := newMockConn(t, r.sessions)
-// 	assert.NotNil(t, subC)
-// 	defer subC.close()
-// 	subC.assertOnConnectSuccess("subC", false, nil)
-// 	//unsub
-// 	subC.assertOnUnsubscribe([]string{"test"})
-// 	//sub
-// 	subC.assertOnSubscribeSuccess([]packet.Subscription{{Topic: "test"}})
-// 	//pub client
-// 	pubC := newMockConn(t, r.sessions)
-// 	assert.NotNil(t, subC)
-// 	defer subC.close()
-// 	pubC.assertOnConnectSuccess("pubC", false, nil)
-// 	// pub
-// 	pubC.assertOnPublish("test", 0, []byte("hello"), false)
-// 	// receive message
-// 	subC.assertReceive(0, 0, "test", []byte("hello"), false)
-// 	// unsub
-// 	subC.assertOnUnsubscribe([]string{"test"})
-// 	// pub
-// 	pubC.assertOnPublish("test", 0, []byte("hello"), false)
-// 	subC.assertReceiveTimeout()
-// }
+	// subscribe wrong qos
+	c.sendC2S(&common.Subscribe{ID: 1, Subscriptions: []common.Subscription{{Topic: "test", QOS: 2}, {Topic: "talks1", QOS: 0}, {Topic: "talks2", QOS: 1}}})
+	c.assertS2CPacket("<Suback ID=1 ReturnCodes=[128, 0, 1]>")
+	b.assertSession(t.Name(), "{\"ID\":\"TestSessionSubscribe\",\"CleanSession\":false,\"Subscriptions\":{\"talks\":1,\"talks1\":0,\"talks2\":1,\"test\":0}}")
+	b.assertExchangeCount(4)
+
+	// subscribe with exceptions: wrong qos, no permit, wrong topic
+	c.sendC2S(&common.Subscribe{ID: 1, Subscriptions: []common.Subscription{{Topic: "test", QOS: 2}, {Topic: "temp", QOS: 1}, {Topic: "talks1#/", QOS: 1}}})
+	c.assertS2CPacket("<Suback ID=1 ReturnCodes=[128, 128, 128]>")
+	b.assertSession(t.Name(), "{\"ID\":\"TestSessionSubscribe\",\"CleanSession\":false,\"Subscriptions\":{\"talks\":1,\"talks1\":0,\"talks2\":1,\"test\":0}}")
+	b.assertExchangeCount(4)
+
+	// unsubscribe test
+	c.sendC2S(&common.Unsubscribe{ID: 1, Topics: []string{"test"}})
+	c.assertS2CPacket("<Unsuback ID=1>")
+	b.assertSession(t.Name(), "{\"ID\":\"TestSessionSubscribe\",\"CleanSession\":false,\"Subscriptions\":{\"talks\":1,\"talks1\":0,\"talks2\":1}}")
+	b.assertExchangeCount(3)
+
+	// subscribe test
+	c.sendC2S(&common.Subscribe{ID: 1, Subscriptions: []common.Subscription{{Topic: "test", QOS: 0}}})
+	c.assertS2CPacket("<Suback ID=1 ReturnCodes=[0]>")
+	b.assertSession(t.Name(), "{\"ID\":\"TestSessionSubscribe\",\"CleanSession\":false,\"Subscriptions\":{\"talks\":1,\"talks1\":0,\"talks2\":1,\"test\":0}}")
+	b.assertExchangeCount(4)
+
+	// unsubscribe nonexists
+	c.sendC2S(&common.Unsubscribe{ID: 1, Topics: []string{"test", "nonexists"}})
+	c.assertS2CPacket("<Unsuback ID=1>")
+	b.assertSession(t.Name(), "{\"ID\":\"TestSessionSubscribe\",\"CleanSession\":false,\"Subscriptions\":{\"talks\":1,\"talks1\":0,\"talks2\":1}}")
+	b.assertExchangeCount(3)
+}
+
+func TestSessionPublish(t *testing.T) {
+	b := newMockBroker(t)
+	defer b.close()
+
+	c := newMockConn(t)
+	b.store.NewClientMQTT(c, false)
+	c.sendC2S(&common.Connect{ClientID: t.Name(), Username: "u1", Password: "p1", Version: 3})
+	c.assertS2CPacket("<Connack SessionPresent=false ReturnCode=0>")
+	b.assertExchangeCount(0)
+
+	// subscribe test
+	c.sendC2S(&common.Subscribe{ID: 1, Subscriptions: []common.Subscription{{Topic: "test", QOS: 1}}})
+	c.assertS2CPacket("<Suback ID=1 ReturnCodes=[1]>")
+	b.assertSession(t.Name(), "{\"ID\":\"TestSessionPublish\",\"CleanSession\":false,\"Subscriptions\":{\"test\":1}}")
+	b.assertExchangeCount(1)
+
+	// publish test qos 0
+	pub := &common.Publish{}
+	pub.Message.Topic = "test"
+	pub.Message.Payload = []byte("hi")
+	c.sendC2S(pub)
+	c.assertS2CPacket("<Publish ID=0 Message=<Message Topic=\"test\" QOS=0 Retain=false Payload=[104 105]> Dup=false>")
+
+	// publish test qos 1
+	pub.ID = 2
+	pub.Message.QOS = 1
+	pub.Message.Topic = "test"
+	pub.Message.Payload = []byte("hi")
+	c.sendC2S(pub)
+	c.assertS2CPacket("<Puback ID=2>")
+	c.assertS2CPacket("<Publish ID=1 Message=<Message Topic=\"test\" QOS=1 Retain=false Payload=[104 105]> Dup=false>")
+	c.assertS2CPacket("<Publish ID=1 Message=<Message Topic=\"test\" QOS=1 Retain=false Payload=[104 105]> Dup=true>")
+	c.sendC2S(&common.Puback{ID: 1})
+	c.assertS2CPacketTimeout()
+
+	// publish with wrong qos
+	pub.Message.QOS = 2
+	c.sendC2S(pub)
+	c.assertS2CPacketTimeout()
+	c.assertClosed(true)
+
+	c = newMockConn(t)
+	b.store.NewClientMQTT(c, false)
+	c.sendC2S(&common.Connect{ClientID: t.Name(), Username: "u1", Password: "p1", Version: 3})
+	c.assertS2CPacket("<Connack SessionPresent=true ReturnCode=0>")
+
+	// publish without permit
+	pub.Message.QOS = 1
+	pub.Message.Topic = "no-permit"
+	c.sendC2S(pub)
+	c.assertS2CPacketTimeout()
+	c.assertClosed(true)
+}
+
+func TestCleanSession(t *testing.T) {
+	b := newMockBroker(t)
+	defer b.close()
+
+	pub := newMockConn(t)
+	b.store.NewClientMQTT(pub, false)
+	pub.sendC2S(&common.Connect{ClientID: "pub", Username: "u2", Password: "p2", Version: 3})
+	pub.assertS2CPacket("<Connack SessionPresent=false ReturnCode=0>")
+
+	sub := newMockConn(t)
+	b.store.NewClientMQTT(sub, false)
+	sub.sendC2S(&common.Connect{ClientID: "sub", Username: "u1", Password: "p1", Version: 3})
+	sub.assertS2CPacket("<Connack SessionPresent=false ReturnCode=0>")
+	sub.sendC2S(&common.Subscribe{ID: 1, Subscriptions: []common.Subscription{{Topic: "test", QOS: 1}}})
+	sub.assertS2CPacket("<Suback ID=1 ReturnCodes=[1]>")
+	b.assertSession("sub", "{\"ID\":\"sub\",\"CleanSession\":false,\"Subscriptions\":{\"test\":1}}")
+	b.assertExchangeCount(1)
+
+	pkt := &common.Publish{}
+	pkt.Message.Topic = "test"
+	pkt.Message.Payload = []byte("hi")
+	pub.sendC2S(pkt)
+	sub.assertS2CPacket("<Publish ID=0 Message=<Message Topic=\"test\" QOS=0 Retain=false Payload=[104 105]> Dup=false>")
+	sub.sendC2S(&common.Disconnect{})
+	sub.assertS2CPacketTimeout()
+	sub.assertClosed(true)
+	b.assertExchangeCount(1)
+
+	fmt.Println("--> clean session from false to false <--")
+
+	sub = newMockConn(t)
+	b.store.NewClientMQTT(sub, false)
+	sub.sendC2S(&common.Connect{ClientID: "sub", Username: "u1", Password: "p1", Version: 3})
+	sub.assertS2CPacket("<Connack SessionPresent=true ReturnCode=0>")
+	// * auto subscribe when cleansession=false
+	b.assertSession("sub", "{\"ID\":\"sub\",\"CleanSession\":false,\"Subscriptions\":{\"test\":1}}")
+	b.assertExchangeCount(1)
+
+	pub.sendC2S(pkt)
+	sub.assertS2CPacket("<Publish ID=0 Message=<Message Topic=\"test\" QOS=0 Retain=false Payload=[104 105]> Dup=false>")
+	sub.sendC2S(&common.Disconnect{})
+	sub.assertS2CPacketTimeout()
+	sub.assertClosed(true)
+	b.assertExchangeCount(1)
+
+	fmt.Println("--> clean session from false to true <--")
+
+	sub = newMockConn(t)
+	b.store.NewClientMQTT(sub, false)
+	sub.sendC2S(&common.Connect{ClientID: "sub", Username: "u1", Password: "p1", CleanSession: true, Version: 3})
+	sub.assertS2CPacket("<Connack SessionPresent=true ReturnCode=0>")
+	b.assertSession("sub", "")
+	b.assertExchangeCount(1)
+
+	pub.sendC2S(pkt)
+	sub.assertS2CPacket("<Publish ID=0 Message=<Message Topic=\"test\" QOS=0 Retain=false Payload=[104 105]> Dup=false>")
+	sub.sendC2S(&common.Disconnect{})
+	sub.assertS2CPacketTimeout()
+	sub.assertClosed(true)
+	b.assertSession("sub", "")
+	b.assertExchangeCount(0)
+
+	fmt.Println("--> clean session from true to true <--")
+
+	sub = newMockConn(t)
+	b.store.NewClientMQTT(sub, false)
+	sub.sendC2S(&common.Connect{ClientID: "sub", Username: "u1", Password: "p1", CleanSession: true, Version: 3})
+	sub.assertS2CPacket("<Connack SessionPresent=false ReturnCode=0>")
+	b.assertSession("sub", "")
+	b.assertExchangeCount(0)
+
+	pub.sendC2S(pkt)
+	sub.assertS2CPacketTimeout()
+	sub.sendC2S(&common.Subscribe{ID: 1, Subscriptions: []common.Subscription{{Topic: "test", QOS: 1}}})
+	sub.assertS2CPacket("<Suback ID=1 ReturnCodes=[1]>")
+	b.assertSession("sub", "")
+	b.assertExchangeCount(1)
+
+	pub.sendC2S(pkt)
+	sub.assertS2CPacket("<Publish ID=0 Message=<Message Topic=\"test\" QOS=0 Retain=false Payload=[104 105]> Dup=false>")
+	sub.sendC2S(&common.Disconnect{})
+	sub.assertS2CPacketTimeout()
+	sub.assertClosed(true)
+	b.assertExchangeCount(0)
+
+	fmt.Println("--> clean session from true to false <--")
+
+	sub = newMockConn(t)
+	b.store.NewClientMQTT(sub, false)
+	sub.sendC2S(&common.Connect{ClientID: "sub", Username: "u1", Password: "p1", Version: 3})
+	sub.assertS2CPacket("<Connack SessionPresent=false ReturnCode=0>")
+	b.assertSession("sub", "{\"ID\":\"sub\",\"CleanSession\":false,\"Subscriptions\":null}")
+	b.assertExchangeCount(0)
+
+	sub.sendC2S(&common.Subscribe{ID: 1, Subscriptions: []common.Subscription{{Topic: "test", QOS: 1}}})
+	sub.assertS2CPacket("<Suback ID=1 ReturnCodes=[1]>")
+	b.assertSession("sub", "{\"ID\":\"sub\",\"CleanSession\":false,\"Subscriptions\":{\"test\":1}}")
+	b.assertExchangeCount(1)
+
+	sub.sendC2S(&common.Disconnect{})
+	sub.assertS2CPacketTimeout()
+	sub.assertClosed(true)
+	b.assertExchangeCount(1)
+
+	// publish message during 'sub' offline
+	pub.sendC2S(pkt)
+
+	sub = newMockConn(t)
+	b.store.NewClientMQTT(sub, false)
+	sub.sendC2S(&common.Connect{ClientID: "sub", Username: "u1", Password: "p1", Version: 3})
+	sub.assertS2CPacket("<Connack SessionPresent=true ReturnCode=0>")
+	b.assertSession("sub", "{\"ID\":\"sub\",\"CleanSession\":false,\"Subscriptions\":{\"test\":1}}")
+	b.assertExchangeCount(1)
+
+	// 'sub' can receive offline message when cleanession=false
+	sub.assertS2CPacket("<Publish ID=0 Message=<Message Topic=\"test\" QOS=0 Retain=false Payload=[104 105]> Dup=false>")
+	sub.sendC2S(&common.Disconnect{})
+	sub.assertS2CPacketTimeout()
+	sub.assertClosed(true)
+
+	pub.sendC2S(&common.Disconnect{})
+	pub.assertS2CPacketTimeout()
+	pub.assertClosed(true)
+}
 
 // func TestSessionRetain(t *testing.T) {
 // 	b := newMockBroker(t)
@@ -229,7 +423,7 @@ func TestSessionConnectException(t *testing.T) {
 // 	defer subC1.close()
 // 	subC1.assertOnConnectSuccess("subC1", false, nil)
 // 	// sub
-// 	subC1.assertOnSubscribeSuccess([]packet.Subscription{{Topic: "talks"}})
+// 	subC1.assertOnSubscribeSuccess([]common.Subscription{{Topic: "talks"}})
 // 	subC1.assertReceive(0, 0, "talks", []byte("hello"), true)
 // 	subC1.assertReceiveTimeout()
 
@@ -239,7 +433,7 @@ func TestSessionConnectException(t *testing.T) {
 // 	defer subC2.close()
 // 	subC2.assertOnConnectSuccess("subC2", false, nil)
 // 	// sub
-// 	subC2.assertOnSubscribe([]packet.Subscription{{Topic: "talks", QOS: 1}}, []packet.QOS{1})
+// 	subC2.assertOnSubscribe([]common.Subscription{{Topic: "talks", QOS: 1}}, []common.QOS{1})
 // 	subC2.assertReceive(65535, 1, "talks", []byte("hello"), true)
 // 	subC2.assertReceiveTimeout()
 
@@ -255,7 +449,7 @@ func TestSessionConnectException(t *testing.T) {
 // 	defer subC3.close()
 // 	subC3.assertOnConnectSuccess("subC3", false, nil)
 // 	// sub
-// 	subC3.assertOnSubscribe([]packet.Subscription{{Topic: "talks", QOS: 1}}, []packet.QOS{1})
+// 	subC3.assertOnSubscribe([]common.Subscription{{Topic: "talks", QOS: 1}}, []common.QOS{1})
 // 	subC3.assertReceiveTimeout()
 // }
 
@@ -276,11 +470,11 @@ func TestSessionConnectException(t *testing.T) {
 // 	assert.NotNil(t, subC)
 // 	defer subC.close()
 // 	subC.assertOnConnectSuccess(t.Name()+"_sub", false, nil)
-// 	subC.assertOnSubscribeSuccess([]packet.Subscription{{Topic: "test"}})
+// 	subC.assertOnSubscribeSuccess([]common.Subscription{{Topic: "test"}})
 // 	// connect with will msg
 // 	c = newMockConn(t, r.sessions)
 // 	assert.NotNil(t, c)
-// 	will := &packet.Message{Topic: "test", QOS: 1, Payload: []byte("hello"), Retain: false}
+// 	will := &common.Message{Topic: "test", QOS: 1, Payload: []byte("hello"), Retain: false}
 // 	c.assertOnConnectSuccess(t.Name()+"_2", false, will)
 // 	c.assertPersistedWillMessage(will)
 // 	// c sends will message
@@ -300,12 +494,12 @@ func TestSessionConnectException(t *testing.T) {
 // 	assert.NotNil(t, sub1C)
 // 	defer sub1C.close()
 // 	sub1C.assertOnConnectSuccess(t.Name()+"_sub1", false, nil)
-// 	sub1C.assertOnSubscribeSuccess([]packet.Subscription{{Topic: "test"}})
+// 	sub1C.assertOnSubscribeSuccess([]common.Subscription{{Topic: "test"}})
 
 // 	// connect with will msg, retain flag = true
 // 	c := newMockConn(t, r.sessions)
 // 	assert.NotNil(t, c)
-// 	will := &packet.Message{Topic: "test", QOS: 1, Payload: []byte("hello"), Retain: true}
+// 	will := &common.Message{Topic: "test", QOS: 1, Payload: []byte("hello"), Retain: true}
 // 	c.assertOnConnectSuccess(t.Name(), false, will)
 // 	c.assertPersistedWillMessage(will)
 // 	// crash
@@ -317,7 +511,7 @@ func TestSessionConnectException(t *testing.T) {
 // 	assert.NotNil(t, sub2C)
 // 	defer sub2C.close()
 // 	sub2C.assertOnConnectSuccess(t.Name()+"_sub2", false, nil)
-// 	sub2C.assertOnSubscribeSuccess([]packet.Subscription{{Topic: "test"}})
+// 	sub2C.assertOnSubscribeSuccess([]common.Subscription{{Topic: "test"}})
 // 	sub2C.assertReceive(0, 0, will.Topic, will.Payload, true)
 // }
 
@@ -332,16 +526,16 @@ func TestSessionConnectException(t *testing.T) {
 // 	assert.NotNil(t, sub1C)
 // 	defer sub1C.close()
 // 	sub1C.assertOnConnectSuccess(t.Name()+"_sub1", false, nil)
-// 	sub1C.assertOnSubscribeSuccess([]packet.Subscription{{Topic: "test"}})
+// 	sub1C.assertOnSubscribeSuccess([]common.Subscription{{Topic: "test"}})
 
 // 	// connect with will msg, retain flag = true
 // 	c := newMockConn(t, r.sessions)
 // 	assert.NotNil(t, c)
 // 	defer c.close()
-// 	will := &packet.Message{Topic: "test", QOS: 1, Payload: []byte("hello"), Retain: true}
+// 	will := &common.Message{Topic: "test", QOS: 1, Payload: []byte("hello"), Retain: true}
 // 	c.assertOnConnectSuccess(t.Name(), false, will)
 // 	c.assertPersistedWillMessage(will)
-// 	//session receive disconnect packet
+// 	//session receive disconnect common
 // 	c.session.close(false)
 // 	c.assertPersistedWillMessage(nil)
 // 	c.assertRetainedMessage("", 0, "", nil)
@@ -358,101 +552,8 @@ func TestSessionConnectException(t *testing.T) {
 // 	c := newMockConn(t, r.sessions)
 // 	assert.NotNil(t, c)
 // 	defer c.close()
-// 	will := &packet.Message{Topic: "haha", QOS: 1, Payload: []byte("hello"), Retain: false}
+// 	will := &common.Message{Topic: "haha", QOS: 1, Payload: []byte("hello"), Retain: false}
 // 	c.assertOnConnectFail(t.Name(), will)
-// }
-
-// func TestCleanSession(t *testing.T) {
-// 	b := newMockBroker(t)
-// 	assert.NoError(t, err)
-// 	assert.NotNil(t, r)
-// 	defer b.close()
-
-// 	pubC := newMockConn(t, r.sessions)
-// 	assert.NotNil(t, pubC)
-// 	defer pubC.close()
-// 	pubC.assertOnConnect("pubC", "u2", "p2", 3, "", packet.ConnectionAccepted)
-
-// 	//Round 0 [clean session = false]
-// 	subC := newMockConn(t, r.sessions)
-// 	assert.NotNil(t, subC)
-// 	subC.assertOnConnectSuccess("subC", false, nil)
-// 	subC.assertOnSubscribeSuccess([]packet.Subscription{{Topic: "test", QOS: 1}})
-// 	assert.Len(t, subC.session.subs, 1)
-// 	assert.Contains(t, subC.session.subs, "test")
-// 	assert.Equal(t, packet.QOS(1), subC.session.subs["test"].QOS)
-
-// 	pubC.assertOnPublish("test", 0, []byte("hello"), false)
-// 	subC.assertReceive(0, 0, "test", []byte("hello"), false)
-// 	subC.close()
-
-// 	//Round 1 [clean session from false to false]
-// 	subC = newMockConn(t, r.sessions)
-// 	assert.NotNil(t, subC)
-// 	subC.assertOnConnectSuccess("subC", false, nil)
-// 	assert.Len(t, subC.session.subs, 1)
-// 	assert.Contains(t, subC.session.subs, "test")
-// 	assert.Equal(t, packet.QOS(1), subC.session.subs["test"].QOS)
-
-// 	pubC.assertOnPublish("test", 1, []byte("hello"), false)
-// 	subC.assertReceive(1, 1, "test", []byte("hello"), false)
-// 	subC.close()
-
-// 	//Round 2 [clean session from false to true]
-// 	subC = newMockConn(t, r.sessions)
-// 	assert.NotNil(t, subC)
-// 	subC.assertOnConnectSuccess("subC", true, nil)
-// 	assert.Len(t, subC.session.subs, 0)
-
-// 	pubC.assertOnPublish("test", 0, []byte("hello"), false)
-// 	subC.assertReceiveTimeout()
-
-// 	subC.close()
-
-// 	//Round 2 [clean session from true to false]
-// 	subC = newMockConn(t, r.sessions)
-// 	assert.NotNil(t, subC)
-// 	subC.assertOnConnectSuccess("subC", false, nil)
-// 	assert.Len(t, subC.session.subs, 0)
-
-// 	pubC.assertOnPublish("test", 0, []byte("hello"), false)
-// 	subC.assertReceiveTimeout()
-
-// 	subC.close()
-// }
-
-// func TestConnectWithSameClientID(t *testing.T) {
-// 	b := newMockBroker(t)
-// 	assert.NoError(t, err)
-// 	assert.NotNil(t, r)
-// 	defer b.close()
-
-// 	// client1
-// 	subC1 := newMockConn(t, r.sessions)
-// 	assert.NotNil(t, subC1)
-// 	subC1.assertOnConnectSuccess(t.Name(), false, nil)
-// 	subC1.assertOnSubscribeSuccess([]packet.Subscription{{Topic: "test", QOS: 1}})
-
-// 	// client 2
-// 	subC2 := newMockConn(t, r.sessions)
-// 	assert.NotNil(t, subC2)
-// 	subC2.assertOnConnectSuccess(t.Name(), false, nil)
-// 	subC2.assertOnSubscribeSuccess([]packet.Subscription{{Topic: "test", QOS: 1}})
-
-// 	nop := subC1.receive()
-// 	assert.Nil(t, nop)
-// 	subC2.assertReceiveTimeout()
-
-// 	// pub
-// 	pubC := newMockConn(t, r.sessions)
-// 	assert.NotNil(t, pubC)
-// 	pubC.assertOnConnectSuccess(t.Name()+"_pub", false, nil)
-// 	pubC.assertOnPublish("test", 1, []byte("hello"), false)
-
-// 	nop = subC1.receive()
-// 	assert.Nil(t, nop)
-// 	subC2.assertReceive(1, 1, "test", []byte("hello"), false)
-// 	subC2.close()
 // }
 
 // func TestSub0Pub0(t *testing.T) {
@@ -471,7 +572,7 @@ func TestSessionConnectException(t *testing.T) {
 // 	testSubPub(t, 1, 1)
 // }
 
-// func testSubPub(t *testing.T, subQos packet.QOS, pubQos packet.QOS) {
+// func testSubPub(t *testing.T, subQos common.QOS, pubQos common.QOS) {
 // 	b := newMockBroker(t)
 // 	assert.NoError(t, err)
 // 	assert.NotNil(t, r)
@@ -481,7 +582,7 @@ func TestSessionConnectException(t *testing.T) {
 // 	subC := newMockConn(t, r.sessions)
 // 	assert.NotNil(t, subC)
 // 	subC.assertOnConnectSuccess(t.Name()+"_sub", false, nil)
-// 	subC.assertOnSubscribeSuccess([]packet.Subscription{{Topic: "test", QOS: subQos}})
+// 	subC.assertOnSubscribeSuccess([]common.Subscription{{Topic: "test", QOS: subQos}})
 
 // 	//pub
 // 	pubC := newMockConn(t, r.sessions)
@@ -494,27 +595,27 @@ func TestSessionConnectException(t *testing.T) {
 // 		tqos = pubQos
 // 	}
 // 	pkt := subC.receive()
-// 	publish, ok := pkt.(*packet.Publish)
+// 	publish, ok := pkt.(*common.Publish)
 // 	assert.True(t, ok)
 // 	assert.False(t, publish.Message.Retain)
 // 	assert.Equal(t, "test", publish.Message.Topic)
 // 	assert.Equal(t, tqos, publish.Message.QOS)
 // 	assert.Equal(t, []byte("hello"), publish.Message.Payload)
 // 	if tqos != 1 {
-// 		assert.Equal(t, packet.ID(0), publish.ID)
+// 		assert.Equal(t, common.ID(0), publish.ID)
 // 		assert.Equal(t, subC.session.pids.Size(), 0)
 // 		return
 // 	}
-// 	assert.Equal(t, packet.ID(1), publish.ID)
+// 	assert.Equal(t, common.ID(1), publish.ID)
 // 	assert.Equal(t, subC.session.pids.Size(), 1)
 
 // 	// subC resends message since client does not publish ack
 // 	pkt = subC.receive()
-// 	publish, ok = pkt.(*packet.Publish)
+// 	publish, ok = pkt.(*common.Publish)
 // 	assert.True(t, ok)
 // 	assert.True(t, publish.Dup)
 // 	assert.False(t, publish.Message.Retain)
-// 	assert.Equal(t, packet.ID(1), publish.ID)
+// 	assert.Equal(t, common.ID(1), publish.ID)
 // 	assert.Equal(t, "test", publish.Message.Topic)
 // 	assert.Equal(t, tqos, publish.Message.QOS)
 // 	assert.Equal(t, []byte("hello"), publish.Message.Payload)

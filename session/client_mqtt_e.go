@@ -80,14 +80,11 @@ func (c *ClientMQTT) publishing() (err error) {
 	for {
 		select {
 		case e = <-qos0:
-			err = c.send(e.Packet(), false)
+			c.send(e.Packet(), false)
 		case e = <-qos1:
-			err = c.publish(e)
+			c.publish(e)
 		case <-c.Dying():
 			return nil
-		}
-		if err != nil {
-			return err
 		}
 	}
 }
@@ -137,7 +134,11 @@ func (c *ClientMQTT) send(pkt common.Packet, async bool) error {
 		return err
 	}
 	if ent := log.Check(log.DebugLevel, "sent packet"); ent != nil {
-		ent.Write(log.String("packet", pkt.String()))
+		if c.session != nil {
+			ent.Write(log.String("cid", c.session.ID), log.String("pkt", pkt.String()))
+		} else {
+			ent.Write(log.String("pkt", pkt.String()))
+		}
 	}
 	return nil
 }

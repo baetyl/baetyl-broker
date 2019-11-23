@@ -3,6 +3,8 @@ package session
 import (
 	"fmt"
 
+	"github.com/256dpi/gomqtt/packet"
+	"github.com/baetyl/baetyl-broker/auth"
 	"github.com/baetyl/baetyl-broker/common"
 	"github.com/baetyl/baetyl-broker/utils"
 	"github.com/baetyl/baetyl-broker/utils/log"
@@ -26,7 +28,7 @@ func (c *ClientMQTT) receiving() error {
 		return log.Warn("failed to receive packet", err)
 	}
 	if ent := log.Check(log.DebugLevel, "received packet"); ent != nil {
-		ent.Write(log.String("packet", pkt.String()))
+		ent.Write(log.String("pkt", pkt.String()))
 	}
 	p, ok := pkt.(*common.Connect)
 	if !ok {
@@ -49,7 +51,7 @@ func (c *ClientMQTT) receiving() error {
 			return log.Warn("failed to receive packet", err)
 		}
 		if ent := log.Check(log.DebugLevel, "received packet"); ent != nil {
-			ent.Write(log.String("packet", pkt.String()))
+			ent.Write(log.String("cid", c.session.ID), log.String("pkt", pkt.String()))
 		}
 		switch p := pkt.(type) {
 		case *common.Publish:
@@ -88,12 +90,10 @@ func (c *ClientMQTT) onConnect(p *common.Connect) error {
 		c.sendConnack(common.InvalidProtocolVersion, false)
 		return fmt.Errorf("[%s] mqtt protocol version (%d) invalid", info.ID, p.Version)
 	}
-
 	if !checkClientID(info.ID) {
 		c.sendConnack(common.IdentifierRejected, false)
 		return fmt.Errorf("[%s] client ID invalid", info.ID)
 	}
-
 	if !c.anonymous && c.store.auth != nil {
 		// TODO: support tls bidirectional authentication, use CN as username
 
@@ -132,7 +132,7 @@ func (c *ClientMQTT) onConnect(p *common.Connect) error {
 		info.CleanSession = true
 	}
 
-	exists, err := c.store.initSession(info, c)
+	exists, err := c.store.initSession(info, c, true)
 	if err != nil {
 		return err
 	}
@@ -147,24 +147,22 @@ func (c *ClientMQTT) onConnect(p *common.Connect) error {
 		return err
 	}
 
-	log.Infof("[%s ] client is connected", info.ID)
+	log.Infof("[%s] client is connected", info.ID)
 	return nil
 }
 
 func (c *ClientMQTT) onPublish(p *common.Publish) error {
-	// if _, ok := c.permittedPublishTopics[p.Message.Topic]; !ok {
-	// 	// TODO: remove?
-	// 	if !common.PubTopicValidate(p.Message.Topic) {
-	// 		return fmt.Errorf("publish topic (%s) invalid", p.Message.Topic)
-	// 	}
-	// 	if !c.authorizer.Authorize(auth.Publish, p.Message.Topic) {
-	// 		return fmt.Errorf("publish topic (%s) not permitted", p.Message.Topic)
-	// 	}
-	// 	c.permittedPublishTopics[p.Message.Topic] = struct{}{}
-	// }
+	// TODO: improvement, cache auth result
 	if p.Message.QOS > 1 {
-		return fmt.Errorf("publish QOS (%d) not supported", p.Message.QOS)
+		return fmt.Errorf("[%s] publish QOS (%d) not supported", c.session.ID, p.Message.QOS)
 	}
+	if !common.CheckTopic(p.Message.Topic, false) {
+		return fmt.Errorf("[%s] publish topic (%s) invalid", c.session.ID, p.Message.Topic)
+	}
+	if !c.authorizer.Authorize(auth.Publish, p.Message.Topic) {
+		return fmt.Errorf("[%s] publish topic (%s) not permitted", c.session.ID, p.Message.Topic)
+	}
+
 	// TODO: err := c.retainMessage(&p.Message)
 	// if err != nil {
 	// 	return err
@@ -213,9 +211,7 @@ func (c *ClientMQTT) onPingreq(p *common.Pingreq) error {
 }
 
 func (c *ClientMQTT) callback(id uint64) {
-	pa := &common.Puback{}
-	pa.ID = common.ID(id)
-	c.send(pa, true)
+	c.send(&common.Puback{ID: common.ID(id)}, false)
 }
 
 func (c *ClientMQTT) genSuback(p *common.Subscribe) (*common.Suback, []common.Subscription) {
@@ -225,19 +221,19 @@ func (c *ClientMQTT) genSuback(p *common.Subscribe) (*common.Suback, []common.Su
 	}
 	subs := []common.Subscription{}
 	for i, sub := range p.Subscriptions {
-		// if !common.SubTopicValidate(sub.Topic) {
-		// 	s.log.Errorf("subscribe topic (%s) invalid", sub.Topic)
-		// 	rv[i] = packet.QOSFailure
-		// } else if !s.authorizer.Authorize(auth.Subscribe, sub.Topic) {
-		// 	s.log.Errorf("subscribe topic (%s) not permitted", sub.Topic)
-		// 	rv[i] = packet.QOSFailure
-		// } else if sub.QOS > 1 {
-		// 	s.log.Errorf("subscribe QOS (%d) not supported", sub.QOS)
-		// 	rv[i] = packet.QOSFailure
-		// } else {
-		sa.ReturnCodes[i] = sub.QOS
-		subs = append(subs, sub)
-		// }
+		if !common.CheckTopic(sub.Topic, true) {
+			log.Errorf("[%s] subscribe topic (%s) invalid", c.session.ID, sub.Topic)
+			sa.ReturnCodes[i] = packet.QOSFailure
+		} else if !c.authorizer.Authorize(auth.Subscribe, sub.Topic) {
+			log.Errorf("[%s] subscribe topic (%s) not permitted", c.session.ID, sub.Topic)
+			sa.ReturnCodes[i] = packet.QOSFailure
+		} else if sub.QOS > 1 {
+			log.Errorf("[%s] subscribe QOS (%d) not supported", c.session.ID, sub.QOS)
+			sa.ReturnCodes[i] = packet.QOSFailure
+		} else {
+			sa.ReturnCodes[i] = sub.QOS
+			subs = append(subs, sub)
+		}
 	}
 	return sa, subs
 }

@@ -143,18 +143,26 @@ func (s *Store) delClient(ses *Session, cli client) {
 
 	// close session if not bound and CleanSession=true
 	if ses != nil && ses.CleanSession && len(some) == 0 {
-		ses.Close()
 		s.backend.Del(ses.ID)
+		s.exchange.UnbindAll(ses)
+		ses.Close()
 		delete(s.sessions, ses.ID)
 	}
 }
 
 // initSession init session for client, creates new session if not exists
-func (s *Store) initSession(info *Info, cli client) (bool, error) {
+func (s *Store) initSession(info *Info, cli client, unique bool) (bool, error) {
 	s.Lock()
 	defer s.Unlock()
 
 	if ses, ok := s.sessions[info.ID]; ok {
+		if unique {
+			// close previous clients with the same client id
+			for _, prev := range s.clients[ses.ID] {
+				prev.Close()
+				delete(s.clients[ses.ID], prev)
+			}
+		}
 		cli.setSession(ses)
 		// move client from sessionless to ses.ID
 		delete(s.clients[sessionless], cli)
@@ -191,8 +199,10 @@ func (s *Store) initSession(info *Info, cli client) (bool, error) {
 func (s *Store) newSession(info *Info) (*Session, error) {
 	backend, err := s.backend.NewQueueBackend(info.ID)
 	if err != nil {
+		log.Errorf("failed to create session (%s): %s", info.ID, err)
 		return nil, err
 	}
+	defer log.Infof("session (%s) is created", info.ID)
 	return &Session{
 		Info: *info,
 		subs: common.NewTrie(),
@@ -206,6 +216,9 @@ func (s *Store) subscribe(ses *Session, subs []common.Subscription) error {
 	s.Lock()
 	defer s.Unlock()
 
+	if ses.Subscriptions == nil {
+		ses.Subscriptions = map[string]common.QOS{}
+	}
 	for _, sub := range subs {
 		ses.Subscriptions[sub.Topic] = sub.QOS
 		ses.subs.Set(sub.Topic, sub.QOS)
