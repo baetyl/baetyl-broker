@@ -54,7 +54,7 @@ func (c *ClientMQTT) receiving() error {
 			c.log.Warn("failed to receive packet", log.Error(err))
 			return err
 		}
-		if ent := c.log.Check(log.DebugLevel, "client receives packet"); ent != nil {
+		if ent := c.log.Check(log.DebugLevel, "client received a packet"); ent != nil {
 			ent.Write(log.String("packet", pkt.String()))
 		}
 		switch p := pkt.(type) {

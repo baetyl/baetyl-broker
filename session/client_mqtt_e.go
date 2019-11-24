@@ -33,7 +33,7 @@ func newPublisher(d time.Duration, c int) *publisher {
 func (c *ClientMQTT) publish(e *common.Event) error {
 	m := &pm{
 		e: e,
-		p: e.Packet(),
+		p: e.Packet(1),
 		l: time.Now(),
 	}
 	m.p.ID = c.publisher.n.NextID()
@@ -81,7 +81,7 @@ func (c *ClientMQTT) publishing() (err error) {
 	for {
 		select {
 		case e = <-qos0:
-			c.send(e.Packet(), false)
+			c.send(e.Packet(0), false)
 		case e = <-qos1:
 			c.publish(e)
 		case <-c.Dying():
@@ -93,7 +93,7 @@ func (c *ClientMQTT) publishing() (err error) {
 func (c *ClientMQTT) waiting() error {
 	defer c.clean()
 
-	c.log.Info("client starts to wait for message acknowledgement")
+	c.log.Info("client starts to wait for message acknowledgement", log.Duration("interval", c.publisher.d))
 	defer utils.Trace(c.log.Info, "client has stopped waiting")
 
 	var m *pm
@@ -102,9 +102,7 @@ func (c *ClientMQTT) waiting() error {
 	for {
 		select {
 		case m = <-c.publisher.c:
-			timer.Reset(c.publisher.d - time.Now().Sub(m.l))
-			for !m.e.Wait(timer.C, c.Dying()) {
-				timer.Reset(c.publisher.d)
+			for timer.Reset(c.publisher.d - time.Now().Sub(m.l)); !m.e.Wait(timer.C, c.Dying()); timer.Reset(c.publisher.d) {
 				if err := c.republish(m); err != nil {
 					return err
 				}

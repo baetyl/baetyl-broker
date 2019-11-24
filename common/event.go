@@ -57,9 +57,9 @@ func (e *Event) Wait(timeout <-chan time.Time, cancel <-chan struct{}) bool {
 }
 
 // Packet converts event to publish packet
-func (e *Event) Packet() *Publish {
+func (e *Event) Packet(qos QOS) *Publish {
 	pkt := packet.NewPublish()
-	pkt.Message.QOS = packet.QOS(e.Context.QOS)
+	pkt.Message.QOS = qos
 	pkt.Message.Topic = e.Context.Topic
 	pkt.Message.Payload = e.Content
 	return pkt

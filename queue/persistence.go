@@ -126,7 +126,8 @@ func (q *Persistence) reading() error {
 					return nil
 				}
 			}
-			offset += uint64(length)
+			// set next message id
+			offset = buf[length-1].Context.ID+1
 			// keep reading if any message is read
 			q.trigger()
 		case <-q.Dying():

@@ -434,6 +434,67 @@ func TestCleanSession(t *testing.T) {
 	pub.assertClosed(true)
 }
 
+func TestPubSubQOS(t *testing.T) {
+	b := newMockBroker(t)
+	defer b.close()
+
+	pub := newMockConn(t)
+	b.store.NewClientMQTT(pub, false)
+	pub.sendC2S(&common.Connect{ClientID: "pub", Username: "u2", Password: "p2", Version: 3})
+	pub.assertS2CPacket("<Connack SessionPresent=false ReturnCode=0>")
+
+	sub := newMockConn(t)
+	b.store.NewClientMQTT(sub, false)
+	sub.sendC2S(&common.Connect{ClientID: "sub", Username: "u1", Password: "p1", Version: 3})
+	sub.assertS2CPacket("<Connack SessionPresent=false ReturnCode=0>")
+
+	fmt.Println("--> pub qos 1 --> sub qos 1 <--")
+
+	sub.sendC2S(&common.Subscribe{ID: 1, Subscriptions: []common.Subscription{{Topic: "test", QOS: 1}}})
+	sub.assertS2CPacket("<Suback ID=1 ReturnCodes=[1]>")
+	b.assertSession("sub", "{\"ID\":\"sub\",\"CleanSession\":false,\"Subscriptions\":{\"test\":1}}")
+	b.assertExchangeCount(1)
+
+	pkt := &common.Publish{}
+	pkt.ID = 1
+	pkt.Message.QOS = 1
+	pkt.Message.Topic = "test"
+	pkt.Message.Payload = []byte("hi")
+	pub.sendC2S(pkt)
+	pub.assertS2CPacket("<Puback ID=1>")
+	sub.assertS2CPacket("<Publish ID=1 Message=<Message Topic=\"test\" QOS=1 Retain=false Payload=[104 105]> Dup=false>")
+	sub.sendC2S(&common.Puback{ID: 1})
+	sub.assertS2CPacketTimeout()
+
+	fmt.Println("--> pub qos 0 --> sub qos 1 <--")
+
+	pkt.ID = 0
+	pkt.Message.QOS = 0
+	pub.sendC2S(pkt)
+	sub.assertS2CPacket("<Publish ID=0 Message=<Message Topic=\"test\" QOS=0 Retain=false Payload=[104 105]> Dup=false>")
+	sub.assertS2CPacketTimeout()
+
+	fmt.Println("--> pub qos 0 --> sub qos 0 <--")
+
+	sub.sendC2S(&common.Subscribe{ID: 1, Subscriptions: []common.Subscription{{Topic: "test", QOS: 0}}})
+	sub.assertS2CPacket("<Suback ID=1 ReturnCodes=[0]>")
+	b.assertSession("sub", "{\"ID\":\"sub\",\"CleanSession\":false,\"Subscriptions\":{\"test\":0}}")
+	b.assertExchangeCount(1)
+
+	pub.sendC2S(pkt)
+	sub.assertS2CPacket("<Publish ID=0 Message=<Message Topic=\"test\" QOS=0 Retain=false Payload=[104 105]> Dup=false>")
+	sub.assertS2CPacketTimeout()
+
+	fmt.Println("--> pub qos 1 --> sub qos 0 <--")
+
+	pkt.ID = 2
+	pkt.Message.QOS = 1
+	pub.sendC2S(pkt)
+	pub.assertS2CPacket("<Puback ID=2>")
+	sub.assertS2CPacket("<Publish ID=0 Message=<Message Topic=\"test\" QOS=1 Retain=false Payload=[104 105]> Dup=false>")
+	sub.assertS2CPacketTimeout()
+}
+
 // func TestSessionRetain(t *testing.T) {
 // 	b := newMockBroker(t)
 // 	assert.NoError(t, err)
