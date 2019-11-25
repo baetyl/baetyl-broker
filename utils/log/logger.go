@@ -28,7 +28,9 @@ const (
 	FatalLevel
 )
 
-var _log, _ = zap.NewDevelopment()
+// var _log, _ = zap.NewDevelopment()
+
+var _log, _ = zap.NewProduction()
 
 // Init initializes logger
 func Init(l *Logger) {

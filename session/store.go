@@ -9,6 +9,7 @@ import (
 	"github.com/baetyl/baetyl-broker/common"
 	"github.com/baetyl/baetyl-broker/queue"
 	"github.com/baetyl/baetyl-broker/transport"
+	"github.com/baetyl/baetyl-broker/utils"
 	"github.com/baetyl/baetyl-broker/utils/log"
 )
 
@@ -24,6 +25,7 @@ type Exchange interface {
 }
 
 type client interface {
+	getSession() *Session
 	setSession(*Session)
 	io.Closer
 }
@@ -46,8 +48,10 @@ type Store struct {
 	exchange Exchange
 	sessions map[string]*Session
 	clients  map[string]map[client]client
+	events   chan client
 	log      *log.Logger
 	sync.Mutex
+	utils.Tomb
 }
 
 // NewStore create a new session store
@@ -69,6 +73,7 @@ func NewStore(config Config, exchange Exchange, auth *auth.Auth) (*Store, error)
 		exchange: exchange,
 		sessions: map[string]*Session{},
 		clients:  map[string]map[client]client{},
+		events:   make(chan client, 1),
 		log:      log.With(log.String("session", "store")),
 	}
 	// store all clients without session under sessionless key in map
@@ -87,17 +92,43 @@ func NewStore(config Config, exchange Exchange, auth *auth.Auth) (*Store, error)
 			// TODO: it is unnecessary to subscribe messages with qos 0 for the session without any client
 		}
 	}
+	store.Go(store.handling)
 	store.log.Info("session store has initialized")
 	return store, nil
 }
 
+func (s *Store) putEvent(cli client) {
+	select {
+	case s.events <- cli:
+	case <-s.Dying():
+	}
+}
+
+func (s *Store) handling() error {
+	s.log.Info("session store starts to handle events")
+	defer utils.Trace(s.log.Info, "session store has stopped handling events")()
+
+	for {
+		select {
+		case cli := <-s.events:
+			s.delClient(cli)
+			cli.Close()
+		case <-s.Dying():
+			return nil
+		}
+	}
+}
+
 // Close close
 func (s *Store) Close() error {
-	s.Lock()
-	defer s.Unlock()
-
 	s.log.Info("session store is closing")
 	defer s.log.Info("session store has closed")
+
+	s.Kill(nil)
+	defer s.Wait()
+
+	s.Lock()
+	defer s.Unlock()
 
 	for _, some := range s.clients {
 		for _, cli := range some {
@@ -112,30 +143,13 @@ func (s *Store) Close() error {
 	return s.backend.Close()
 }
 
-// NewClientMQTT creates a new MQTT client
-func (s *Store) NewClientMQTT(c transport.Connection, anonymous bool) {
-	cli := &ClientMQTT{
-		store:      s,
-		connection: c,
-		anonymous:  anonymous,
-		publisher:  newPublisher(s.config.RepublishInterval, s.config.MaxInflightQOS1Messages),
-		log:        log.With(log.String("client", "mqtt")),
-	}
-	s.Lock()
-	// session will be bound after connect packet is handled
-	s.clients[sessionless][cli] = cli
-	s.Unlock()
-	cli.Go(cli.receiving)
-}
-
 // delClient deletes client and clean session if needs
-func (s *Store) delClient(ses *Session, cli client) {
-	cli.Close()
-
+func (s *Store) delClient(cli client) {
 	s.Lock()
 	defer s.Unlock()
 
 	key := sessionless
+	ses := cli.getSession()
 	if ses != nil {
 		key = ses.ID
 	}
@@ -150,6 +164,7 @@ func (s *Store) delClient(ses *Session, cli client) {
 		s.exchange.UnbindAll(ses)
 		ses.Close()
 		delete(s.sessions, ses.ID)
+		// TODO: to delete persistent queue data if CleanSession=true
 	}
 }
 
@@ -248,4 +263,20 @@ func (s *Store) unsubscribe(ses *Session, topics []string) error {
 		return s.backend.Set(&ses.Info)
 	}
 	return nil
+}
+
+// NewClientMQTT creates a new MQTT client
+func (s *Store) NewClientMQTT(c transport.Connection, anonymous bool) {
+	cli := &ClientMQTT{
+		store:      s,
+		connection: c,
+		anonymous:  anonymous,
+		publisher:  newPublisher(s.config.RepublishInterval, s.config.MaxInflightQOS1Messages),
+		log:        log.With(log.String("client", "mqtt")),
+	}
+	s.Lock()
+	// session will be bound after connect packet is handled
+	s.clients[sessionless][cli] = cli
+	s.Unlock()
+	cli.Go(cli.receiving)
 }

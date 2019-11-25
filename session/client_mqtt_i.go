@@ -15,7 +15,7 @@ func (c *ClientMQTT) receiving() error {
 	defer c.clean()
 
 	c.log.Info("client starts to handle incoming messages")
-	defer utils.Trace(c.log.Info, "client has stopped handling incoming messages")
+	defer utils.Trace(c.log.Info, "client has stopped handling incoming messages")()
 
 	var err error
 	var pkt common.Packet

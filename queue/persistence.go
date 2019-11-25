@@ -1,7 +1,6 @@
 package queue
 
 import (
-	"sync"
 	"time"
 
 	"github.com/baetyl/baetyl-broker/common"
@@ -18,7 +17,6 @@ type Persistence struct {
 	eget    chan bool   // get events
 	log     *log.Logger
 	utils.Tomb
-	sync.Once
 }
 
 // NewPersistence creates a new in-memory queue
@@ -127,7 +125,7 @@ func (q *Persistence) reading() error {
 				}
 			}
 			// set next message id
-			offset = buf[length-1].Context.ID+1
+			offset = buf[length-1].Context.ID + 1
 			// keep reading if any message is read
 			q.trigger()
 		case <-q.Dying():
@@ -245,9 +243,9 @@ func (q *Persistence) acknowledge(id uint64) {
 
 // Close closes this queue
 func (q *Persistence) Close() error {
-	q.Do(func() {
-		q.Kill(nil)
-		q.log.Info("queue has closed")
-	})
+	q.log.Info("queue is closing")
+	defer q.log.Info("queue has closed")
+
+	q.Kill(nil)
 	return q.Wait()
 }

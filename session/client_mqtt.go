@@ -39,23 +39,29 @@ func (c *ClientMQTT) setSession(ses *Session) {
 	c.log = c.log.With(log.String("id", ses.ID))
 }
 
+func (c *ClientMQTT) getSession() *Session {
+	return c.session
+}
+
 func (c *ClientMQTT) authorize(action, topic string) bool {
 	return c.authorizer == nil || c.authorizer.Authorize(action, topic)
 }
 
+// notify session store to clean client and its session
 func (c *ClientMQTT) clean() {
-	c.store.delClient(c.session, c)
+	c.Do(func() {
+		c.store.putEvent(c)
+	})
 }
 
-// Close closes mqtt client
+// Close closes client by session
 func (c *ClientMQTT) Close() error {
-	c.Do(func() {
-		c.log.Info("client is closing")
-		c.Kill(nil)
-		err := c.connection.Close()
-		c.log.Info("client has closed", log.Error(err))
-	})
-	return nil
+	c.log.Info("client is closing")
+	c.Kill(nil)
+	c.Wait()
+	err := c.connection.Close()
+	c.log.Info("client is has closed", log.Error(err))
+	return err
 }
 
 // checkClientID checks clientID
