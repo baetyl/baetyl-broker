@@ -21,7 +21,7 @@ func NewTemporary(id string, capacity int, dropIfFull bool) Queue {
 	q := &Temporary{
 		events: make(chan *common.Event, capacity),
 		quit:   make(chan bool),
-		log:    log.With(log.String("queue", "temp"),log.String("id", id)),
+		log:    log.With(log.String("queue", "temp"), log.String("id", id)),
 	}
 	if dropIfFull {
 		q.push = q.putOrDrop
@@ -77,9 +77,11 @@ func (q *Temporary) putOrDrop(e *common.Event) error {
 
 // Close closes this queue
 func (q *Temporary) Close() error {
+	q.log.Info("queue is closing")
+	defer q.log.Info("queue has closed")
+
 	q.Do(func() {
 		close(q.quit)
-		q.log.Info("queue has closed")
 	})
 	return nil
 }

@@ -73,7 +73,7 @@ func (c *ClientMQTT) publishing() (err error) {
 	defer c.clean()
 
 	c.log.Info("client starts to publish messages")
-	defer utils.Trace(c.log.Info, "client has stopped publishing messages")
+	defer utils.Trace(c.log.Info, "client has stopped publishing messages")()
 
 	var e *common.Event
 	qos0 := c.session.qos0.Chan()
@@ -94,7 +94,7 @@ func (c *ClientMQTT) waiting() error {
 	defer c.clean()
 
 	c.log.Info("client starts to wait for message acknowledgement", log.Duration("interval", c.publisher.d))
-	defer utils.Trace(c.log.Info, "client has stopped waiting")
+	defer utils.Trace(c.log.Info, "client has stopped waiting")()
 
 	var m *pm
 	timer := time.NewTimer(c.publisher.d)
@@ -125,6 +125,10 @@ func (c *ClientMQTT) send(pkt common.Packet, async bool) error {
 	// TODO: remove lock
 	c.Lock()
 	defer c.Unlock()
+
+	if !c.Alive() {
+		return ErrClientClosed
+	}
 
 	err := c.connection.Send(pkt, async)
 	if err != nil {
