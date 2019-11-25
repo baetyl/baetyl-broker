@@ -6,55 +6,86 @@ import (
 	"github.com/baetyl/baetyl-broker/utils/log"
 )
 
+// Server the server to accept connections
+type Server = trans.Server
+
+// Connection the connection between a client and a server
+type Connection = trans.Conn
+
 // Handle handles connection
-type Handle func(trans.Conn)
+type Handle func(Connection, bool)
+
+// Endpoint the endpoint
+type Endpoint struct {
+	Address   string
+	Anonymous bool
+	Handle    Handle
+}
 
 // Transport transport
 type Transport struct {
-	servers []trans.Server
-	handle  Handle
-	tomb    utils.Tomb
+	endpoints []*Endpoint
+	servers   []Server
+	log       *log.Logger
+	utils.Tomb
 }
 
-// NewService creates a new mqtt service
-func NewService(addrs []string, cert utils.Certificate, handle Handle) (*Transport, error) {
+// NewTransport creates a new transport
+func NewTransport(endpoints []*Endpoint, cert *utils.Certificate) (*Transport, error) {
 	launcher, err := NewLauncher(cert)
 	if err != nil {
 		return nil, err
 	}
-	s := &Transport{
-		servers: make([]trans.Server, 0),
-		handle:  handle,
+	tp := &Transport{
+		endpoints: endpoints,
+		servers:   make([]Server, 0),
+		log:       log.With(log.String("transport", "mqtt")),
 	}
-	for _, addr := range addrs {
-		svr, err := launcher.Launch(addr)
+	for _, endpoint := range endpoints {
+		if endpoint.Handle == nil {
+			panic("endpoint handle cannot be nil")
+		}
+		svr, err := launcher.Launch(endpoint.Address)
 		if err != nil {
-			s.Close()
+			tp.Close()
 			return nil, err
 		}
-		s.servers = append(s.servers, svr)
-		s.tomb.Go(func() error {
-			for {
-				conn, err := svr.Accept()
-				if err != nil {
-					if !s.tomb.Alive() {
-						return nil
-					}
-					log.Errorf("failed to accept connection")
-					continue
-				}
-				go s.handle(conn)
-			}
-		})
+		tp.servers = append(tp.servers, svr)
+		tp.accepting(svr, endpoint.Handle, endpoint.Anonymous)
 	}
-	return s, nil
+	tp.log.Info("transport has initialized")
+	return tp, nil
+}
+
+func (tp *Transport) accepting(svr Server, handle Handle, anonymous bool) {
+	tp.Go(func() error {
+		l := log.With(log.String("server", svr.Addr().String()))
+		l.Info("server starts to accept")
+		defer utils.Trace(l.Info, "server has stopped accepting")()
+
+		for {
+			conn, err := svr.Accept()
+			if err != nil {
+				if !tp.Alive() {
+					l.Debug("failed to accept connection", log.Error(err))
+					return nil
+				}
+				l.Error("failed to accept connection", log.Error(err))
+				return err
+			}
+			handle(conn, anonymous)
+		}
+	})
 }
 
 // Close closes service
-func (s *Transport) Close() error {
-	s.tomb.Kill(nil)
-	for _, svr := range s.servers {
+func (tp *Transport) Close() error {
+	tp.log.Info("transport is closing")
+	defer tp.log.Info("transport has closed")
+
+	tp.Kill(nil)
+	for _, svr := range tp.servers {
 		svr.Close()
 	}
-	return s.tomb.Wait()
+	return tp.Wait()
 }

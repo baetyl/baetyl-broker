@@ -1,64 +1,62 @@
 package log
 
 import (
-	"os"
-	"strings"
+	"time"
 
-	"github.com/sirupsen/logrus"
+	"go.uber.org/zap"
+	"go.uber.org/zap/zapcore"
 )
 
-var log Logger
-var level = logrus.InfoLevel
+// Field log field
+type Field = zap.Field
 
-// Logger the logger interface
-type Logger interface {
-	Debugf(format string, args ...interface{})
-	Infof(format string, args ...interface{})
-	Warnf(format string, args ...interface{})
-	Errorf(format string, args ...interface{})
-	Fatalf(format string, args ...interface{})
+// Option log Option
+type Option = zap.Option
+
+// Logger logger
+type Logger = zap.Logger
+
+// Level log level
+type Level = zapcore.Level
+
+// all log level
+const (
+	DebugLevel Level = iota - 1
+	InfoLevel
+	WarnLevel
+	ErrorLevel
+	FatalLevel
+)
+
+var _log, _ = zap.NewDevelopment()
+
+// Init initializes logger
+func Init(l *Logger) {
+	_log = l
 }
 
-func init() {
-	entry := logrus.NewEntry(logrus.New())
-	entry.Level = level
-	entry.Logger.Out = os.Stdout
-	entry.Logger.Level = level
-	entry.Logger.Formatter = newFormatter("text")
-	log = entry
+// Int constructs a field with the given key and value.
+func Int(key string, val int) Field {
+	return zap.Int(key, val)
 }
 
-func newFormatter(format string) logrus.Formatter {
-	var formatter logrus.Formatter
-	if strings.ToLower(format) == "json" {
-		formatter = &logrus.JSONFormatter{}
-	} else {
-		formatter = &logrus.TextFormatter{FullTimestamp: true, DisableColors: true}
-	}
-	return formatter
+// Error is shorthand for the common idiom NamedError("error", err).
+func Error(err error) Field {
+	return zap.Error(err)
 }
 
-// Debugf prints log in debug level
-func Debugf(format string, args ...interface{}) {
-	log.Debugf(format, args...)
+// String constructs a field with the given key and value.
+func String(key string, val string) Field {
+	return zap.String(key, val)
 }
 
-// Infof prints log in info level
-func Infof(format string, args ...interface{}) {
-	log.Infof(format, args...)
+// Duration constructs a field with the given key and value
+func Duration(key string, val time.Duration) Field {
+	return zap.Duration(key, val)
 }
 
-// Warnf prints log in warn level
-func Warnf(format string, args ...interface{}) {
-	log.Warnf(format, args...)
-}
-
-// Errorf prints log in error level
-func Errorf(format string, args ...interface{}) {
-	log.Errorf(format, args...)
-}
-
-// Fatalf prints log in fatal level
-func Fatalf(format string, args ...interface{}) {
-	log.Fatalf(format, args...)
+// With creates a child logger and adds structured context to it. Fields added
+// to the child don't affect the parent, and vice versa.
+func With(fields ...Field) *Logger {
+	return _log.With(fields...)
 }

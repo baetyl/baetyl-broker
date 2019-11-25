@@ -14,18 +14,28 @@ import (
 )
 
 func TestMqttTcp(t *testing.T) {
-	addr := []string{"tcp://:0", "tcp://127.0.0.1:0"}
-	m, err := NewService(addr, utils.Certificate{}, func(conn trans.Conn) {
+	handle := func(conn Connection, _ bool) {
 		p, err := conn.Receive()
 		assert.NoError(t, err)
 		err = conn.Send(p, false)
 		assert.NoError(t, err)
-	})
+	}
+	endpoints := []*Endpoint{
+		&Endpoint{
+			Address: "tcp://:0",
+			Handle:  handle,
+		},
+		&Endpoint{
+			Address: "tcp://127.0.0.1:0",
+			Handle:  handle,
+		},
+	}
+	m, err := NewTransport(endpoints, nil)
 	assert.NoError(t, err)
 	defer m.Close()
 	time.Sleep(time.Millisecond * 100)
 
-	dailer, err := NewDialer(utils.Certificate{})
+	dailer, err := NewDialer(nil)
 	request := packet.NewConnect()
 	request.ClientID = m.servers[0].Addr().String()
 	conn, err := dailer.Dial(getURL(m.servers[0], "tcp"))
@@ -49,14 +59,8 @@ func TestMqttTcp(t *testing.T) {
 }
 
 func TestMqttTcpTls(t *testing.T) {
-	addr := []string{"ssl://localhost:0"}
-	cert := utils.Certificate{
-		CA:   "./testcert/ca.pem",
-		Key:  "./testcert/server.key",
-		Cert: "./testcert/server.pem",
-	}
 	count := int32(0)
-	m, err := NewService(addr, cert, func(conn trans.Conn) {
+	handle := func(conn Connection, _ bool) {
 		c := atomic.AddInt32(&count, 1)
 		p, err := conn.Receive()
 
@@ -72,7 +76,19 @@ func TestMqttTcpTls(t *testing.T) {
 
 		err = conn.Send(p, false)
 		assert.NoError(t, err)
-	})
+	}
+	endpoints := []*Endpoint{
+		&Endpoint{
+			Address: "ssl://localhost:0",
+			Handle:  handle,
+		},
+	}
+	cert := &utils.Certificate{
+		CA:   "./testcert/ca.pem",
+		Key:  "./testcert/server.key",
+		Cert: "./testcert/server.pem",
+	}
+	m, err := NewTransport(endpoints, cert)
 	assert.NoError(t, err)
 	defer m.Close()
 	time.Sleep(time.Millisecond * 100)
@@ -82,7 +98,7 @@ func TestMqttTcpTls(t *testing.T) {
 	request.ClientID = m.servers[0].Addr().String()
 
 	// count: 1
-	dailer, err := NewDialer(utils.Certificate{Insecure: true})
+	dailer, err := NewDialer(&utils.Certificate{Insecure: true})
 	assert.NoError(t, err)
 	conn, err := dailer.Dial(url)
 	assert.NoError(t, err)
@@ -93,7 +109,7 @@ func TestMqttTcpTls(t *testing.T) {
 	conn.Close()
 
 	// count: 2
-	dailer, err = NewDialer(utils.Certificate{
+	dailer, err = NewDialer(&utils.Certificate{
 		CA:       "./testcert/ca.pem",
 		Insecure: true,
 	})
@@ -108,7 +124,7 @@ func TestMqttTcpTls(t *testing.T) {
 	conn.Close()
 
 	// count: 3
-	dailer, err = NewDialer(utils.Certificate{
+	dailer, err = NewDialer(&utils.Certificate{
 		CA:       "./testcert/ca.pem",
 		Key:      "./testcert/testssl2.key",
 		Cert:     "./testcert/testssl2.pem",
@@ -126,19 +142,28 @@ func TestMqttTcpTls(t *testing.T) {
 }
 
 func TestMqttWebSocket(t *testing.T) {
-	addr := []string{"ws://localhost:0", "ws://127.0.0.1:0/mqtt"}
-	cert := utils.Certificate{}
-	m, err := NewService(addr, cert, func(conn trans.Conn) {
+	handle := func(conn Connection, _ bool) {
 		p, err := conn.Receive()
 		assert.NoError(t, err)
 		err = conn.Send(p, false)
 		assert.NoError(t, err)
-	})
+	}
+	endpoints := []*Endpoint{
+		&Endpoint{
+			Address: "ws://localhost:0",
+			Handle:  handle,
+		},
+		&Endpoint{
+			Address: "ws://127.0.0.1:0/mqtt",
+			Handle:  handle,
+		},
+	}
+	m, err := NewTransport(endpoints, nil)
 	assert.NoError(t, err)
 	defer m.Close()
 	time.Sleep(time.Millisecond * 100)
 
-	dailer, err := NewDialer(utils.Certificate{Insecure: true})
+	dailer, err := NewDialer(&utils.Certificate{Insecure: true})
 	assert.NoError(t, err)
 	request := packet.NewConnect()
 	request.ClientID = m.servers[0].Addr().String()
@@ -173,14 +198,8 @@ func TestMqttWebSocket(t *testing.T) {
 }
 
 func TestMqttWebSocketTls(t *testing.T) {
-	addr := []string{"wss://localhost:0/mqtt"}
-	cert := utils.Certificate{
-		CA:   "./testcert/ca.pem",
-		Key:  "./testcert/server.key",
-		Cert: "./testcert/server.pem",
-	}
 	count := int32(0)
-	m, err := NewService(addr, cert, func(conn trans.Conn) {
+	handle := func(conn Connection, _ bool) {
 		c := atomic.AddInt32(&count, 1)
 		fmt.Println(count, conn.LocalAddr())
 		p, err := conn.Receive()
@@ -196,7 +215,19 @@ func TestMqttWebSocketTls(t *testing.T) {
 
 		err = conn.Send(p, false)
 		assert.NoError(t, err)
-	})
+	}
+	endpoints := []*Endpoint{
+		&Endpoint{
+			Address: "wss://localhost:0/mqtt",
+			Handle:  handle,
+		},
+	}
+	cert := &utils.Certificate{
+		CA:   "./testcert/ca.pem",
+		Key:  "./testcert/server.key",
+		Cert: "./testcert/server.pem",
+	}
+	m, err := NewTransport(endpoints, cert)
 	assert.NoError(t, err)
 	defer m.Close()
 	time.Sleep(time.Millisecond * 100)
@@ -205,7 +236,7 @@ func TestMqttWebSocketTls(t *testing.T) {
 	request := packet.NewConnect()
 	request.ClientID = m.servers[0].Addr().String()
 
-	dailer, err := NewDialer(utils.Certificate{})
+	dailer, err := NewDialer(nil)
 	assert.NoError(t, err)
 	conn, err := dailer.Dial(url)
 	assert.Nil(t, conn)
@@ -217,7 +248,7 @@ func TestMqttWebSocketTls(t *testing.T) {
 	}
 
 	// count: 1
-	dailer, err = NewDialer(utils.Certificate{Insecure: true})
+	dailer, err = NewDialer(&utils.Certificate{Insecure: true})
 	assert.NoError(t, err)
 	conn, err = dailer.Dial(url)
 	assert.NoError(t, err)
@@ -228,7 +259,7 @@ func TestMqttWebSocketTls(t *testing.T) {
 	conn.Close()
 
 	// count: 2
-	dailer, err = NewDialer(utils.Certificate{
+	dailer, err = NewDialer(&utils.Certificate{
 		CA:       "./testcert/ca.pem",
 		Insecure: true,
 	})
@@ -242,7 +273,7 @@ func TestMqttWebSocketTls(t *testing.T) {
 	conn.Close()
 
 	// count: 3
-	dailer, err = NewDialer(utils.Certificate{
+	dailer, err = NewDialer(&utils.Certificate{
 		CA:       "./testcert/ca.pem",
 		Key:      "./testcert/testssl2.key",
 		Cert:     "./testcert/testssl2.pem",
@@ -260,22 +291,67 @@ func TestMqttWebSocketTls(t *testing.T) {
 }
 
 func TestServerException(t *testing.T) {
-	addr := []string{"tcp://:28767", "tcp://:28767"}
-	_, err := NewService(addr, utils.Certificate{}, nil)
+	handle := func(conn Connection, _ bool) {
+		p, err := conn.Receive()
+		assert.NoError(t, err)
+		err = conn.Send(p, false)
+		assert.NoError(t, err)
+	}
+	endpoints := []*Endpoint{
+		&Endpoint{
+			Address: "tcp://:28767",
+			Handle:  handle,
+		},
+		&Endpoint{
+			Address: "tcp://:28767",
+			Handle:  handle,
+		},
+	}
+	_, err := NewTransport(endpoints, nil)
 	switch err.Error() {
 	case "listen tcp :28767: bind: address already in use":
 	case "listen tcp :28767: bind: Only one usage of each socket address (protocol/network address/port) is normally permitted.":
 	default:
 		assert.FailNow(t, "error expected")
 	}
-	addr = []string{"tcp://:28767", "ssl://:28767"}
-	_, err = NewService(addr, utils.Certificate{}, nil)
+
+	endpoints = []*Endpoint{
+		&Endpoint{
+			Address: "tcp://:28767",
+			Handle:  handle,
+		},
+		&Endpoint{
+			Address: "ssl://:28767",
+			Handle:  handle,
+		},
+	}
+	_, err = NewTransport(endpoints, nil)
 	assert.EqualError(t, err, "tls: neither Certificates nor GetCertificate set in Config")
-	addr = []string{"ws://:28767/v1", "wss://:28767/v2"}
-	_, err = NewService(addr, utils.Certificate{}, nil)
+
+	endpoints = []*Endpoint{
+		&Endpoint{
+			Address: "ws://:28767/v1",
+			Handle:  handle,
+		},
+		&Endpoint{
+			Address: "wss://:28767/v2",
+			Handle:  handle,
+		},
+	}
+	_, err = NewTransport(endpoints, nil)
 	assert.EqualError(t, err, "tls: neither Certificates nor GetCertificate set in Config")
-	addr = []string{"ws://:28767/v1", "ws://:28767/v1"}
-	_, err = NewService(addr, utils.Certificate{}, nil)
+
+	endpoints = []*Endpoint{
+		&Endpoint{
+			Address: "ws://:28767/v1",
+			Handle:  handle,
+		},
+		&Endpoint{
+			Address: "ws://:28767/v1",
+			Handle:  handle,
+		},
+	}
+	_, err = NewTransport(endpoints, nil)
 	switch err.Error() {
 	case "listen tcp :28767: bind: address already in use":
 	case "listen tcp :28767: bind: Only one usage of each socket address (protocol/network address/port) is normally permitted.":
@@ -284,8 +360,8 @@ func TestServerException(t *testing.T) {
 	}
 
 	// TODO: test more special case
-	// addr = []string{"ws://:28767/v1", "ws://0.0.0.0:28767/v2"}
-	// addr = []string{"ws://localhost:28767/v1", "ws://127.0.0.1:28767/v2"}
+	// endpoints = []string{"ws://:28767/v1", "ws://0.0.0.0:28767/v2"}
+	// endpoints = []string{"ws://localhost:28767/v1", "ws://127.0.0.1:28767/v2"}
 }
 
 func getPort(s trans.Server) string {

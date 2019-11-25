@@ -30,12 +30,12 @@ func init() {
 // sqldb the backend SQL DB to persist values
 type sqldb struct {
 	*sql.DB
-	conf   Conf
-	encode Encode
+	conf    Conf
+	encoder Encoder
 }
 
 // New creates a new sql database
-func _new(conf Conf, encode Encode) (DB, error) {
+func _new(conf Conf, encoder Encoder) (DB, error) {
 	db, err := sql.Open(conf.Driver, conf.Source)
 	if err != nil {
 		return nil, err
@@ -46,7 +46,7 @@ func _new(conf Conf, encode Encode) (DB, error) {
 			return nil, err
 		}
 	}
-	return &sqldb{DB: db, conf: conf, encode: encode}, nil
+	return &sqldb{DB: db, conf: conf, encoder: encoder}, nil
 }
 
 // Conf returns the configuration
@@ -56,7 +56,7 @@ func (d *sqldb) Conf() Conf {
 
 // * t
 
-// Put put values into SQL DB
+// Put puts values into SQL DB
 func (d *sqldb) Put(values []interface{}) error {
 	l := len(values)
 	if l == 0 {
@@ -65,8 +65,8 @@ func (d *sqldb) Put(values []interface{}) error {
 	phs := make([]string, l)
 	for i := 0; i < l; i++ {
 		phs[i] = placeholderValue
-		if d.encode != nil {
-			values[i] = d.encode.Encode(values[i])
+		if d.encoder != nil {
+			values[i] = d.encoder.Encode(values[i])
 		}
 	}
 	query := fmt.Sprintf(
@@ -98,8 +98,8 @@ func (d *sqldb) Get(offset uint64, length int) ([]interface{}, error) {
 		if err != nil {
 			return nil, err
 		}
-		if d.encode != nil {
-			values = append(values, d.encode.Decode(id, value))
+		if d.encoder != nil {
+			values = append(values, d.encoder.Decode(value, id))
 		} else {
 			values = append(values, value)
 		}
@@ -120,9 +120,9 @@ func (d *sqldb) Del(ids []uint64) error {
 
 // * kv
 
-// PutKV put key and value into SQL DB
-func (d *sqldb) PutKV(key, value []byte) error {
-	if len(key) == 0 {
+// SetKV sets key and value into SQL DB
+func (d *sqldb) SetKV(key, value interface{}) error {
+	if key == nil || value == nil {
 		return nil
 	}
 	stmt, err := d.Prepare("insert into kv(key,value) values (?,?) on conflict(key) do update set value=excluded.value")
@@ -130,12 +130,15 @@ func (d *sqldb) PutKV(key, value []byte) error {
 		return err
 	}
 	defer stmt.Close()
+	if d.encoder != nil {
+		value = d.encoder.Encode(value)
+	}
 	_, err = stmt.Exec(key, value)
 	return err
 }
 
 // GetKV gets value by key from SQL DB
-func (d *sqldb) GetKV(key []byte) ([]byte, error) {
+func (d *sqldb) GetKV(key interface{}) (interface{}, error) {
 	rows, err := d.Query("select value from kv where key=?", key)
 	if err != nil {
 		return nil, err
@@ -148,32 +151,39 @@ func (d *sqldb) GetKV(key []byte) ([]byte, error) {
 		if err != nil {
 			return nil, err
 		}
+		if d.encoder != nil {
+			return d.encoder.Decode(value), nil
+		}
 		return value, nil
 	}
 	return nil, nil
 }
 
 // Del deletes key and value from SQL DB
-func (d *sqldb) DelKV(key []byte) error {
+func (d *sqldb) DelKV(key interface{}) error {
 	_, err := d.Exec("delete from kv where key=?", key)
 	return err
 }
 
 // ListKV list all values
-func (d *sqldb) ListKV() (vs [][]byte, err error) {
+func (d *sqldb) ListKV() (vs []interface{}, err error) {
 	rows, err := d.Query("select value from kv")
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	values := [][]byte{}
+	values := []interface{}{}
 	for rows.Next() {
 		var value []byte
 		err = rows.Scan(&value)
 		if err != nil {
 			return nil, err
 		}
-		values = append(values, value)
+		if d.encoder != nil {
+			values = append(values, d.encoder.Decode(value))
+		} else {
+			values = append(values, value)
+		}
 	}
 	return values, nil
 }
