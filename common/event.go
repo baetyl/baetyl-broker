@@ -1,10 +1,17 @@
 package common
 
 import (
+	"errors"
 	"sync/atomic"
 	"time"
 
 	"github.com/256dpi/gomqtt/packet"
+)
+
+// all errors of acknowledgement
+var (
+	ErrAcknowledgeCanceled = errors.New("acknowledge canceled")
+	ErrAcknowledgeTimedOut = errors.New("acknowledge timed out")
 )
 
 type acknowledge struct {
@@ -24,17 +31,17 @@ func (a *acknowledge) _done(id uint64) {
 }
 
 // Wait waits until acknowledged or cancelled
-func (a *acknowledge) _wait(timeout <-chan time.Time, cancel <-chan struct{}) bool {
+func (a *acknowledge) _wait(timeout <-chan time.Time, cancel <-chan struct{}) error {
 	if a.done == nil {
-		return true
+		return nil
 	}
 	select {
 	case <-a.done:
-		return true
+		return nil
 	case <-timeout:
-		return false
+		return ErrAcknowledgeTimedOut
 	case <-cancel:
-		return false
+		return ErrAcknowledgeCanceled
 	}
 }
 
@@ -52,7 +59,7 @@ func (e *Event) Done() {
 }
 
 // Wait waits until acknowledged (returns true), cancelled or timed out
-func (e *Event) Wait(timeout <-chan time.Time, cancel <-chan struct{}) bool {
+func (e *Event) Wait(timeout <-chan time.Time, cancel <-chan struct{}) error {
 	return e.ack._wait(timeout, cancel)
 }
 

@@ -5,8 +5,7 @@ import (
 	"time"
 
 	"github.com/baetyl/baetyl-broker/common"
-	"github.com/baetyl/baetyl-broker/utils"
-	"github.com/baetyl/baetyl-broker/utils/log"
+	"github.com/baetyl/baetyl-go/utils/log"
 )
 
 type pm struct {
@@ -19,7 +18,7 @@ type publisher struct {
 	d time.Duration
 	m sync.Map
 	c chan *pm
-	n *common.Counter
+	n *common.Counter // Only used by mqtt client
 }
 
 func newPublisher(d time.Duration, c int) *publisher {
@@ -70,10 +69,8 @@ func (c *ClientMQTT) acknowledge(p *common.Puback) {
 }
 
 func (c *ClientMQTT) publishing() (err error) {
-	defer c.clean()
-
 	c.log.Info("client starts to publish messages")
-	defer utils.Trace(c.log.Info, "client has stopped publishing messages")()
+	defer c.log.Info("client has stopped publishing messages")
 
 	var e *common.Event
 	qos0 := c.session.qos0.Chan()
@@ -83,18 +80,18 @@ func (c *ClientMQTT) publishing() (err error) {
 		case e = <-qos0:
 			c.send(e.Packet(0), false)
 		case e = <-qos1:
-			c.publish(e)
+			if err := c.publish(e); err != nil {
+				return err
+			}
 		case <-c.Dying():
 			return nil
 		}
 	}
 }
 
-func (c *ClientMQTT) waiting() error {
-	defer c.clean()
-
-	c.log.Info("client starts to wait for message acknowledgement", log.Duration("interval", c.publisher.d))
-	defer utils.Trace(c.log.Info, "client has stopped waiting")()
+func (c *ClientMQTT) republishing() error {
+	c.log.Info("client starts to republish messages", log.Duration("interval", c.publisher.d))
+	defer c.log.Info("client has stopped republishing messages")
 
 	var m *pm
 	timer := time.NewTimer(c.publisher.d)
@@ -102,7 +99,7 @@ func (c *ClientMQTT) waiting() error {
 	for {
 		select {
 		case m = <-c.publisher.c:
-			for timer.Reset(c.publisher.d - time.Now().Sub(m.l)); !m.e.Wait(timer.C, c.Dying()); timer.Reset(c.publisher.d) {
+			for timer.Reset(c.publisher.d - time.Now().Sub(m.l)); m.e.Wait(timer.C, c.Dying()) == common.ErrAcknowledgeTimedOut; timer.Reset(c.publisher.d) {
 				if err := c.republish(m); err != nil {
 					return err
 				}
@@ -114,26 +111,21 @@ func (c *ClientMQTT) waiting() error {
 }
 
 func (c *ClientMQTT) sendConnack(code common.ConnackCode, exists bool) error {
-	ack := common.Connack{
+	ack := &common.Connack{
 		SessionPresent: exists,
 		ReturnCode:     code,
 	}
-	return c.send(&ack, false)
+	return c.send(ack, false)
 }
 
 func (c *ClientMQTT) send(pkt common.Packet, async bool) error {
 	// TODO: remove lock
 	c.Lock()
-	defer c.Unlock()
-
-	if !c.Alive() {
-		return ErrClientClosed
-	}
-
 	err := c.connection.Send(pkt, async)
+	c.Unlock()
 	if err != nil {
 		c.log.Error("failed to send packet", log.Error(err))
-		c.clean()
+		c.die(err)
 		return err
 	}
 	if ent := c.log.Check(log.DebugLevel, "client sent a packet"); ent != nil {

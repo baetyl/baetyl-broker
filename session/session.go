@@ -6,7 +6,7 @@ import (
 
 	"github.com/baetyl/baetyl-broker/common"
 	"github.com/baetyl/baetyl-broker/queue"
-	"github.com/baetyl/baetyl-broker/utils/log"
+	"github.com/baetyl/baetyl-go/utils/log"
 )
 
 // Info session information
@@ -24,9 +24,9 @@ func (i *Info) String() string {
 // Session session of a client
 type Session struct {
 	Info
-	subs *common.Trie
 	qos0 queue.Queue // queue for qos0
 	qos1 queue.Queue // queue for qos1
+	subs *common.Trie
 	log  *log.Logger
 	sync.Once
 }

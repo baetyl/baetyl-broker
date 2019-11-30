@@ -25,14 +25,22 @@ const (
 	NotAuthorized
 )
 
+// QOS the quality of service levels of MQTT
+type QOS = packet.QOS
+
+// Al QoS levels
+const (
+	QOSAtMostOnce  QOS = iota
+	QOSAtLeastOnce QOS = iota
+	QOSExactlyOnce QOS = iota
+	QOSFailure     QOS = 0x80
+)
+
 // Type the packet type
 type Type = packet.Type
 
 // ID the packet id
 type ID = packet.ID
-
-// QOS the quality of service levels of MQTT
-type QOS = packet.QOS
 
 // Packet the generic packet of MQTT
 type Packet = packet.Generic

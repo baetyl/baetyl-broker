@@ -1,6 +1,7 @@
 package session
 
 import (
+	"io/ioutil"
 	"net"
 	"os"
 	"testing"
@@ -9,6 +10,7 @@ import (
 	"github.com/baetyl/baetyl-broker/auth"
 	"github.com/baetyl/baetyl-broker/common"
 	"github.com/baetyl/baetyl-broker/transport"
+	"github.com/baetyl/baetyl-go/utils/log"
 	"github.com/creasty/defaults"
 	"github.com/stretchr/testify/assert"
 )
@@ -22,14 +24,18 @@ type mockConfig struct {
 type mockBroker struct {
 	t         *testing.T
 	cfg       mockConfig
-	store     *Store
+	manager   *Manager
 	transport *transport.Transport
 }
 
 func newMockBroker(t *testing.T) *mockBroker {
+	log.Init(log.Config{Level: "debug", Format: "text"})
+	dir, _ := ioutil.TempDir("", "broker")
+
 	var err error
 	b := &mockBroker{t: t}
 	defaults.Set(&b.cfg.Session)
+	b.cfg.Session.PersistenceLocation = dir
 	b.cfg.Session.RepublishInterval = time.Millisecond * 200
 	b.cfg.Principals = []auth.Principal{{
 		Username: "u1",
@@ -47,13 +53,21 @@ func newMockBroker(t *testing.T) *mockBroker {
 			Action:  "pub",
 			Permits: []string{"test", "talks", "talks1", "talks2"},
 		}}}}
-	b.store, err = NewStore(b.cfg.Session, newMockExchange(), auth.NewAuth(b.cfg.Principals))
+	b.manager, err = NewManager(b.cfg.Session, newMockExchange(), auth.NewAuth(b.cfg.Principals))
 	assert.NoError(t, err)
 	return b
 }
 
+func (b *mockBroker) assertClientCount(expect int) {
+	assert.Len(b.t, b.manager.clients, expect)
+}
+
+func (b *mockBroker) assertBindingCount(sid string, expect int) {
+	assert.Len(b.t, b.manager.bindings[sid], expect)
+}
+
 func (b *mockBroker) assertSession(id string, expect string) {
-	ses, err := b.store.backend.Get(id)
+	ses, err := b.manager.backend.Get(id)
 	assert.NoError(b.t, err)
 	if expect == "" {
 		assert.Nil(b.t, ses)
@@ -63,27 +77,24 @@ func (b *mockBroker) assertSession(id string, expect string) {
 }
 
 func (b *mockBroker) assertExchangeCount(expect int) {
-	assert.Equal(b.t, expect, b.store.exchange.(*mockExchange).bindings.Count())
-}
-
-func (b *mockBroker) assertClientCount(session string, expect int) {
-	assert.Len(b.t, b.store.clients[session], expect)
+	assert.Equal(b.t, expect, b.manager.exchange.(*mockExchange).bindings.Count())
 }
 
 func (b *mockBroker) close() {
 	if b.transport != nil {
 		b.transport.Close()
 	}
-	if b.store != nil {
-		b.store.Close()
+	if b.manager != nil {
+		b.manager.Close()
 	}
-	os.RemoveAll("var")
+	os.RemoveAll(b.cfg.Session.PersistenceLocation)
 }
 
 type mockConn struct {
 	t      *testing.T
 	c2s    chan common.Packet
 	s2c    chan common.Packet
+	err    chan error
 	closed bool
 }
 
@@ -92,27 +103,28 @@ func newMockConn(t *testing.T) *mockConn {
 		t:   t,
 		c2s: make(chan common.Packet, 10),
 		s2c: make(chan common.Packet, 10),
+		err: make(chan error, 10),
 	}
 }
 
 func (c *mockConn) Send(pkt common.Packet, _ bool) error {
-	select {
-	case c.s2c <- pkt:
-		return nil
-	case <-time.After(time.Second * 3):
-		assert.FailNow(c.t, "send common timeout")
-		return nil
-	}
+	c.s2c <- pkt
+	return nil
 }
 
 func (c *mockConn) Receive() (common.Packet, error) {
 	select {
 	case pkt := <-c.c2s:
 		return pkt, nil
-	case <-time.After(time.Second * 3):
-		assert.FailNow(c.t, "Receive common timeout")
-		return nil, nil
+	case err := <-c.err:
+		return nil, err
 	}
+}
+
+func (c *mockConn) Close() error {
+	c.closed = true
+	c.err <- ErrClientClosed
+	return nil
 }
 
 func (c *mockConn) sendC2S(pkt common.Packet) error {
@@ -120,7 +132,7 @@ func (c *mockConn) sendC2S(pkt common.Packet) error {
 	case c.c2s <- pkt:
 		return nil
 	case <-time.After(time.Second * 3):
-		assert.FailNow(c.t, "send common timeout")
+		assert.Fail(c.t, "send common timeout")
 		return nil
 	}
 }
@@ -130,7 +142,7 @@ func (c *mockConn) receiveS2C() common.Packet {
 	case pkt := <-c.s2c:
 		return pkt
 	case <-time.After(time.Second * 3):
-		assert.FailNow(c.t, "Receive common timeout")
+		assert.Fail(c.t, "Receive common timeout")
 		return nil
 	}
 }
@@ -141,25 +153,20 @@ func (c *mockConn) assertS2CPacket(expect string) {
 		assert.NotNil(c.t, pkt)
 		assert.Equal(c.t, expect, pkt.String())
 	case <-time.After(time.Second * 3):
-		assert.FailNow(c.t, "receive common timeout")
+		assert.Fail(c.t, "receive common timeout")
 	}
 }
 
 func (c *mockConn) assertS2CPacketTimeout() {
 	select {
 	case pkt := <-c.s2c:
-		assert.FailNow(c.t, "receive unexpected packet: %s", pkt.String())
+		assert.Fail(c.t, "receive unexpected packet: %s", pkt.String())
 	case <-time.After(time.Millisecond * 100):
 	}
 }
 
 func (c *mockConn) assertClosed(expect bool) {
 	assert.Equal(c.t, expect, c.closed)
-}
-
-func (c *mockConn) Close() error {
-	c.closed = true
-	return nil
 }
 
 func (c *mockConn) SetReadLimit(limit int64) {}

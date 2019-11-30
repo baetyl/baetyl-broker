@@ -1,0 +1,14 @@
+sudo: false
+
+language: go
+
+go:
+  - "1.13"
+
+script:
+  - echo "baetyl build begin"
+  - env GO111MODULE=on GOPROXY=https://goproxy.cn make
+  - echo "baetyl build end"
+  - echo "baetyl unit test begin"
+  - env GO111MODULE=on GOPROXY=https://goproxy.cn make test GO_TEST_FLAGS=--race
+  - echo "baetyl unit test end"

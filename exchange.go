@@ -2,7 +2,7 @@ package main
 
 import (
 	"github.com/baetyl/baetyl-broker/common"
-	"github.com/baetyl/baetyl-broker/utils/log"
+	"github.com/baetyl/baetyl-go/utils/log"
 )
 
 // Exchange the message exchange

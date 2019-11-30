@@ -4,7 +4,7 @@ import (
 	"sync"
 
 	"github.com/baetyl/baetyl-broker/common"
-	"github.com/baetyl/baetyl-broker/utils/log"
+	"github.com/baetyl/baetyl-go/utils/log"
 )
 
 // Temporary is an temporary queue in memory
