@@ -4,8 +4,6 @@ import (
 	"errors"
 	"sync/atomic"
 	"time"
-
-	"github.com/256dpi/gomqtt/packet"
 )
 
 // all errors of acknowledgement
@@ -61,15 +59,6 @@ func (e *Event) Done() {
 // Wait waits until acknowledged (returns true), cancelled or timed out
 func (e *Event) Wait(timeout <-chan time.Time, cancel <-chan struct{}) error {
 	return e.ack._wait(timeout, cancel)
-}
-
-// Packet converts event to publish packet
-func (e *Event) Packet(qos QOS) *Publish {
-	pkt := packet.NewPublish()
-	pkt.Message.QOS = qos
-	pkt.Message.Topic = e.Context.Topic
-	pkt.Message.Payload = e.Content
-	return pkt
 }
 
 // NewEvent creates a new event

@@ -1,4 +1,4 @@
-GO_TEST_FLAGS?=
+GO_TEST_FLAGS?=-race
 GO_TEST_PKGS?=$(shell go list ./...)
 SRC_FILES:=$(shell find . -type f -name '*.go')
 
@@ -8,7 +8,7 @@ all: $(SRC_FILES)
 	@env CGO_ENABLED=1 go build -race -o baetyl-broker
 
 .PHONY: test
-test:
+test: fmt
 	@go test ${GO_TEST_FLAGS} -coverprofile=coverage.out ./...
 	@go tool cover -func=coverage.out | grep total
 
