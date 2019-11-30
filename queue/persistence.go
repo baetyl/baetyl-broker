@@ -5,7 +5,7 @@ import (
 
 	"github.com/baetyl/baetyl-broker/common"
 	"github.com/baetyl/baetyl-broker/utils"
-	"github.com/baetyl/baetyl-broker/utils/log"
+	"github.com/baetyl/baetyl-go/utils/log"
 )
 
 // Persistence is a persistent queue
@@ -74,7 +74,7 @@ func (q *Persistence) writing() error {
 	for {
 		select {
 		case e := <-q.input:
-			if ent := q.log.Check(log.DebugLevel, "queue receives a message"); ent != nil {
+			if ent := q.log.Check(log.DebugLevel, "queue received a message"); ent != nil {
 				ent.Write(log.String("event", e.String()))
 			}
 			buf = append(buf, e)
@@ -107,7 +107,7 @@ func (q *Persistence) reading() error {
 	for {
 		select {
 		case <-q.eget:
-			q.log.Debug("queue receives a get event")
+			q.log.Debug("queue received a get event")
 			buf, err = q.get(offset, max)
 			if err != nil {
 				q.log.Error("failed to get message from backend database", log.Error(err))
@@ -149,7 +149,7 @@ func (q *Persistence) deleting() error {
 		select {
 		case e := <-q.edel:
 			timer.Reset(time.Second)
-			q.log.Debug("queue receives a delete event")
+			q.log.Debug("queue received a delete event")
 			buf = append(buf, e)
 			if len(buf) == max {
 				buf = q.delete(buf)

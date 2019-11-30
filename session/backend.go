@@ -15,8 +15,8 @@ type Backend struct {
 	db  database.DB
 }
 
-// NewSessionBackend create a new backend database for session
-func NewSessionBackend(cfg Config) (*Backend, error) {
+// NewBackend create a new backend database for session
+func NewBackend(cfg Config) (*Backend, error) {
 	p := path.Join(cfg.PersistenceLocation, "session")
 	err := os.MkdirAll(p, os.ModePerm)
 	if err != nil {

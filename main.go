@@ -2,14 +2,14 @@ package main
 
 import (
 	"flag"
-	"net/http"
-	_ "net/http/pprof"
+	// "net/http"
+	// _ "net/http/pprof"
 	"os"
 	"os/signal"
 	"syscall"
 
 	"github.com/baetyl/baetyl-broker/utils"
-	"github.com/baetyl/baetyl-broker/utils/log"
+	"github.com/baetyl/baetyl-go/utils/log"
 	_ "github.com/mattn/go-sqlite3"
 )
 
@@ -25,10 +25,10 @@ func init() {
 
 func main() {
 
-	// go tool pprof http://localhost:6060/debug/pprof/profile
-	go func() {
-		panic(http.ListenAndServe("localhost:6060", nil))
-	}()
+	// // go tool pprof http://localhost:6060/debug/pprof/profile
+	// go func() {
+	// 	panic(http.ListenAndServe("localhost:6060", nil))
+	// }()
 
 	// f, err := os.Create("trace.out")
 	// if err != nil {
@@ -49,7 +49,7 @@ func main() {
 		return
 	}
 
-	l := log.With()
+	l, _ := log.Init(log.Config{Level: "debug", Format: "text"})
 	defer l.Sync()
 
 	// baetyl.Run(func(ctx baetyl.Context) error {

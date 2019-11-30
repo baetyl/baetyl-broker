@@ -3,7 +3,7 @@ package utils
 import (
 	"time"
 
-	"github.com/baetyl/baetyl-broker/utils/log"
+	"github.com/baetyl/baetyl-go/utils/log"
 )
 
 // Trace print elapsed time

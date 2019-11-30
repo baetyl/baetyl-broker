@@ -8,7 +8,7 @@ import (
 
 type broker struct {
 	cfg       config
-	store     *session.Store
+	manager   *session.Manager
 	transport *transport.Transport
 }
 
@@ -19,7 +19,7 @@ func newBroker(cfg config) (*broker, error) {
 		cfg: cfg,
 	}
 
-	b.store, err = session.NewStore(cfg.Session, NewExchange(), auth.NewAuth(cfg.Principals))
+	b.manager, err = session.NewManager(cfg.Session, NewExchange(), auth.NewAuth(cfg.Principals))
 	if err != nil {
 		return nil, err
 	}
@@ -28,13 +28,13 @@ func newBroker(cfg config) (*broker, error) {
 	for _, addr := range cfg.Addresses {
 		endpoints = append(endpoints, &transport.Endpoint{
 			Address: addr,
-			Handle:  b.store.NewClientMQTT,
+			Handle:  b.manager.ClientMQTTHandler,
 		})
 	}
 	if !cfg.InternalEndpoint.Disable {
 		endpoints = append(endpoints, &transport.Endpoint{
 			Address:   cfg.InternalEndpoint.Address,
-			Handle:    b.store.NewClientMQTT,
+			Handle:    b.manager.ClientMQTTHandler,
 			Anonymous: true,
 		})
 	}
@@ -51,7 +51,7 @@ func (b *broker) close() {
 	if b.transport != nil {
 		b.transport.Close()
 	}
-	if b.store != nil {
-		b.store.Close()
+	if b.manager != nil {
+		b.manager.Close()
 	}
 }

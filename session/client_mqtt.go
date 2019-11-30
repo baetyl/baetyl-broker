@@ -8,7 +8,8 @@ import (
 	"github.com/baetyl/baetyl-broker/auth"
 	"github.com/baetyl/baetyl-broker/transport"
 	"github.com/baetyl/baetyl-broker/utils"
-	"github.com/baetyl/baetyl-broker/utils/log"
+	"github.com/baetyl/baetyl-go/utils/log"
+	"github.com/docker/distribution/uuid"
 )
 
 // ErrClientClosed the client is closed
@@ -22,7 +23,8 @@ var ErrPacketUnexpected = errors.New("packet type is not expected")
 
 // ClientMQTT the client of MQTT
 type ClientMQTT struct {
-	store      *Store
+	id         string
+	manager    *Manager
 	session    *Session
 	publisher  *publisher
 	connection transport.Connection
@@ -34,34 +36,62 @@ type ClientMQTT struct {
 	sync.Once
 }
 
-func (c *ClientMQTT) setSession(ses *Session) {
-	c.session = ses
-	c.log = c.log.With(log.String("id", ses.ID))
+// NewClientMQTT creates a new MQTT client
+func newClientMQTT(m *Manager, connection transport.Connection, anonymous bool) *ClientMQTT {
+	id := uuid.Generate().String()
+	c := &ClientMQTT{
+		id:         id,
+		manager:    m,
+		connection: connection,
+		anonymous:  anonymous,
+		publisher:  newPublisher(m.config.RepublishInterval, m.config.MaxInflightQOS1Messages),
+		log:        log.With(log.String("id", id)),
+	}
+	c.Go(c.receiving)
+	return c
+}
+
+func (c *ClientMQTT) getID() string {
+	return c.id
+}
+
+func (c *ClientMQTT) setSession(s *Session) {
+	c.session = s
+	c.log = c.log.With(log.String("sid", s.ID))
 }
 
 func (c *ClientMQTT) getSession() *Session {
 	return c.session
 }
 
-func (c *ClientMQTT) authorize(action, topic string) bool {
-	return c.authorizer == nil || c.authorizer.Authorize(action, topic)
-}
-
-// notify session store to clean client and its session
-func (c *ClientMQTT) clean() {
-	c.Do(func() {
-		c.store.putEvent(c)
-	})
-}
-
 // Close closes client by session
 func (c *ClientMQTT) Close() error {
-	c.log.Info("client is closing")
+	c.log.Info("client is closing by session")
+	defer c.log.Info("client is has closed by session")
+	return c.close()
+}
+
+// closes client by itself
+func (c *ClientMQTT) die(err error) {
+	if !c.Alive() {
+		return
+	}
+	go func() {
+		c.log.Info("client is closing by itself", log.Error(err))
+		c.manager.delClient(c)
+		c.close()
+		c.log.Info("client is has closed by itself")
+	}()
+}
+
+func (c *ClientMQTT) close() error {
 	c.Kill(nil)
-	c.Wait()
-	err := c.connection.Close()
-	c.log.Info("client is has closed", log.Error(err))
-	return err
+	c.connection.Close()
+	return c.Wait()
+}
+
+func (c *ClientMQTT) authorize(action, topic string) bool {
+	return c.authorizer == nil || c.authorizer.Authorize(action, topic)
 }
 
 // checkClientID checks clientID
