@@ -44,7 +44,7 @@ type Manager struct {
 	backend  *Backend
 	exchange Exchange
 	sessions map[string]*Session
-	clients  map[string]client
+	clients  map[string]client            // TODO: limit the number of clients
 	bindings map[string]map[string]client // map[sid]map[cid]client
 	log      *log.Logger
 	sync.Mutex

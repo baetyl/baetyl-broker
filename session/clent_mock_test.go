@@ -4,6 +4,7 @@ import (
 	"io/ioutil"
 	"net"
 	"os"
+	"sync"
 	"testing"
 	"time"
 
@@ -96,6 +97,7 @@ type mockConn struct {
 	s2c    chan common.Packet
 	err    chan error
 	closed bool
+	sync.RWMutex
 }
 
 func newMockConn(t *testing.T) *mockConn {
@@ -122,7 +124,9 @@ func (c *mockConn) Receive() (common.Packet, error) {
 }
 
 func (c *mockConn) Close() error {
+	c.Lock()
 	c.closed = true
+	c.Unlock()
 	c.err <- ErrClientClosed
 	return nil
 }
@@ -166,7 +170,9 @@ func (c *mockConn) assertS2CPacketTimeout() {
 }
 
 func (c *mockConn) assertClosed(expect bool) {
+	c.RLock()
 	assert.Equal(c.t, expect, c.closed)
+	c.RUnlock()
 }
 
 func (c *mockConn) SetReadLimit(limit int64) {}

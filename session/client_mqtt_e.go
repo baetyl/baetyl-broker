@@ -8,54 +8,68 @@ import (
 	"github.com/baetyl/baetyl-go/utils/log"
 )
 
-type pm struct {
+type epl struct {
 	e *common.Event
-	p *common.Publish
+	p common.Publish
 	l time.Time // last send time
+}
+
+func newEPL(id common.ID, qos common.QOS, e *common.Event) *epl {
+	pkt := common.Publish{ID: id}
+	pkt.Message.QOS = qos
+	pkt.Message.Topic = e.Context.Topic
+	pkt.Message.Payload = e.Content
+	return &epl{
+		e: e,
+		p: pkt,
+		l: time.Now(),
+	}
 }
 
 type publisher struct {
 	d time.Duration
 	m sync.Map
-	c chan *pm
+	c chan *epl
 	n *common.Counter // Only used by mqtt client
 }
 
 func newPublisher(d time.Duration, c int) *publisher {
 	return &publisher{
 		d: d,
-		c: make(chan *pm, c),
+		c: make(chan *epl, c),
 		n: common.NewCounter(),
 	}
 }
 
-func (c *ClientMQTT) publish(e *common.Event) error {
-	m := &pm{
-		e: e,
-		p: e.Packet(1),
-		l: time.Now(),
-	}
-	m.p.ID = c.publisher.n.NextID()
-	if o, ok := c.publisher.m.LoadOrStore(m.p.ID, m); ok {
+func (c *ClientMQTT) publishQOS0(e *common.Event) error {
+	pkt := &common.Publish{}
+	pkt.Message.Topic = e.Context.Topic
+	pkt.Message.Payload = e.Content
+	return c.send(pkt, true)
+}
+
+func (c *ClientMQTT) publishQOS1(e *common.Event) error {
+	id := c.publisher.n.NextID()
+	_epl := newEPL(id, 1, e)
+	if o, ok := c.publisher.m.LoadOrStore(id, _epl); ok {
 		c.log.Error("packet id conflict, to acknowledge old one")
-		o.(*pm).e.Done()
+		o.(*epl).e.Done()
 	}
-	err := c.send(m.p, true)
+	err := c.send(&_epl.p, true)
 	if err != nil {
 		return err
 	}
 	select {
-	case c.publisher.c <- m:
+	case c.publisher.c <- _epl:
 		return nil
 	case <-c.Dying():
 		return ErrClientClosed
 	}
 }
 
-func (c *ClientMQTT) republish(m *pm) error {
-	m.p.Dup = true
-	m.l = time.Now()
-	return c.send(m.p, true)
+func (c *ClientMQTT) republishQOS1(pkt common.Publish) error {
+	pkt.Dup = true
+	return c.send(&pkt, true)
 }
 
 func (c *ClientMQTT) acknowledge(p *common.Puback) {
@@ -65,7 +79,7 @@ func (c *ClientMQTT) acknowledge(p *common.Puback) {
 		return
 	}
 	c.publisher.m.Delete(p.ID)
-	m.(*pm).e.Done()
+	m.(*epl).e.Done()
 }
 
 func (c *ClientMQTT) publishing() (err error) {
@@ -78,9 +92,11 @@ func (c *ClientMQTT) publishing() (err error) {
 	for {
 		select {
 		case e = <-qos0:
-			c.send(e.Packet(0), false)
+			if err := c.publishQOS0(e); err != nil {
+				return err
+			}
 		case e = <-qos1:
-			if err := c.publish(e); err != nil {
+			if err := c.publishQOS1(e); err != nil {
 				return err
 			}
 		case <-c.Dying():
@@ -93,14 +109,14 @@ func (c *ClientMQTT) republishing() error {
 	c.log.Info("client starts to republish messages", log.Duration("interval", c.publisher.d))
 	defer c.log.Info("client has stopped republishing messages")
 
-	var m *pm
+	var _epl *epl
 	timer := time.NewTimer(c.publisher.d)
 	defer timer.Stop()
 	for {
 		select {
-		case m = <-c.publisher.c:
-			for timer.Reset(c.publisher.d - time.Now().Sub(m.l)); m.e.Wait(timer.C, c.Dying()) == common.ErrAcknowledgeTimedOut; timer.Reset(c.publisher.d) {
-				if err := c.republish(m); err != nil {
+		case _epl = <-c.publisher.c:
+			for timer.Reset(c.publisher.d - time.Now().Sub(_epl.l)); _epl.e.Wait(timer.C, c.Dying()) == common.ErrAcknowledgeTimedOut; timer.Reset(c.publisher.d) {
+				if err := c.republishQOS1(_epl.p); err != nil {
 					return err
 				}
 			}
