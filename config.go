@@ -6,7 +6,7 @@ import (
 	"github.com/baetyl/baetyl-broker/auth"
 	"github.com/baetyl/baetyl-broker/common"
 	"github.com/baetyl/baetyl-broker/session"
-	"github.com/baetyl/baetyl-broker/utils"
+	"github.com/baetyl/baetyl-go/utils"
 )
 
 // Config all config of broker

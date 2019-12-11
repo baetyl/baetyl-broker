@@ -5,7 +5,7 @@ import (
 
 	"github.com/baetyl/baetyl-broker/auth"
 	"github.com/baetyl/baetyl-broker/common"
-	"github.com/baetyl/baetyl-go/utils/log"
+	"github.com/baetyl/baetyl-go/log"
 )
 
 func (c *ClientMQTT) receiving() error {
@@ -17,7 +17,7 @@ func (c *ClientMQTT) receiving() error {
 
 	pkt, err = c.connection.Receive()
 	if err != nil {
-		c.die(err)
+		c.die(err, true)
 		return err
 	}
 	if ent := c.log.Check(log.DebugLevel, "client received a packet"); ent != nil {
@@ -25,18 +25,18 @@ func (c *ClientMQTT) receiving() error {
 	}
 	p, ok := pkt.(*common.Connect)
 	if !ok {
-		c.die(ErrPacketUnexpected)
+		c.die(ErrPacketUnexpected, true)
 		return ErrPacketUnexpected
 	}
 	if err = c.onConnect(p); err != nil {
-		c.die(err)
+		c.die(err, true)
 		return err
 	}
 
 	for {
 		pkt, err = c.connection.Receive()
 		if err != nil {
-			c.die(err)
+			c.die(err, true)
 			return err
 		}
 		if ent := c.log.Check(log.DebugLevel, "client received a packet"); ent != nil {
@@ -56,7 +56,7 @@ func (c *ClientMQTT) receiving() error {
 		case *common.Pingresp:
 			err = nil // just ignore
 		case *common.Disconnect:
-			c.die(nil)
+			c.die(nil, false)
 			return nil
 		case *common.Connect:
 			err = ErrConnectUnexpected
@@ -65,7 +65,7 @@ func (c *ClientMQTT) receiving() error {
 		}
 
 		if err != nil {
-			c.die(err)
+			c.die(err, true)
 			return err
 		}
 	}
@@ -104,19 +104,17 @@ func (c *ClientMQTT) onConnect(p *common.Connect) error {
 	}
 
 	if p.Will != nil {
-		// TODO: remove?
-		// if !common.PubTopicValidate(p.Will.Topic) {
-		// 	return errors.New("will topic (%s) invalid", p.Will.Topic)
-		// }
-		// if !c.authorize(auth.Publish, p.Will.Topic) {
-		// 	c.sendConnack(common.NotAuthorized)
-		// 	return errors.New("will topic (%s) not permitted", p.Will.Topic)
-		// }
-		// if p.Will.QOS > 1 {
-		// 	return errors.New("will QOS (%d) not supported", p.Will.QOS)
-		// }
+		if !common.CheckTopic(p.Will.Topic, false) {
+			return errors.New("will topic invalid")
+		}
+		if !c.authorize(auth.Publish, p.Will.Topic) {
+			c.sendConnack(common.NotAuthorized, false)
+			return errors.New("will topic not permitted")
+		}
+		if p.Will.QOS > 1 {
+			return errors.New("will QoS not supported")
+		}
 	}
-
 	if si.ID == "" {
 		si.ID = c.id
 		si.CleanSession = true
@@ -129,7 +127,11 @@ func (c *ClientMQTT) onConnect(p *common.Connect) error {
 	c.Go(c.republishing, c.publishing)
 
 	// TODO: Re-check subscriptions, if subscription not permit, log error and skip
-	// TODO: err = c.manager.saveWillMessage(p)
+
+	err = c.saveWillMessage(p)
+	if err != nil {
+		return errors.New("failed to save will message")
+	}
 
 	err = c.sendConnack(common.ConnectionAccepted, exists)
 	if err != nil {
@@ -152,10 +154,10 @@ func (c *ClientMQTT) onPublish(p *common.Publish) error {
 		return errors.New("publish topic not permitted")
 	}
 
-	// TODO: err := c.retainMessage(&p.Message)
-	// if err != nil {
-	// 	return err
-	// }
+	err := c.retainMessage(&p.Message)
+	if err != nil {
+		return err
+	}
 
 	msg := common.NewMessage(p)
 	cb := c.callback
@@ -181,8 +183,7 @@ func (c *ClientMQTT) onSubscribe(p *common.Subscribe) error {
 	if err != nil {
 		return err
 	}
-	// TODO: return c.sendRetainMessage(p)
-	return nil
+	return c.sendRetainMessage(p)
 }
 
 func (c *ClientMQTT) onUnsubscribe(p *common.Unsubscribe) error {

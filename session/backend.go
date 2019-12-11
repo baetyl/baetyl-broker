@@ -7,6 +7,7 @@ import (
 
 	"github.com/baetyl/baetyl-broker/database"
 	"github.com/baetyl/baetyl-broker/queue"
+	"github.com/baetyl/baetyl-broker/retain"
 )
 
 // Backend the backend database of session
@@ -40,6 +41,14 @@ func (b *Backend) NewQueueBackend(name string) (*queue.Backend, error) {
 		Name:     name,
 		Driver:   b.cfg.PersistenceDriver,
 		Location: b.cfg.PersistenceLocation,
+	})
+}
+
+// NewRetainBackend create a new backend database for retain
+func NewRetainBackend(driver, location string) (*retain.Backend, error) {
+	return retain.NewBackend(retain.Config{
+		Driver:   driver,
+		Location: location,
 	})
 }
 

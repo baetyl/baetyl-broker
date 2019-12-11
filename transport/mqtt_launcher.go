@@ -4,7 +4,7 @@ import (
 	"net/url"
 
 	trans "github.com/256dpi/gomqtt/transport"
-	"github.com/baetyl/baetyl-broker/utils"
+	"github.com/baetyl/baetyl-go/utils"
 )
 
 // The Launcher helps with launching a server and accepting connections.

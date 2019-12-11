@@ -20,7 +20,7 @@ func TestSessionConnect(t *testing.T) {
 
 	c.sendC2S(&common.Connect{ClientID: t.Name(), Username: "u1", Password: "p1", Version: 3})
 	c.assertS2CPacket("<Connack SessionPresent=false ReturnCode=0>")
-	b.assertSession(t.Name(), "{\"ID\":\"TestSessionConnect\",\"CleanSession\":false,\"Subscriptions\":null}")
+	b.assertSession(t.Name(), "{\"ID\":\"TestSessionConnect\",\"Will\":null,\"CleanSession\":false,\"Subscriptions\":null}")
 
 	// disconnect
 	c.sendC2S(&common.Disconnect{})
