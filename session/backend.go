@@ -45,10 +45,10 @@ func (b *Backend) NewQueueBackend(name string) (*queue.Backend, error) {
 }
 
 // NewRetainBackend create a new backend database for retain
-func NewRetainBackend(driver, location string) (*retain.Backend, error) {
+func (b *Backend) NewRetainBackend() (*retain.Backend, error) {
 	return retain.NewBackend(retain.Config{
-		Driver:   driver,
-		Location: location,
+		Driver:   b.cfg.PersistenceDriver,
+		Location: b.cfg.PersistenceLocation,
 	})
 }
 

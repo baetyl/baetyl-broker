@@ -17,7 +17,7 @@ func (c *ClientMQTT) receiving() error {
 
 	pkt, err = c.connection.Receive()
 	if err != nil {
-		c.die(err, true)
+		c.die(err)
 		return err
 	}
 	if ent := c.log.Check(log.DebugLevel, "client received a packet"); ent != nil {
@@ -25,18 +25,18 @@ func (c *ClientMQTT) receiving() error {
 	}
 	p, ok := pkt.(*common.Connect)
 	if !ok {
-		c.die(ErrPacketUnexpected, true)
+		c.die(ErrPacketUnexpected)
 		return ErrPacketUnexpected
 	}
 	if err = c.onConnect(p); err != nil {
-		c.die(err, true)
+		c.die(err)
 		return err
 	}
 
 	for {
 		pkt, err = c.connection.Receive()
 		if err != nil {
-			c.die(err, true)
+			c.die(err)
 			return err
 		}
 		if ent := c.log.Check(log.DebugLevel, "client received a packet"); ent != nil {
@@ -56,7 +56,7 @@ func (c *ClientMQTT) receiving() error {
 		case *common.Pingresp:
 			err = nil // just ignore
 		case *common.Disconnect:
-			c.die(nil, false)
+			c.die(nil)
 			return nil
 		case *common.Connect:
 			err = ErrConnectUnexpected
@@ -65,7 +65,7 @@ func (c *ClientMQTT) receiving() error {
 		}
 
 		if err != nil {
-			c.die(err, true)
+			c.die(err)
 			return err
 		}
 	}
@@ -114,6 +114,7 @@ func (c *ClientMQTT) onConnect(p *common.Connect) error {
 		if p.Will.QOS > 1 {
 			return errors.New("will QoS not supported")
 		}
+		si.Will = p.Will
 	}
 	if si.ID == "" {
 		si.ID = c.id
@@ -127,12 +128,6 @@ func (c *ClientMQTT) onConnect(p *common.Connect) error {
 	c.Go(c.republishing, c.publishing)
 
 	// TODO: Re-check subscriptions, if subscription not permit, log error and skip
-
-	err = c.saveWillMessage(p)
-	if err != nil {
-		return errors.New("failed to save will message")
-	}
-
 	err = c.sendConnack(common.ConnectionAccepted, exists)
 	if err != nil {
 		return err

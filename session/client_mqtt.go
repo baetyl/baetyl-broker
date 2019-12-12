@@ -74,16 +74,15 @@ func (c *ClientMQTT) Close() error {
 }
 
 // closes client by itself
-func (c *ClientMQTT) die(err error, will bool) {
+func (c *ClientMQTT) die(err error) {
 	if !c.Alive() {
 		return
 	}
 	go func() {
 		c.log.Info("client is closing by itself", log.Error(err))
-		if will {
+		if err != nil {
 			c.sendWillMessage()
 		}
-		c.manager.removeWill(c.session.ID)
 		c.manager.delClient(c)
 		c.close()
 		c.log.Info("client has closed by itself")
@@ -100,32 +99,24 @@ func (c *ClientMQTT) authorize(action, topic string) bool {
 	return c.authorizer == nil || c.authorizer.Authorize(action, topic)
 }
 
-// SaveWillMessage saves will mesage
-func (c *ClientMQTT) saveWillMessage(p *packet.Connect) error {
-	if p.Will == nil {
-		return nil
-	}
-	return c.manager.setWill(c.session.ID, p.Will)
-}
-
 // SendWillMessage sends will message
 func (c *ClientMQTT) sendWillMessage() {
-	msg, err := c.manager.getWill(c.session.ID)
-	if err != nil {
-		c.log.Error("failed to get will message")
-	}
-	if msg == nil {
+	if c.session == nil || c.session.Will == nil {
 		return
 	}
-	err = c.retainMessage(msg)
+	msg := c.session.Will
+	err := c.retainMessage(msg)
 	if err != nil {
-		c.log.Error("failed to retain will message")
+		c.log.Error("failed to retain will message", log.String("topic", msg.Topic))
 	}
 	p := packet.Publish{Message: *msg, ID: 1}
 	c.manager.exchange.Route(common.NewMessage(&p), c.callback)
 }
 
 func (c *ClientMQTT) retainMessage(msg *packet.Message) error {
+	if !msg.Retain {
+		return nil
+	}
 	if len(msg.Payload) == 0 {
 		return c.manager.removeRetain(msg.Topic)
 	}
@@ -138,11 +129,9 @@ func (c *ClientMQTT) sendRetainMessage(p *packet.Subscribe) error {
 	if err != nil || len(msgs) == 0 {
 		return err
 	}
-	t := common.NewTrie()
 	for _, sub := range p.Subscriptions {
-		t.Add(sub.Topic, sub.QOS)
+		c.session.subs.Add(sub.Topic, sub.QOS)
 	}
-	c.session.subs = t
 	for _, msg := range msgs {
 		m := common.NewMessage(&packet.Publish{
 			Message: *msg,
@@ -150,7 +139,6 @@ func (c *ClientMQTT) sendRetainMessage(p *packet.Subscribe) error {
 		e := common.Event{Message: m}
 		err = c.session.Push(&e)
 		if err != nil {
-			c.log.Error("failed to send retain message", log.String("topic", msg.Topic))
 			return err
 		}
 		c.log.Info("retain message sent", log.String("topic", msg.Topic))

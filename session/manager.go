@@ -59,7 +59,7 @@ func NewManager(config Config, exchange Exchange, auth *auth.Auth) (*Manager, er
 	if err != nil {
 		return nil, err
 	}
-	retainBackend, err := NewRetainBackend(config.PersistenceDriver, config.PersistenceLocation)
+	retainBackend, err := backend.NewRetainBackend()
 	if err != nil {
 		return nil, err
 	}
@@ -267,66 +267,13 @@ func (m *Manager) delClient(c client) {
 	}
 }
 
-// SetWill sets will message
-func (m *Manager) setWill(id string, msg *packet.Message) error {
-	info := &Info{ID: id, Will: msg}
-	err := m.backend.Set(info)
-	if err != nil {
-		m.log.Error("failed to persist will message", log.String("id", id), log.String("topic", msg.Topic))
-		return err
-	}
-	m.log.Info("will message persisted", log.String("id", id), log.String("topic", msg.Topic))
-	return nil
-}
-
-// GetWill gets will message
-func (m *Manager) getWill(id string) (*packet.Message, error) {
-	m.log.Debug("start to get will message", log.String("id", id))
-	data, err := m.backend.Get(id)
-	if err != nil {
-		m.log.Error("failed to get will message", log.String("id", id))
-		return nil, err
-	}
-	if data == nil || data.Will == nil {
-		return nil, nil
-	}
-	m.log.Info("will message got", log.String("id", id), log.String("topic", data.Will.Topic))
-	return data.Will, nil
-}
-
-// RemoveWill removes will message
-func (m *Manager) removeWill(id string) error {
-	err := m.backend.Del(id)
-	if err != nil {
-		m.log.Error("failed to remove will message", log.String("id", id))
-		return err
-	}
-	m.log.Info("will message removed", log.String("id", id))
-	return nil
-	// data, err := m.backend.Get(id)
-	// if err != nil {
-	// 	m.log.Error("failed to get will message", log.String("id", id))
-	// 	return err
-	// }
-	// data.Will = nil
-	// err = m.backend.Set(data)
-	// if err != nil {
-	// 	m.log.Error("failed to persist will message", log.String("id", id))
-	// 	return err
-	// }
-	// m.log.Debug("will message removed", log.String("id", id))
-	// return nil
-}
-
 // SetRetain sets retain message
 func (m *Manager) setRetain(topic string, msg *packet.Message) error {
-	if !msg.Retain {
-		return nil
-	}
+	m.Lock()
+	defer m.Unlock()
 	retain := &retain.Retain{Topic: msg.Topic, Message: msg}
 	err := m.retain.Set(retain)
 	if err != nil {
-		m.log.Error("failed to persist retain message", log.String("topic", topic))
 		return err
 	}
 	m.log.Info("retain message persisted", log.String("topic", topic))
@@ -337,7 +284,6 @@ func (m *Manager) setRetain(topic string, msg *packet.Message) error {
 func (m *Manager) getRetain() ([]*packet.Message, error) {
 	retains, err := m.retain.List()
 	if err != nil {
-		m.log.Error("failed to get retain messages")
 		return nil, err
 	}
 	result := make([]*packet.Message, 0)
@@ -352,7 +298,6 @@ func (m *Manager) getRetain() ([]*packet.Message, error) {
 func (m *Manager) removeRetain(topic string) error {
 	err := m.retain.Del(topic)
 	if err != nil {
-		m.log.Error("failed to remove retain message", log.String("topic", topic))
 		return err
 	}
 	m.log.Info("retain message removed", log.String("topic", topic))
