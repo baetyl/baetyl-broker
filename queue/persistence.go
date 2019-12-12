@@ -142,7 +142,9 @@ func (q *Persistence) deleting() error {
 	max := cap(q.edel)
 	// ? Is it possible to remove the timer?
 	duration := time.Millisecond * 500
+	cleanDuration := time.Hour
 	timer := time.NewTimer(duration)
+	cleanTimer := time.NewTicker(cleanDuration)
 	defer timer.Stop()
 
 	for {
@@ -158,6 +160,9 @@ func (q *Persistence) deleting() error {
 		case <-timer.C:
 			q.log.Debug("queue deletes message from backend when timeout")
 			buf = q.delete(buf)
+		case <-cleanTimer.C:
+			q.log.Debug("queue starts to compact messages from backend which will clean expired messages")
+			q.compact()
 		case <-q.Dying():
 			q.log.Debug("queue deletes message from backend during closing")
 			buf = q.delete(buf)
@@ -223,6 +228,15 @@ func (q *Persistence) delete(buf []uint64) []uint64 {
 		q.log.Error("failed to delete messages from backend database", log.Error(err))
 	}
 	return []uint64{}
+}
+
+// compact messages from backend database which will clean expired messages
+func (q *Persistence) compact() {
+	defer utils.Trace(q.log.Debug, "queue has compacted messages from backend")
+	err := q.backend.Compact(time.Now().Add(-7 * 24 * time.Hour))
+	if err != nil {
+		q.log.Error("failed to compact messages from backend which will clean expired messages", log.Error(err))
+	}
 }
 
 // triggers an event to get message from backend database in batch mode

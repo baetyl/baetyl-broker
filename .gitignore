@@ -4,6 +4,10 @@
 *.dll
 *.so
 *.dylib
+/.idea
+/.vscode
+/**/cover*.html
+/**/.DS_Store
 
 # Test binary, build with `go test -c`
 *.test
@@ -12,6 +16,5 @@
 *.out
 
 # Mac
-.DS_Store
 baetyl-broker
 var

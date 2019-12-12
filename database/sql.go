@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+	"time"
 )
 
 var placeholderValue = "(?)"
@@ -114,6 +115,13 @@ func (d *sqldb) Del(ids []uint64) error {
 		args = append(args, strconv.FormatUint(id, 10))
 	}
 	query := fmt.Sprintf("delete from t where id in (%s)", strings.Join(args, ","))
+	_, err := d.Exec(query)
+	return err
+}
+
+// Compact compact messages which will clean expired messages
+func (d *sqldb) Compact(ts time.Time) error {
+	query := fmt.Sprintf("delete from t where ts < '%s'", ts)
 	_, err := d.Exec(query)
 	return err
 }
