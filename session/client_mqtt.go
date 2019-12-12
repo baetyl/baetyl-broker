@@ -109,7 +109,7 @@ func (c *ClientMQTT) sendWillMessage() {
 	if err != nil {
 		c.log.Error("failed to retain will message", log.String("topic", msg.Topic))
 	}
-	p := packet.Publish{Message: *msg, ID: 1}
+	p := packet.Publish{Message: *msg}
 	c.manager.exchange.Route(common.NewMessage(&p), c.callback)
 }
 
