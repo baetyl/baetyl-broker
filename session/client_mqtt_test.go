@@ -21,13 +21,13 @@ func TestSessionConnect(t *testing.T) {
 
 	c.sendC2S(&common.Connect{ClientID: t.Name(), Username: "u1", Password: "p1", Version: 3})
 	c.assertS2CPacket("<Connack SessionPresent=false ReturnCode=0>")
-	b.assertSession(t.Name(), "{\"ID\":\"TestSessionConnect\",\"Will\":null,\"CleanSession\":false,\"Subscriptions\":null}")
+	b.assertSession(t.Name(), "{\"ID\":\"TestSessionConnect\",\"CleanSession\":false,\"Subscriptions\":null}")
 
 	// disconnect
 	c.sendC2S(&common.Disconnect{})
 	c.assertS2CPacketTimeout()
 	c.assertClosed(true)
-	b.assertSession(t.Name(), "{\"ID\":\"TestSessionConnect\",\"Will\":null,\"CleanSession\":false,\"Subscriptions\":null}")
+	b.assertSession(t.Name(), "{\"ID\":\"TestSessionConnect\",\"CleanSession\":false,\"Subscriptions\":null}")
 
 	// connect again
 	c = newMockConn(t)
@@ -35,7 +35,7 @@ func TestSessionConnect(t *testing.T) {
 
 	c.sendC2S(&common.Connect{ClientID: t.Name(), Username: "u1", Password: "p1", Version: 3})
 	c.assertS2CPacket("<Connack SessionPresent=true ReturnCode=0>")
-	b.assertSession(t.Name(), "{\"ID\":\"TestSessionConnect\",\"Will\":null,\"CleanSession\":false,\"Subscriptions\":null}")
+	b.assertSession(t.Name(), "{\"ID\":\"TestSessionConnect\",\"CleanSession\":false,\"Subscriptions\":null}")
 
 	// connect again after connect
 	c.sendC2S(&common.Connect{ClientID: t.Name(), Username: "u1", Password: "p1", Version: 3})
@@ -51,7 +51,7 @@ func TestSessionConnect(t *testing.T) {
 	c.sendC2S(&common.Disconnect{})
 	c.assertS2CPacketTimeout()
 	c.assertClosed(true)
-	b.assertSession(t.Name(), "{\"ID\":\"TestSessionConnect\",\"Will\":null,\"CleanSession\":false,\"Subscriptions\":null}")
+	b.assertSession(t.Name(), "{\"ID\":\"TestSessionConnect\",\"CleanSession\":false,\"Subscriptions\":null}")
 
 	// connect again cleansession=true
 	c = newMockConn(t)
@@ -86,7 +86,7 @@ func TestConnectWithSameClientID(t *testing.T) {
 	c1.assertS2CPacket("<Connack SessionPresent=false ReturnCode=0>")
 	c1.sendC2S(&common.Subscribe{ID: 1, Subscriptions: []common.Subscription{{Topic: "test", QOS: 0}}})
 	c1.assertS2CPacket("<Suback ID=1 ReturnCodes=[0]>")
-	b.assertSession(t.Name(), "{\"ID\":\"TestConnectWithSameClientID\",\"Will\":null,\"CleanSession\":false,\"Subscriptions\":{\"test\":0}}")
+	b.assertSession(t.Name(), "{\"ID\":\"TestConnectWithSameClientID\",\"CleanSession\":false,\"Subscriptions\":{\"test\":0}}")
 	b.assertClientCount(2)
 	b.assertBindingCount(t.Name(), 1)
 	b.assertExchangeCount(1)
@@ -104,7 +104,7 @@ func TestConnectWithSameClientID(t *testing.T) {
 	c2.assertS2CPacket("<Connack SessionPresent=true ReturnCode=0>")
 	c2.sendC2S(&common.Subscribe{ID: 1, Subscriptions: []common.Subscription{{Topic: "test", QOS: 0}}})
 	c2.assertS2CPacket("<Suback ID=1 ReturnCodes=[0]>")
-	b.assertSession(t.Name(), "{\"ID\":\"TestConnectWithSameClientID\",\"Will\":null,\"CleanSession\":false,\"Subscriptions\":{\"test\":0}}")
+	b.assertSession(t.Name(), "{\"ID\":\"TestConnectWithSameClientID\",\"CleanSession\":false,\"Subscriptions\":{\"test\":0}}")
 	b.assertClientCount(2)
 	b.assertBindingCount(t.Name(), 1)
 	b.assertExchangeCount(1)
@@ -182,49 +182,49 @@ func TestSessionSubscribe(t *testing.T) {
 	// subscribe test
 	c.sendC2S(&common.Subscribe{ID: 1, Subscriptions: []common.Subscription{{Topic: "test", QOS: 0}}})
 	c.assertS2CPacket("<Suback ID=1 ReturnCodes=[0]>")
-	b.assertSession(t.Name(), "{\"ID\":\"TestSessionSubscribe\",\"Will\":null,\"CleanSession\":false,\"Subscriptions\":{\"test\":0}}")
+	b.assertSession(t.Name(), "{\"ID\":\"TestSessionSubscribe\",\"CleanSession\":false,\"Subscriptions\":{\"test\":0}}")
 	b.assertExchangeCount(1)
 
 	// subscribe talk
 	c.sendC2S(&common.Subscribe{ID: 1, Subscriptions: []common.Subscription{{Topic: "talks"}, {Topic: "talks1", QOS: 1}, {Topic: "talks2", QOS: 1}}})
 	c.assertS2CPacket("<Suback ID=1 ReturnCodes=[0, 1, 1]>")
-	b.assertSession(t.Name(), "{\"ID\":\"TestSessionSubscribe\",\"Will\":null,\"CleanSession\":false,\"Subscriptions\":{\"talks\":0,\"talks1\":1,\"talks2\":1,\"test\":0}}")
+	b.assertSession(t.Name(), "{\"ID\":\"TestSessionSubscribe\",\"CleanSession\":false,\"Subscriptions\":{\"talks\":0,\"talks1\":1,\"talks2\":1,\"test\":0}}")
 	b.assertExchangeCount(4)
 
 	// subscribe talk again
 	c.sendC2S(&common.Subscribe{ID: 1, Subscriptions: []common.Subscription{{Topic: "talks", QOS: 1}, {Topic: "talks1", QOS: 1}, {Topic: "talks2", QOS: 0}}})
 	c.assertS2CPacket("<Suback ID=1 ReturnCodes=[1, 1, 0]>")
-	b.assertSession(t.Name(), "{\"ID\":\"TestSessionSubscribe\",\"Will\":null,\"CleanSession\":false,\"Subscriptions\":{\"talks\":1,\"talks1\":1,\"talks2\":0,\"test\":0}}")
+	b.assertSession(t.Name(), "{\"ID\":\"TestSessionSubscribe\",\"CleanSession\":false,\"Subscriptions\":{\"talks\":1,\"talks1\":1,\"talks2\":0,\"test\":0}}")
 	b.assertExchangeCount(4)
 
 	// subscribe wrong qos
 	c.sendC2S(&common.Subscribe{ID: 1, Subscriptions: []common.Subscription{{Topic: "test", QOS: 2}, {Topic: "talks1", QOS: 0}, {Topic: "talks2", QOS: 1}}})
 	c.assertS2CPacket("<Suback ID=1 ReturnCodes=[128, 0, 1]>")
-	b.assertSession(t.Name(), "{\"ID\":\"TestSessionSubscribe\",\"Will\":null,\"CleanSession\":false,\"Subscriptions\":{\"talks\":1,\"talks1\":0,\"talks2\":1,\"test\":0}}")
+	b.assertSession(t.Name(), "{\"ID\":\"TestSessionSubscribe\",\"CleanSession\":false,\"Subscriptions\":{\"talks\":1,\"talks1\":0,\"talks2\":1,\"test\":0}}")
 	b.assertExchangeCount(4)
 
 	// subscribe with exceptions: wrong qos, no permit, wrong topic
 	c.sendC2S(&common.Subscribe{ID: 1, Subscriptions: []common.Subscription{{Topic: "test", QOS: 2}, {Topic: "temp", QOS: 1}, {Topic: "talks1#/", QOS: 1}}})
 	c.assertS2CPacket("<Suback ID=1 ReturnCodes=[128, 128, 128]>")
-	b.assertSession(t.Name(), "{\"ID\":\"TestSessionSubscribe\",\"Will\":null,\"CleanSession\":false,\"Subscriptions\":{\"talks\":1,\"talks1\":0,\"talks2\":1,\"test\":0}}")
+	b.assertSession(t.Name(), "{\"ID\":\"TestSessionSubscribe\",\"CleanSession\":false,\"Subscriptions\":{\"talks\":1,\"talks1\":0,\"talks2\":1,\"test\":0}}")
 	b.assertExchangeCount(4)
 
 	// unsubscribe test
 	c.sendC2S(&common.Unsubscribe{ID: 1, Topics: []string{"test"}})
 	c.assertS2CPacket("<Unsuback ID=1>")
-	b.assertSession(t.Name(), "{\"ID\":\"TestSessionSubscribe\",\"Will\":null,\"CleanSession\":false,\"Subscriptions\":{\"talks\":1,\"talks1\":0,\"talks2\":1}}")
+	b.assertSession(t.Name(), "{\"ID\":\"TestSessionSubscribe\",\"CleanSession\":false,\"Subscriptions\":{\"talks\":1,\"talks1\":0,\"talks2\":1}}")
 	b.assertExchangeCount(3)
 
 	// subscribe test
 	c.sendC2S(&common.Subscribe{ID: 1, Subscriptions: []common.Subscription{{Topic: "test", QOS: 0}}})
 	c.assertS2CPacket("<Suback ID=1 ReturnCodes=[0]>")
-	b.assertSession(t.Name(), "{\"ID\":\"TestSessionSubscribe\",\"Will\":null,\"CleanSession\":false,\"Subscriptions\":{\"talks\":1,\"talks1\":0,\"talks2\":1,\"test\":0}}")
+	b.assertSession(t.Name(), "{\"ID\":\"TestSessionSubscribe\",\"CleanSession\":false,\"Subscriptions\":{\"talks\":1,\"talks1\":0,\"talks2\":1,\"test\":0}}")
 	b.assertExchangeCount(4)
 
 	// unsubscribe nonexists
 	c.sendC2S(&common.Unsubscribe{ID: 1, Topics: []string{"test", "nonexists"}})
 	c.assertS2CPacket("<Unsuback ID=1>")
-	b.assertSession(t.Name(), "{\"ID\":\"TestSessionSubscribe\",\"Will\":null,\"CleanSession\":false,\"Subscriptions\":{\"talks\":1,\"talks1\":0,\"talks2\":1}}")
+	b.assertSession(t.Name(), "{\"ID\":\"TestSessionSubscribe\",\"CleanSession\":false,\"Subscriptions\":{\"talks\":1,\"talks1\":0,\"talks2\":1}}")
 	b.assertExchangeCount(3)
 
 	c.sendC2S(&common.Disconnect{})
@@ -258,7 +258,7 @@ func TestSessionPublish(t *testing.T) {
 	// subscribe test
 	c.sendC2S(&common.Subscribe{ID: 1, Subscriptions: []common.Subscription{{Topic: "test", QOS: 1}}})
 	c.assertS2CPacket("<Suback ID=1 ReturnCodes=[1]>")
-	b.assertSession(t.Name(), "{\"ID\":\"TestSessionPublish\",\"Will\":null,\"CleanSession\":false,\"Subscriptions\":{\"test\":1}}")
+	b.assertSession(t.Name(), "{\"ID\":\"TestSessionPublish\",\"CleanSession\":false,\"Subscriptions\":{\"test\":1}}")
 	b.assertExchangeCount(1)
 
 	// publish test qos 0
@@ -330,7 +330,7 @@ func TestCleanSession(t *testing.T) {
 	sub.assertS2CPacket("<Connack SessionPresent=false ReturnCode=0>")
 	sub.sendC2S(&common.Subscribe{ID: 1, Subscriptions: []common.Subscription{{Topic: "test", QOS: 1}}})
 	sub.assertS2CPacket("<Suback ID=1 ReturnCodes=[1]>")
-	b.assertSession("sub", "{\"ID\":\"sub\",\"Will\":null,\"CleanSession\":false,\"Subscriptions\":{\"test\":1}}")
+	b.assertSession("sub", "{\"ID\":\"sub\",\"CleanSession\":false,\"Subscriptions\":{\"test\":1}}")
 	b.assertExchangeCount(1)
 
 	pkt := &common.Publish{}
@@ -350,7 +350,7 @@ func TestCleanSession(t *testing.T) {
 	sub.sendC2S(&common.Connect{ClientID: "sub", Username: "u1", Password: "p1", Version: 3})
 	sub.assertS2CPacket("<Connack SessionPresent=true ReturnCode=0>")
 	// * auto subscribe when cleansession=false
-	b.assertSession("sub", "{\"ID\":\"sub\",\"Will\":null,\"CleanSession\":false,\"Subscriptions\":{\"test\":1}}")
+	b.assertSession("sub", "{\"ID\":\"sub\",\"CleanSession\":false,\"Subscriptions\":{\"test\":1}}")
 	b.assertExchangeCount(1)
 
 	pub.sendC2S(pkt)
@@ -406,12 +406,12 @@ func TestCleanSession(t *testing.T) {
 	b.manager.ClientMQTTHandler(sub, false)
 	sub.sendC2S(&common.Connect{ClientID: "sub", Username: "u1", Password: "p1", Version: 3})
 	sub.assertS2CPacket("<Connack SessionPresent=false ReturnCode=0>")
-	b.assertSession("sub", "{\"ID\":\"sub\",\"Will\":null,\"CleanSession\":false,\"Subscriptions\":null}")
+	b.assertSession("sub", "{\"ID\":\"sub\",\"CleanSession\":false,\"Subscriptions\":null}")
 	b.assertExchangeCount(0)
 
 	sub.sendC2S(&common.Subscribe{ID: 1, Subscriptions: []common.Subscription{{Topic: "test", QOS: 1}}})
 	sub.assertS2CPacket("<Suback ID=1 ReturnCodes=[1]>")
-	b.assertSession("sub", "{\"ID\":\"sub\",\"Will\":null,\"CleanSession\":false,\"Subscriptions\":{\"test\":1}}")
+	b.assertSession("sub", "{\"ID\":\"sub\",\"CleanSession\":false,\"Subscriptions\":{\"test\":1}}")
 	b.assertExchangeCount(1)
 
 	sub.sendC2S(&common.Disconnect{})
@@ -426,7 +426,7 @@ func TestCleanSession(t *testing.T) {
 	b.manager.ClientMQTTHandler(sub, false)
 	sub.sendC2S(&common.Connect{ClientID: "sub", Username: "u1", Password: "p1", Version: 3})
 	sub.assertS2CPacket("<Connack SessionPresent=true ReturnCode=0>")
-	b.assertSession("sub", "{\"ID\":\"sub\",\"Will\":null,\"CleanSession\":false,\"Subscriptions\":{\"test\":1}}")
+	b.assertSession("sub", "{\"ID\":\"sub\",\"CleanSession\":false,\"Subscriptions\":{\"test\":1}}")
 	b.assertExchangeCount(1)
 
 	// 'sub' can receive offline message when cleanession=false
@@ -458,7 +458,7 @@ func TestPubSubQOS(t *testing.T) {
 
 	sub.sendC2S(&common.Subscribe{ID: 1, Subscriptions: []common.Subscription{{Topic: "test", QOS: 1}}})
 	sub.assertS2CPacket("<Suback ID=1 ReturnCodes=[1]>")
-	b.assertSession("sub", "{\"ID\":\"sub\",\"Will\":null,\"CleanSession\":false,\"Subscriptions\":{\"test\":1}}")
+	b.assertSession("sub", "{\"ID\":\"sub\",\"CleanSession\":false,\"Subscriptions\":{\"test\":1}}")
 	b.assertExchangeCount(1)
 
 	pkt := &common.Publish{}
@@ -484,7 +484,7 @@ func TestPubSubQOS(t *testing.T) {
 
 	sub.sendC2S(&common.Subscribe{ID: 1, Subscriptions: []common.Subscription{{Topic: "test", QOS: 0}}})
 	sub.assertS2CPacket("<Suback ID=1 ReturnCodes=[0]>")
-	b.assertSession("sub", "{\"ID\":\"sub\",\"Will\":null,\"CleanSession\":false,\"Subscriptions\":{\"test\":0}}")
+	b.assertSession("sub", "{\"ID\":\"sub\",\"CleanSession\":false,\"Subscriptions\":{\"test\":0}}")
 	b.assertExchangeCount(1)
 
 	pub.sendC2S(pkt)
@@ -521,13 +521,13 @@ func TestSessionWill(t *testing.T) {
 	// sub topic test
 	sub.sendC2S(&common.Subscribe{ID: 1, Subscriptions: []common.Subscription{{Topic: "test", QOS: 0}}})
 	sub.assertS2CPacket("<Suback ID=1 ReturnCodes=[0]>")
-	b.assertSession("sub", "{\"ID\":\"sub\",\"Will\":null,\"CleanSession\":false,\"Subscriptions\":{\"test\":0}}")
+	b.assertSession("sub", "{\"ID\":\"sub\",\"CleanSession\":false,\"Subscriptions\":{\"test\":0}}")
 
 	// pub client disconnect normally
 	pub.sendC2S(&common.Disconnect{})
 	pub.assertS2CPacketTimeout()
 	pub.assertClosed(true)
-	b.assertSession("pub", "{\"ID\":\"pub\",\"Will\":{\"Topic\":\"test\",\"Payload\":\"anVzdCBmb3IgdGVzdA==\",\"QOS\":0,\"Retain\":false},\"CleanSession\":false,\"Subscriptions\":null}")
+	b.assertSession("pub", "{\"ID\":\"pub\",\"will\":{\"Topic\":\"test\",\"Payload\":\"anVzdCBmb3IgdGVzdA==\",\"QOS\":0,\"Retain\":false},\"CleanSession\":false,\"Subscriptions\":null}")
 
 	// sub client failed to receive message
 	b.assertExchangeCount(1)
@@ -541,12 +541,12 @@ func TestSessionWill(t *testing.T) {
 
 	pub.sendC2S(&common.Connect{ClientID: "pub", Will: &packet.Message{Topic: "test", QOS: 0, Payload: []byte("just for test"), Retain: false}, Username: "u2", Password: "p2", Version: 3})
 	pub.assertS2CPacket("<Connack SessionPresent=true ReturnCode=0>")
-	b.assertSession("pub", "{\"ID\":\"pub\",\"Will\":{\"Topic\":\"test\",\"Payload\":\"anVzdCBmb3IgdGVzdA==\",\"QOS\":0,\"Retain\":false},\"CleanSession\":false,\"Subscriptions\":null}")
+	b.assertSession("pub", "{\"ID\":\"pub\",\"will\":{\"Topic\":\"test\",\"Payload\":\"anVzdCBmb3IgdGVzdA==\",\"QOS\":0,\"Retain\":false},\"CleanSession\":false,\"Subscriptions\":null}")
 
 	// pub client disconnect abnormally
 	pub.Close()
 	pub.assertClosed(true)
-	b.assertSession("pub", "{\"ID\":\"pub\",\"Will\":{\"Topic\":\"test\",\"Payload\":\"anVzdCBmb3IgdGVzdA==\",\"QOS\":0,\"Retain\":false},\"CleanSession\":false,\"Subscriptions\":null}")
+	b.assertSession("pub", "{\"ID\":\"pub\",\"will\":{\"Topic\":\"test\",\"Payload\":\"anVzdCBmb3IgdGVzdA==\",\"QOS\":0,\"Retain\":false},\"CleanSession\":false,\"Subscriptions\":null}")
 
 	// sub client received will message
 	sub.assertS2CPacket("<Publish ID=0 Message=<Message Topic=\"test\" QOS=0 Retain=false Payload=[106 117 115 116 32 102 111 114 32 116 101 115 116]> Dup=false>")
@@ -586,7 +586,7 @@ func TestSessionRetain(t *testing.T) {
 	// client2 to subscribe topic test
 	sub1.sendC2S(&common.Subscribe{ID: 1, Subscriptions: []common.Subscription{{Topic: "test", QOS: 1}}})
 	sub1.assertS2CPacket("<Suback ID=1 ReturnCodes=[1]>")
-	b.assertSession("sub1", "{\"ID\":\"sub1\",\"Will\":null,\"CleanSession\":false,\"Subscriptions\":{\"test\":1}}")
+	b.assertSession("sub1", "{\"ID\":\"sub1\",\"CleanSession\":false,\"Subscriptions\":{\"test\":1}}")
 
 	// client2 to receive message
 	sub1.assertS2CPacket("<Publish ID=1 Message=<Message Topic=\"test\" QOS=1 Retain=false Payload=[111 110 108 105 110 101]> Dup=false>")
@@ -616,7 +616,7 @@ func TestSessionRetain(t *testing.T) {
 	// client3 subscribe topic test
 	sub2.sendC2S(&common.Subscribe{ID: 3, Subscriptions: []common.Subscription{{Topic: "test", QOS: 0}}})
 	sub2.assertS2CPacket("<Suback ID=3 ReturnCodes=[0]>")
-	b.assertSession("sub2", "{\"ID\":\"sub2\",\"Will\":null,\"CleanSession\":false,\"Subscriptions\":{\"test\":0}}")
+	b.assertSession("sub2", "{\"ID\":\"sub2\",\"CleanSession\":false,\"Subscriptions\":{\"test\":0}}")
 
 	// client3 to receive retain message("offline")
 	sub2.assertS2CPacket("<Publish ID=0 Message=<Message Topic=\"test\" QOS=0 Retain=false Payload=[111 102 102 108 105 110 101]> Dup=false>")
@@ -648,7 +648,7 @@ func TestSessionRetain(t *testing.T) {
 	// client4 subscribe topic test
 	sub3.sendC2S(&common.Subscribe{ID: 4, Subscriptions: []common.Subscription{{Topic: "test", QOS: 1}}})
 	sub3.assertS2CPacket("<Suback ID=4 ReturnCodes=[1]>")
-	b.assertSession("sub3", "{\"ID\":\"sub3\",\"Will\":null,\"CleanSession\":false,\"Subscriptions\":{\"test\":1}}")
+	b.assertSession("sub3", "{\"ID\":\"sub3\",\"CleanSession\":false,\"Subscriptions\":{\"test\":1}}")
 	b.assertExchangeCount(3)
 
 	// client4 to receive retain message(latest retain message is "offline")
