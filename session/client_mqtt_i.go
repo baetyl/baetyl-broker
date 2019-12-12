@@ -178,7 +178,7 @@ func (c *ClientMQTT) onSubscribe(p *common.Subscribe) error {
 	if err != nil {
 		return err
 	}
-	return c.sendRetainMessage(p)
+	return c.sendRetainMessage()
 }
 
 func (c *ClientMQTT) onUnsubscribe(p *common.Unsubscribe) error {

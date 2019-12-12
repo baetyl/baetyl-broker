@@ -53,6 +53,18 @@ func newMockBroker(t *testing.T) *mockBroker {
 		Permissions: []auth.Permission{{
 			Action:  "pub",
 			Permits: []string{"test", "talks", "talks1", "talks2"},
+		}}}, {
+		Username: "u3",
+		Password: "p3",
+		Permissions: []auth.Permission{{
+			Action:  "sub",
+			Permits: []string{"test", "talks"},
+		}}}, {
+		Username: "u4",
+		Password: "p4",
+		Permissions: []auth.Permission{{
+			Action:  "sub",
+			Permits: []string{"test", "talks"},
 		}}}}
 	b.manager, err = NewManager(b.cfg.Session, newMockExchange(), auth.NewAuth(b.cfg.Principals))
 	assert.NoError(t, err)

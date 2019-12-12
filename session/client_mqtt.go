@@ -124,24 +124,18 @@ func (c *ClientMQTT) retainMessage(msg *packet.Message) error {
 }
 
 // SendRetainMessage sends retain message
-func (c *ClientMQTT) sendRetainMessage(p *packet.Subscribe) error {
+func (c *ClientMQTT) sendRetainMessage() error {
 	msgs, err := c.manager.getRetain()
 	if err != nil || len(msgs) == 0 {
 		return err
 	}
-	for _, sub := range p.Subscriptions {
-		c.session.subs.Add(sub.Topic, sub.QOS)
-	}
 	for _, msg := range msgs {
-		m := common.NewMessage(&packet.Publish{
-			Message: *msg,
-		})
-		e := common.Event{Message: m}
+		e := common.Event{Message: msg}
 		err = c.session.Push(&e)
 		if err != nil {
 			return err
 		}
-		c.log.Info("retain message sent", log.String("topic", msg.Topic))
+		c.log.Info("retain message sent", log.String("topic", msg.Context.Topic))
 	}
 	return nil
 }

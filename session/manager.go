@@ -281,17 +281,23 @@ func (m *Manager) setRetain(topic string, msg *packet.Message) error {
 }
 
 // GetRetain gets retain messages
-func (m *Manager) getRetain() ([]*packet.Message, error) {
+func (m *Manager) getRetain() ([]*common.Message, error) {
 	retains, err := m.retain.List()
 	if err != nil {
 		return nil, err
 	}
-	result := make([]*packet.Message, 0)
+	pkts := make([]*packet.Message, 0)
 	for _, v := range retains {
-		result = append(result, v.(*retain.Retain).Message)
+		pkts = append(pkts, v.(*retain.Retain).Message)
 	}
-	m.log.Info("retain messages got")
-	return result, nil
+	msgs := make([]*common.Message, 0)
+	for _, pkt := range pkts {
+		msg := common.NewMessage(&packet.Publish{
+			Message: *pkt,
+		})
+		msgs = append(msgs, msg)
+	}
+	return msgs, nil
 }
 
 // RemoveRetain removes retain message
