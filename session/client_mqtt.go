@@ -134,13 +134,13 @@ func (c *ClientMQTT) sendRetainMessage() error {
 			if msg.Context.QOS > qos {
 				msg.Context.QOS = qos
 			}
+			e := common.NewEvent(msg, 0, nil)
+			err = c.session.Push(e)
+			if err != nil {
+				return err
+			}
+			c.log.Info("retain message sent", log.String("topic", msg.Context.Topic))
 		}
-		e := common.NewEvent(msg, 0, nil)
-		err = c.session.Push(e)
-		if err != nil {
-			return err
-		}
-		c.log.Info("retain message sent", log.String("topic", msg.Context.Topic))
 	}
 	return nil
 }

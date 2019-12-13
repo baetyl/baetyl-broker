@@ -9,7 +9,7 @@ import (
 	"github.com/baetyl/baetyl-broker/database"
 )
 
-// Config queue config
+// Config retain config
 type Config struct {
 	Driver   string
 	Location string
