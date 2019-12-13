@@ -3,6 +3,7 @@ package queue
 import (
 	"os"
 	"path"
+	"time"
 
 	"github.com/baetyl/baetyl-broker/common"
 	"github.com/baetyl/baetyl-broker/database"
@@ -11,9 +12,11 @@ import (
 
 // Config queue config
 type Config struct {
-	Name     string
-	Driver   string
-	Location string
+	Name          string
+	Driver        string
+	Location      string
+	ExpireTime    time.Duration
+	CleanInterval time.Duration
 }
 
 // Backend the backend database of queue

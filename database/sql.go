@@ -3,7 +3,6 @@ package database
 import (
 	"database/sql"
 	"fmt"
-	"strconv"
 	"strings"
 	"time"
 )
@@ -64,33 +63,20 @@ func (d *sqldb) Put(values []interface{}) error {
 		return nil
 	}
 	phs := make([]string, l)
-	for i := 0; i < l; i++ {
+	for i := range values {
 		phs[i] = placeholderValue
 		if d.encoder != nil {
 			values[i] = d.encoder.Encode(values[i])
 		}
 	}
-	query := fmt.Sprintf(
-		"insert into t(value) values %s",
-		strings.Join(phs, ", "),
-	)
-	stmt, err := d.Prepare(query)
-	if err != nil {
-		return err
-	}
-	defer stmt.Close()
-	_, err = stmt.Exec(values...)
+	query := fmt.Sprintf("insert into t(value) values %s", strings.Join(phs, ", "))
+	_, err := d.Exec(query, values...)
 	return err
 }
 
 // Get gets values from SQL DB
 func (d *sqldb) Get(offset uint64, length int) ([]interface{}, error) {
-	stmt, err := d.Prepare("select id, value from t where id >= ? order by id limit ?")
-	if err != nil {
-		return nil, err
-	}
-	defer stmt.Close()
-	rows, err := stmt.Query(offset, length)
+	rows, err := d.Query("select id, value from t where id >= ? order by id limit ?", offset, length)
 	if err != nil {
 		return nil, err
 	}
@@ -114,30 +100,20 @@ func (d *sqldb) Get(offset uint64, length int) ([]interface{}, error) {
 
 // Del deletes values by IDs from SQL DB
 func (d *sqldb) Del(ids []uint64) error {
-	var phs []string
-	var args []interface{}
-	for _, id := range ids {
-		args = append(args, strconv.FormatUint(id, 10))
-		phs = append(phs, "?")
+	phs := make([]string, len(ids))
+	args := make([]interface{}, len(ids))
+	for i := range ids {
+		phs[i] = "?"
+		args[i] = ids[i]
 	}
 	query := fmt.Sprintf("delete from t where id in (%s)", strings.Join(phs, ","))
-	stmt, err := d.Prepare(query)
-	if err != nil {
-		return err
-	}
-	defer stmt.Close()
-	_, err = stmt.Exec(args...)
+	_, err := d.Exec(query, args...)
 	return err
 }
 
 // DelBefore delete expired messages
 func (d *sqldb) DelBefore(ts time.Time) error {
-	stmt, err := d.Prepare("delete from t where ts < ?")
-	if err != nil {
-		return err
-	}
-	defer stmt.Close()
-	_, err = stmt.Exec(ts)
+	_, err := d.Exec("delete from t where ts < ?", ts)
 	return err
 }
 
@@ -148,15 +124,11 @@ func (d *sqldb) SetKV(key, value interface{}) error {
 	if key == nil || value == nil {
 		return nil
 	}
-	stmt, err := d.Prepare("insert into kv(key,value) values (?,?) on conflict(key) do update set value=excluded.value")
-	if err != nil {
-		return err
-	}
-	defer stmt.Close()
 	if d.encoder != nil {
 		value = d.encoder.Encode(value)
 	}
-	_, err = stmt.Exec(key, value)
+	query := "insert into kv(key,value) values (?,?) on conflict(key) do update set value=excluded.value"
+	_, err := d.Exec(query, key, value)
 	return err
 }
 

@@ -35,12 +35,8 @@ func NewBackend(cfg Config) (*Backend, error) {
 }
 
 // NewQueueBackend create a new backend database for queue
-func (b *Backend) NewQueueBackend(name string) (*queue.Backend, error) {
-	return queue.NewBackend(queue.Config{
-		Name:     name,
-		Driver:   b.cfg.PersistenceDriver,
-		Location: b.cfg.PersistenceLocation,
-	})
+func (b *Backend) NewQueueBackend(cfg queue.Config) (*queue.Backend, error) {
+	return queue.NewBackend(cfg)
 }
 
 // Encode encodes the message to byte array

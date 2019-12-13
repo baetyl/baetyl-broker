@@ -10,26 +10,26 @@ import (
 
 // Persistence is a persistent queue
 type Persistence struct {
-	backend       *Backend
-	input         chan *common.Event
-	output        chan *common.Event
-	edel          chan uint64 // del events with message id
-	eget          chan bool   // get events
-	log           *log.Logger
-	cleanInterval time.Duration
+	backend *Backend
+	cfg     Config
+	input   chan *common.Event
+	output  chan *common.Event
+	edel    chan uint64 // del events with message id
+	eget    chan bool   // get events
+	log     *log.Logger
 	utils.Tomb
 }
 
 // NewPersistence creates a new in-memory queue
-func NewPersistence(id string, capacity int, interval time.Duration, backend *Backend) Queue {
+func NewPersistence(cfg Config, backend *Backend, capacity int) Queue {
 	q := &Persistence{
-		backend:       backend,
-		input:         make(chan *common.Event, capacity),
-		output:        make(chan *common.Event, capacity),
-		edel:          make(chan uint64, capacity),
-		eget:          make(chan bool, 1),
-		log:           log.With(log.String("queue", "persist"), log.String("id", id)),
-		cleanInterval: interval,
+		backend: backend,
+		cfg:     cfg,
+		input:   make(chan *common.Event, capacity),
+		output:  make(chan *common.Event, capacity),
+		edel:    make(chan uint64, capacity),
+		eget:    make(chan bool, 1),
+		log:     log.With(log.String("queue", "persist"), log.String("id", cfg.Name)),
 	}
 	// to read persistent message
 	q.trigger()
@@ -144,7 +144,7 @@ func (q *Persistence) deleting() error {
 	max := cap(q.edel)
 	// ? Is it possible to remove the timer?
 	duration := time.Millisecond * 500
-	cleanDuration := time.Hour
+	cleanDuration := q.cfg.CleanInterval
 	timer := time.NewTimer(duration)
 	cleanTimer := time.NewTicker(cleanDuration)
 	defer timer.Stop()
@@ -232,12 +232,12 @@ func (q *Persistence) delete(buf []uint64) []uint64 {
 	return []uint64{}
 }
 
-// clean expired messages older than seven days
+// clean expired messages
 func (q *Persistence) clean() {
-	defer utils.Trace(q.log.Debug, "queue has cleaned expired messages older than seven days from backend")
-	err := q.backend.DelBefore(time.Now().Add(-7 * 24 * time.Hour))
+	defer utils.Trace(q.log.Debug, "queue has cleaned expired messages from backend")
+	err := q.backend.DelBefore(time.Now().Add(-q.cfg.ExpireTime))
 	if err != nil {
-		q.log.Error("failed to clean expired messages older than seven days from backend", log.Error(err))
+		q.log.Error("failed to clean expired messages from backend", log.Error(err))
 	}
 }
 

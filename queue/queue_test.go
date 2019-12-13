@@ -55,7 +55,12 @@ func TestPersistentQueue(t *testing.T) {
 	assert.NotNil(t, be)
 	defer be.Close()
 
-	b := NewPersistence(t.Name(), 100, time.Hour, be)
+	conf := Config{
+		Name:          t.Name(),
+		ExpireTime:    time.Hour,
+		CleanInterval: time.Hour,
+	}
+	b := NewPersistence(conf, be, 100)
 	assert.NotNil(t, b)
 	defer b.Close()
 
@@ -120,7 +125,12 @@ func BenchmarkPersistentQueue(b *testing.B) {
 	assert.NotNil(b, be)
 	defer be.Close()
 
-	q := NewPersistence(b.Name(), 100, time.Hour, be)
+	conf := Config{
+		Name:          b.Name(),
+		ExpireTime:    time.Hour,
+		CleanInterval: time.Hour,
+	}
+	q := NewPersistence(conf, be, 100)
 	assert.NotNil(b, q)
 	defer q.Close()
 
@@ -168,7 +178,12 @@ func BenchmarkPersistentQueueParallel(b *testing.B) {
 	assert.NotNil(b, be)
 	defer be.Close()
 
-	q := NewPersistence(b.Name(), 100, time.Hour, be)
+	conf := Config{
+		Name:          b.Name(),
+		ExpireTime:    time.Hour,
+		CleanInterval: time.Hour,
+	}
+	q := NewPersistence(conf, be, 100)
 	assert.NotNil(b, q)
 	defer q.Close()
 

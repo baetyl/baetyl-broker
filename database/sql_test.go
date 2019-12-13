@@ -183,7 +183,7 @@ func TestDatabaseSQLiteNoEncoder(t *testing.T) {
 	assert.Len(t, values, 0)
 }
 
-func TestSQLiteCompact(t *testing.T) {
+func TestSQLiteDelExpiredData(t *testing.T) {
 	dir, err := ioutil.TempDir("", t.Name())
 	assert.NoError(t, err)
 	defer os.RemoveAll(dir)
