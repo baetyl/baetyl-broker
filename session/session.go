@@ -12,7 +12,7 @@ import (
 // Info session information
 type Info struct {
 	ID            string
-	Will          *common.Message `json:"will,omitempty"` // will message
+	Will          *common.Message `json:"Will,omitempty"` // will message
 	CleanSession  bool
 	Subscriptions map[string]common.QOS
 }

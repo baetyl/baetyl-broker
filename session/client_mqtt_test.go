@@ -509,7 +509,7 @@ func TestSessionWill(t *testing.T) {
 	conn.Version = 3
 	conn.Will = nil
 
-	// sub client connect without will message
+	// sub client connect without Will message
 	conn.ClientID = "sub"
 	conn.Username = "u1"
 	conn.Password = "p1"
@@ -523,7 +523,7 @@ func TestSessionWill(t *testing.T) {
 	sub.assertS2CPacket("<Suback ID=1 ReturnCodes=[0]>")
 	b.assertSession("sub", "{\"ID\":\"sub\",\"CleanSession\":false,\"Subscriptions\":{\"test\":0}}")
 
-	// pub client connect with will message
+	// pub client connect with Will message
 	conn.ClientID = "pub"
 	conn.Username = "u2"
 	conn.Password = "p2"
@@ -539,7 +539,7 @@ func TestSessionWill(t *testing.T) {
 	pub.sendC2S(&common.Disconnect{})
 	pub.assertS2CPacketTimeout()
 	pub.assertClosed(true)
-	b.assertSession("pub", "{\"ID\":\"pub\",\"will\":{\"Context\":{\"Topic\":\"test\"},\"Content\":\"anVzdCBmb3IgdGVzdA==\"},\"CleanSession\":false,\"Subscriptions\":null}")
+	b.assertSession("pub", "{\"ID\":\"pub\",\"Will\":{\"Context\":{\"Topic\":\"test\"},\"Content\":\"anVzdCBmb3IgdGVzdA==\"},\"CleanSession\":false,\"Subscriptions\":null}")
 
 	// sub client failed to receive message
 	b.assertExchangeCount(1)
@@ -553,14 +553,14 @@ func TestSessionWill(t *testing.T) {
 	b.manager.ClientMQTTHandler(pub, false)
 	pub.sendC2S(conn)
 	pub.assertS2CPacket("<Connack SessionPresent=true ReturnCode=0>")
-	b.assertSession("pub", "{\"ID\":\"pub\",\"will\":{\"Context\":{\"Topic\":\"test\"},\"Content\":\"anVzdCBmb3IgdGVzdA==\"},\"CleanSession\":false,\"Subscriptions\":null}")
+	b.assertSession("pub", "{\"ID\":\"pub\",\"Will\":{\"Context\":{\"Topic\":\"test\"},\"Content\":\"anVzdCBmb3IgdGVzdA==\"},\"CleanSession\":false,\"Subscriptions\":null}")
 
 	// pub client disconnect abnormally
 	pub.Close()
 	pub.assertClosed(true)
-	b.assertSession("pub", "{\"ID\":\"pub\",\"will\":{\"Context\":{\"Topic\":\"test\"},\"Content\":\"anVzdCBmb3IgdGVzdA==\"},\"CleanSession\":false,\"Subscriptions\":null}")
+	b.assertSession("pub", "{\"ID\":\"pub\",\"Will\":{\"Context\":{\"Topic\":\"test\"},\"Content\":\"anVzdCBmb3IgdGVzdA==\"},\"CleanSession\":false,\"Subscriptions\":null}")
 
-	// sub client received will message
+	// sub client received Will message
 	sub.assertS2CPacket("<Publish ID=0 Message=<Message Topic=\"test\" QOS=0 Retain=false Payload=[106 117 115 116 32 102 111 114 32 116 101 115 116]> Dup=false>")
 }
 
@@ -653,7 +653,7 @@ func TestSessionRetain(t *testing.T) {
 	sub1.sendC2S(&common.Puback{ID: 0})
 	sub1.assertS2CPacketTimeout()
 
-	fmt.Println("\n--> 3. client3 subscribe topic 'talks' --> client3 will not receive message of topic 'talks' <--")
+	fmt.Println("\n--> 3. client3 subscribe topic 'talks' --> client3 Will not receive message of topic 'talks' <--")
 
 	// client3 to connect
 	conn.ClientID = "sub2"
@@ -671,13 +671,13 @@ func TestSessionRetain(t *testing.T) {
 	sub2.assertS2CPacket("<Suback ID=3 ReturnCodes=[1]>")
 	b.assertSession("sub2", "{\"ID\":\"sub2\",\"CleanSession\":false,\"Subscriptions\":{\"talks\":1}}")
 
-	// client3 will not receive message of topic talks(not retain)
+	// client3 Will not receive message of topic talks(not retain)
 	msgs, err = b.manager.getRetain()
 	assert.Nil(t, err)
 	assert.Equal(t, 1, len(msgs))
 	assert.Equal(t, "test", msgs[0].Context.Topic) // none exists retain message with topic talks
 
-	fmt.Println("\n--> 4. client4 subscribe topic 'test' --> client4 will receive message of topic 'test' <--")
+	fmt.Println("\n--> 4. client4 subscribe topic 'test' --> client4 Will receive message of topic 'test' <--")
 
 	// client4 to connect
 	conn.ClientID = "sub3"
@@ -688,19 +688,19 @@ func TestSessionRetain(t *testing.T) {
 	sub3.sendC2S(conn)
 	sub3.assertS2CPacket("<Connack SessionPresent=false ReturnCode=0>")
 
-	// client4 subscribe topic test. If retain message of topic test exists, client4 will receive the message.
+	// client4 subscribe topic test. If retain message of topic test exists, client4 Will receive the message.
 	skt.ID = 4
 	skt.Subscriptions = []common.Subscription{{Topic: "test", QOS: 1}}
 	sub3.sendC2S(skt)
 	sub3.assertS2CPacket("<Suback ID=4 ReturnCodes=[1]>")
 	b.assertSession("sub3", "{\"ID\":\"sub3\",\"CleanSession\":false,\"Subscriptions\":{\"test\":1}}")
 
-	// client4 will receive retain message(removed)
+	// client4 Will receive retain message(removed)
 	sub3.assertS2CPacket("<Publish ID=0 Message=<Message Topic=\"test\" QOS=0 Retain=false Payload=[111 102 102 108 105 110 101]> Dup=false>")
 	sub3.sendC2S(&common.Puback{ID: 0})
 	sub3.assertS2CPacketTimeout()
 
-	fmt.Println("--> 5. clear retain message of topic 'test' --> client5 subscribe topic 'test' --> client5 will not receive message of topic 'test'<--")
+	fmt.Println("--> 5. clear retain message of topic 'test' --> client5 subscribe topic 'test' --> client5 Will not receive message of topic 'test'<--")
 
 	// clear retain message of topic test
 	b.manager.removeRetain("test")
@@ -714,14 +714,14 @@ func TestSessionRetain(t *testing.T) {
 	sub4.sendC2S(conn)
 	sub4.assertS2CPacket("<Connack SessionPresent=false ReturnCode=0>")
 
-	// client5 subscribe topic test. If retain message of topic test exists, client5 will receive the message.
+	// client5 subscribe topic test. If retain message of topic test exists, client5 Will receive the message.
 	skt.ID = 5
 	skt.Subscriptions = []common.Subscription{{Topic: "test", QOS: 1}}
 	sub4.sendC2S(skt)
 	sub4.assertS2CPacket("<Suback ID=5 ReturnCodes=[1]>")
 	b.assertSession("sub4", "{\"ID\":\"sub4\",\"CleanSession\":false,\"Subscriptions\":{\"test\":1}}")
 
-	// client5 will not receive retain message(removed)
+	// client5 Will not receive retain message(removed)
 	msgs, err = b.manager.getRetain()
 	assert.Nil(t, err)
 	assert.Equal(t, 0, len(msgs))

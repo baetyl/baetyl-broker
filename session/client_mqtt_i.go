@@ -149,9 +149,11 @@ func (c *ClientMQTT) onPublish(p *common.Publish) error {
 		return errors.New("publish topic not permitted")
 	}
 	msg := common.NewMessage(p)
-	err := c.retainMessage(msg)
-	if err != nil {
-		return err
+	if msg.Retain() {
+		err := c.retainMessage(msg)
+		if err != nil {
+			return err
+		}
 	}
 	cb := c.callback
 	if p.Message.QOS == 0 {

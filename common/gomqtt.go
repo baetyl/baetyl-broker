@@ -99,3 +99,17 @@ type Trie = topic.Tree
 func NewTrie() *Trie {
 	return topic.NewTree()
 }
+
+// IsMatch isMatch
+func IsMatch(t *Trie, topic string) (bool, uint32) {
+	ss := t.Match(topic)
+	ok := len(ss) != 0
+	qos := uint32(0)
+	for _, s := range ss {
+		us := uint32(s.(QOS))
+		if us > qos {
+			qos = us
+		}
+	}
+	return ok, qos
+}

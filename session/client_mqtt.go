@@ -104,17 +104,16 @@ func (c *ClientMQTT) sendWillMessage() {
 		return
 	}
 	msg := c.session.Will
-	err := c.retainMessage(msg)
-	if err != nil {
-		c.log.Error("failed to retain will message", log.String("topic", msg.Context.Topic))
+	if msg.Retain() {
+		err := c.retainMessage(msg)
+		if err != nil {
+			c.log.Error("failed to retain will message", log.String("topic", msg.Context.Topic))
+		}
 	}
 	c.manager.exchange.Route(msg, c.callback)
 }
 
 func (c *ClientMQTT) retainMessage(msg *common.Message) error {
-	if msg.Context.Flags == 0 {
-		return nil
-	}
 	if len(msg.Content) == 0 {
 		return c.manager.removeRetain(msg.Context.Topic)
 	}
@@ -123,13 +122,21 @@ func (c *ClientMQTT) retainMessage(msg *common.Message) error {
 
 // SendRetainMessage sends retain message
 func (c *ClientMQTT) sendRetainMessage() error {
+	if c.session == nil {
+		return nil
+	}
 	msgs, err := c.manager.getRetain()
 	if err != nil || len(msgs) == 0 {
 		return err
 	}
 	for _, msg := range msgs {
-		e := common.Event{Message: msg}
-		err = c.session.Push(&e)
+		if ok, qos := common.IsMatch(c.session.subs, msg.Context.Topic); ok {
+			if msg.Context.QOS > qos {
+				msg.Context.QOS = qos
+			}
+		}
+		e := common.NewEvent(msg, 0, nil)
+		err = c.session.Push(e)
 		if err != nil {
 			return err
 		}
