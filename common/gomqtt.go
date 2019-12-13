@@ -45,6 +45,9 @@ type ID = packet.ID
 // Packet the generic packet of MQTT
 type Packet = packet.Generic
 
+// PacketMessage the message of MQTT packet
+type PacketMessage = packet.Message
+
 // Publish the publish packet of MQTT
 type Publish = packet.Publish
 

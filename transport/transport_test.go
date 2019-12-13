@@ -6,8 +6,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/256dpi/gomqtt/packet"
 	trans "github.com/256dpi/gomqtt/transport"
+	"github.com/baetyl/baetyl-broker/common"
 	"github.com/baetyl/baetyl-go/utils"
 	"github.com/stretchr/testify/assert"
 )
@@ -35,7 +35,7 @@ func TestMqttTcp(t *testing.T) {
 	time.Sleep(time.Millisecond * 100)
 
 	dailer, err := NewDialer(nil)
-	request := packet.NewConnect()
+	request := &common.Connect{CleanSession: true, Version: 4}
 	request.ClientID = m.servers[0].Addr().String()
 	conn, err := dailer.Dial(getURL(m.servers[0], "tcp"))
 	assert.NoError(t, err)
@@ -164,7 +164,7 @@ func TestMqttWebSocket(t *testing.T) {
 
 	dailer, err := NewDialer(&utils.Certificate{InsecureSkipVerify: true})
 	assert.NoError(t, err)
-	request := packet.NewConnect()
+	request := &common.Connect{CleanSession: true, Version: 4}
 	request.ClientID = m.servers[0].Addr().String()
 	conn, err := dailer.Dial(getURL(m.servers[0], "ws"))
 	assert.NoError(t, err)

@@ -5,7 +5,7 @@ import (
 	"os"
 	"path"
 
-	"github.com/256dpi/gomqtt/packet"
+	"github.com/baetyl/baetyl-broker/common"
 	"github.com/baetyl/baetyl-broker/database"
 )
 
@@ -24,7 +24,7 @@ type Backend struct {
 // Retain retain struct
 type Retain struct {
 	Topic   string
-	Message *packet.Message
+	Message *common.Message
 }
 
 // NewBackend create a new backend database

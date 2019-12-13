@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"sync"
 
-	"github.com/256dpi/gomqtt/packet"
 	"github.com/baetyl/baetyl-broker/common"
 	"github.com/baetyl/baetyl-broker/queue"
 	"github.com/baetyl/baetyl-go/log"
@@ -13,7 +12,7 @@ import (
 // Info session information
 type Info struct {
 	ID            string
-	Will          *packet.Message `json:"will,omitempty"` // will message
+	Will          *common.Message `json:"will,omitempty"` // will message
 	CleanSession  bool
 	Subscriptions map[string]common.QOS
 }

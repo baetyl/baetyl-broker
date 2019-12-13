@@ -7,6 +7,7 @@ require (
 	github.com/baetyl/baetyl-go v0.0.0-20191209065508-4271eb2d716c
 	github.com/creasty/defaults v1.3.0
 	github.com/docker/distribution v2.7.1+incompatible
+	github.com/gogf/gf v1.10.0
 	github.com/gogo/protobuf v1.3.1
 	github.com/golang/protobuf v1.3.2
 	github.com/mattn/go-sqlite3 v1.11.0

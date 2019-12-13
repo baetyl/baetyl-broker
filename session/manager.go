@@ -5,7 +5,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/256dpi/gomqtt/packet"
 	"github.com/baetyl/baetyl-broker/auth"
 	"github.com/baetyl/baetyl-broker/common"
 	"github.com/baetyl/baetyl-broker/queue"
@@ -268,10 +267,10 @@ func (m *Manager) delClient(c client) {
 }
 
 // SetRetain sets retain message
-func (m *Manager) setRetain(topic string, msg *packet.Message) error {
+func (m *Manager) setRetain(topic string, msg *common.Message) error {
 	m.Lock()
 	defer m.Unlock()
-	retain := &retain.Retain{Topic: msg.Topic, Message: msg}
+	retain := &retain.Retain{Topic: msg.Context.Topic, Message: msg}
 	err := m.retain.Set(retain)
 	if err != nil {
 		return err
@@ -282,19 +281,16 @@ func (m *Manager) setRetain(topic string, msg *packet.Message) error {
 
 // GetRetain gets retain messages
 func (m *Manager) getRetain() ([]*common.Message, error) {
+	m.Lock()
+	defer m.Unlock()
+
 	retains, err := m.retain.List()
 	if err != nil {
 		return nil, err
 	}
-	pkts := make([]*packet.Message, 0)
-	for _, v := range retains {
-		pkts = append(pkts, v.(*retain.Retain).Message)
-	}
 	msgs := make([]*common.Message, 0)
-	for _, pkt := range pkts {
-		msg := common.NewMessage(&packet.Publish{
-			Message: *pkt,
-		})
+	for _, v := range retains {
+		msg := v.(*retain.Retain).Message
 		msgs = append(msgs, msg)
 	}
 	return msgs, nil

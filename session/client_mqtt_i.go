@@ -114,7 +114,7 @@ func (c *ClientMQTT) onConnect(p *common.Connect) error {
 		if p.Will.QOS > 1 {
 			return errors.New("will QoS not supported")
 		}
-		si.Will = p.Will
+		si.Will = common.NewMessage(&common.Publish{Message: *p.Will})
 	}
 	if si.ID == "" {
 		si.ID = c.id
@@ -148,13 +148,11 @@ func (c *ClientMQTT) onPublish(p *common.Publish) error {
 	if !c.authorize(auth.Publish, p.Message.Topic) {
 		return errors.New("publish topic not permitted")
 	}
-
-	err := c.retainMessage(&p.Message)
+	msg := common.NewMessage(p)
+	err := c.retainMessage(msg)
 	if err != nil {
 		return err
 	}
-
-	msg := common.NewMessage(p)
 	cb := c.callback
 	if p.Message.QOS == 0 {
 		cb = nil

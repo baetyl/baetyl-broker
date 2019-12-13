@@ -5,13 +5,13 @@ import (
 	"regexp"
 	"sync"
 
-	"github.com/256dpi/gomqtt/packet"
 	"github.com/baetyl/baetyl-broker/auth"
 	"github.com/baetyl/baetyl-broker/common"
 	"github.com/baetyl/baetyl-broker/transport"
 	"github.com/baetyl/baetyl-go/log"
 	"github.com/baetyl/baetyl-go/utils"
 	"github.com/docker/distribution/uuid"
+	"github.com/gogf/gf/util/gconv"
 )
 
 // ErrClientClosed the client is closed
@@ -107,20 +107,19 @@ func (c *ClientMQTT) sendWillMessage() {
 	msg := c.session.Will
 	err := c.retainMessage(msg)
 	if err != nil {
-		c.log.Error("failed to retain will message", log.String("topic", msg.Topic))
+		c.log.Error("failed to retain will message", log.String("topic", msg.Context.Topic))
 	}
-	p := packet.Publish{Message: *msg}
-	c.manager.exchange.Route(common.NewMessage(&p), c.callback)
+	c.manager.exchange.Route(msg, c.callback)
 }
 
-func (c *ClientMQTT) retainMessage(msg *packet.Message) error {
-	if !msg.Retain {
+func (c *ClientMQTT) retainMessage(msg *common.Message) error {
+	if msg.Context.Flags == 0 {
 		return nil
 	}
-	if len(msg.Payload) == 0 {
-		return c.manager.removeRetain(msg.Topic)
+	if len(msg.Content) == 0 {
+		return c.manager.removeRetain(msg.Context.Topic)
 	}
-	return c.manager.setRetain(msg.Topic, msg)
+	return c.manager.setRetain(msg.Context.Topic, msg)
 }
 
 // SendRetainMessage sends retain message
@@ -130,12 +129,20 @@ func (c *ClientMQTT) sendRetainMessage() error {
 		return err
 	}
 	for _, msg := range msgs {
-		e := common.Event{Message: msg}
-		err = c.session.Push(&e)
-		if err != nil {
-			return err
+		if ss := c.session.subs.Match(msg.Context.Topic); len(ss) != 0 {
+			for _, s := range ss {
+				us := gconv.Uint32(s)
+				if msg.Context.QOS > us {
+					msg.Context.QOS = us
+				}
+			}
+			e := common.Event{Message: msg}
+			err = c.session.Push(&e)
+			if err != nil {
+				return err
+			}
+			c.log.Info("retain message sent", log.String("topic", msg.Context.Topic))
 		}
-		c.log.Info("retain message sent", log.String("topic", msg.Context.Topic))
 	}
 	return nil
 }
