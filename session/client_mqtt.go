@@ -11,7 +11,6 @@ import (
 	"github.com/baetyl/baetyl-go/log"
 	"github.com/baetyl/baetyl-go/utils"
 	"github.com/docker/distribution/uuid"
-	"github.com/gogf/gf/util/gconv"
 )
 
 // ErrClientClosed the client is closed
@@ -129,20 +128,12 @@ func (c *ClientMQTT) sendRetainMessage() error {
 		return err
 	}
 	for _, msg := range msgs {
-		if ss := c.session.subs.Match(msg.Context.Topic); len(ss) != 0 {
-			for _, s := range ss {
-				us := gconv.Uint32(s)
-				if msg.Context.QOS > us {
-					msg.Context.QOS = us
-				}
-			}
-			e := common.Event{Message: msg}
-			err = c.session.Push(&e)
-			if err != nil {
-				return err
-			}
-			c.log.Info("retain message sent", log.String("topic", msg.Context.Topic))
+		e := common.Event{Message: msg}
+		err = c.session.Push(&e)
+		if err != nil {
+			return err
 		}
+		c.log.Info("retain message sent", log.String("topic", msg.Context.Topic))
 	}
 	return nil
 }
