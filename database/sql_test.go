@@ -193,7 +193,7 @@ func TestSQLiteCompact(t *testing.T) {
 	assert.NotNil(t, db)
 	defer db.Close()
 
-	a := []interface{}{}
+	var a []interface{}
 	for i := 0; i < 100; i++ {
 		a = append(a, []byte("name"))
 	}
@@ -205,7 +205,7 @@ func TestSQLiteCompact(t *testing.T) {
 	assert.Len(t, v, 100)
 
 	time.Sleep(100 * time.Millisecond)
-	err = db.Compact(time.Now())
+	err = db.DelBefore(time.Now())
 
 	v, err = db.Get(0, 1000)
 	assert.NoError(t, err)

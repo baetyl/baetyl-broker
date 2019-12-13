@@ -85,13 +85,17 @@ func (d *sqldb) Put(values []interface{}) error {
 
 // Get gets values from SQL DB
 func (d *sqldb) Get(offset uint64, length int) ([]interface{}, error) {
-	query := fmt.Sprintf("select id, value from t where id >= %d order by id limit %d", offset, length)
-	rows, err := d.Query(query)
+	stmt, err := d.Prepare("select id, value from t where id >= ? order by id limit ?")
+	if err != nil {
+		return nil, err
+	}
+	defer stmt.Close()
+	rows, err := stmt.Query(offset, length)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	values := []interface{}{}
+	var values []interface{}
 	for rows.Next() {
 		var id uint64
 		var value []byte
@@ -110,19 +114,30 @@ func (d *sqldb) Get(offset uint64, length int) ([]interface{}, error) {
 
 // Del deletes values by IDs from SQL DB
 func (d *sqldb) Del(ids []uint64) error {
-	args := []string{}
+	var phs []string
+	var args []interface{}
 	for _, id := range ids {
 		args = append(args, strconv.FormatUint(id, 10))
+		phs = append(phs, "?")
 	}
-	query := fmt.Sprintf("delete from t where id in (%s)", strings.Join(args, ","))
-	_, err := d.Exec(query)
+	query := fmt.Sprintf("delete from t where id in (%s)", strings.Join(phs, ","))
+	stmt, err := d.Prepare(query)
+	if err != nil {
+		return err
+	}
+	defer stmt.Close()
+	_, err = stmt.Exec(args...)
 	return err
 }
 
-// Compact compact messages which will clean expired messages
-func (d *sqldb) Compact(ts time.Time) error {
-	query := fmt.Sprintf("delete from t where ts < '%s'", ts)
-	_, err := d.Exec(query)
+// DelBefore delete expired messages
+func (d *sqldb) DelBefore(ts time.Time) error {
+	stmt, err := d.Prepare("delete from t where ts < ?")
+	if err != nil {
+		return err
+	}
+	defer stmt.Close()
+	_, err = stmt.Exec(ts)
 	return err
 }
 
@@ -180,7 +195,7 @@ func (d *sqldb) ListKV() (vs []interface{}, err error) {
 		return nil, err
 	}
 	defer rows.Close()
-	values := []interface{}{}
+	var values []interface{}
 	for rows.Next() {
 		var value []byte
 		err = rows.Scan(&value)

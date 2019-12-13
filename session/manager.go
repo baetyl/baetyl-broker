@@ -34,6 +34,7 @@ type Config struct {
 	MaxInflightQOS0Messages int           `yaml:"maxInflightQOS0Messages" json:"maxInflightQOS0Messages" default:"100" validate:"min=1"`
 	MaxInflightQOS1Messages int           `yaml:"maxInflightQOS1Messages" json:"maxInflightQOS1Messages" default:"20" validate:"min=1"`
 	RepublishInterval       time.Duration `yaml:"republishInterval" json:"republishInterval" default:"20s"`
+	CleanInterval           time.Duration `yaml:"cleanInterval" json:"cleanInterval" default:"1h"`
 	// MaxConnections          int           `yaml:"maxConnections" json:"maxConnections"`
 }
 
@@ -180,7 +181,7 @@ func (m *Manager) newSession(si *Info) (*Session, error) {
 		Info: *si,
 		subs: common.NewTrie(),
 		qos0: queue.NewTemporary(sid, m.config.MaxInflightQOS0Messages, true),
-		qos1: queue.NewPersistence(sid, m.config.MaxInflightQOS1Messages, backend),
+		qos1: queue.NewPersistence(sid, m.config.MaxInflightQOS1Messages, m.config.CleanInterval, backend),
 		log:  m.log.With(log.String("id", sid)),
 	}, nil
 }

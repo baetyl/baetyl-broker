@@ -23,7 +23,7 @@ type DB interface {
 	Put([]interface{}) error
 	Get(uint64, int) ([]interface{}, error)
 	Del([]uint64) error
-	Compact(time.Time) error
+	DelBefore(time.Time) error
 
 	// for kv
 	SetKV(k, v interface{}) error
