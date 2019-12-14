@@ -45,6 +45,9 @@ type ID = packet.ID
 // Packet the generic packet of MQTT
 type Packet = packet.Generic
 
+// PacketMessage the message of MQTT packet
+type PacketMessage = packet.Message
+
 // Publish the publish packet of MQTT
 type Publish = packet.Publish
 
@@ -95,4 +98,19 @@ type Trie = topic.Tree
 // NewTrie creates a new trie
 func NewTrie() *Trie {
 	return topic.NewTree()
+}
+
+// IsMatch isMatch
+func IsMatch(t *Trie, topic string) (bool, uint32) {
+	ss := t.Match(topic)
+	ok := len(ss) != 0
+	qos := uint32(1)
+	for _, s := range ss {
+		us := uint32(s.(QOS))
+		if us < qos {
+			qos = us
+			break
+		}
+	}
+	return ok, qos
 }

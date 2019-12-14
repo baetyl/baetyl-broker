@@ -8,8 +8,9 @@ import (
 	"github.com/baetyl/baetyl-broker/auth"
 	"github.com/baetyl/baetyl-broker/common"
 	"github.com/baetyl/baetyl-broker/queue"
+	"github.com/baetyl/baetyl-broker/retain"
 	"github.com/baetyl/baetyl-broker/transport"
-	"github.com/baetyl/baetyl-go/utils/log"
+	"github.com/baetyl/baetyl-go/log"
 )
 
 // Exchange exchange interface
@@ -43,6 +44,7 @@ type Config struct {
 type Manager struct {
 	auth     *auth.Auth
 	config   Config
+	retain   *retain.Backend
 	backend  *Backend
 	exchange Exchange
 	sessions map[string]*Session
@@ -58,6 +60,10 @@ func NewManager(config Config, exchange Exchange, auth *auth.Auth) (*Manager, er
 	if err != nil {
 		return nil, err
 	}
+	retainBackend, err := backend.NewRetainBackend()
+	if err != nil {
+		return nil, err
+	}
 	// load stored sessions from backend database
 	items, err := backend.List()
 	if err != nil {
@@ -68,6 +74,7 @@ func NewManager(config Config, exchange Exchange, auth *auth.Auth) (*Manager, er
 		auth:     auth,
 		config:   config,
 		backend:  backend,
+		retain:   retainBackend,
 		exchange: exchange,
 		sessions: map[string]*Session{},
 		clients:  map[string]client{},
@@ -266,4 +273,42 @@ func (m *Manager) delClient(c client) {
 		delete(m.bindings, sid)
 		// TODO: to delete persistent queue data if CleanSession=true
 	}
+}
+
+// SetRetain sets retain message
+func (m *Manager) setRetain(topic string, msg *common.Message) error {
+	m.Lock()
+	defer m.Unlock()
+	retain := &retain.Retain{Topic: msg.Context.Topic, Message: msg}
+	err := m.retain.Set(retain)
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
+// GetRetain gets retain messages
+func (m *Manager) getRetain() ([]*common.Message, error) {
+	m.Lock()
+	defer m.Unlock()
+
+	retains, err := m.retain.List()
+	if err != nil {
+		return nil, err
+	}
+	msgs := make([]*common.Message, 0)
+	for _, v := range retains {
+		msg := v.(*retain.Retain).Message
+		msgs = append(msgs, msg)
+	}
+	return msgs, nil
+}
+
+// RemoveRetain removes retain message
+func (m *Manager) removeRetain(topic string) error {
+	err := m.retain.Del(topic)
+	if err != nil {
+		return err
+	}
+	return nil
 }

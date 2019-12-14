@@ -5,7 +5,7 @@ import (
 
 	"github.com/baetyl/baetyl-broker/auth"
 	"github.com/baetyl/baetyl-broker/common"
-	"github.com/baetyl/baetyl-go/utils/log"
+	"github.com/baetyl/baetyl-go/log"
 )
 
 func (c *ClientMQTT) receiving() error {
@@ -104,19 +104,18 @@ func (c *ClientMQTT) onConnect(p *common.Connect) error {
 	}
 
 	if p.Will != nil {
-		// TODO: remove?
-		// if !common.PubTopicValidate(p.Will.Topic) {
-		// 	return errors.New("will topic (%s) invalid", p.Will.Topic)
-		// }
-		// if !c.authorize(auth.Publish, p.Will.Topic) {
-		// 	c.sendConnack(common.NotAuthorized)
-		// 	return errors.New("will topic (%s) not permitted", p.Will.Topic)
-		// }
-		// if p.Will.QOS > 1 {
-		// 	return errors.New("will QOS (%d) not supported", p.Will.QOS)
-		// }
+		if !common.CheckTopic(p.Will.Topic, false) {
+			return errors.New("will topic invalid")
+		}
+		if !c.authorize(auth.Publish, p.Will.Topic) {
+			c.sendConnack(common.NotAuthorized, false)
+			return errors.New("will topic not permitted")
+		}
+		if p.Will.QOS > 1 {
+			return errors.New("will QoS not supported")
+		}
+		si.Will = common.NewMessage(&common.Publish{Message: *p.Will})
 	}
-
 	if si.ID == "" {
 		si.ID = c.id
 		si.CleanSession = true
@@ -129,8 +128,6 @@ func (c *ClientMQTT) onConnect(p *common.Connect) error {
 	c.Go(c.republishing, c.publishing)
 
 	// TODO: Re-check subscriptions, if subscription not permit, log error and skip
-	// TODO: err = c.manager.saveWillMessage(p)
-
 	err = c.sendConnack(common.ConnectionAccepted, exists)
 	if err != nil {
 		return err
@@ -151,13 +148,13 @@ func (c *ClientMQTT) onPublish(p *common.Publish) error {
 	if !c.authorize(auth.Publish, p.Message.Topic) {
 		return errors.New("publish topic not permitted")
 	}
-
-	// TODO: err := c.retainMessage(&p.Message)
-	// if err != nil {
-	// 	return err
-	// }
-
 	msg := common.NewMessage(p)
+	if msg.Retain() {
+		err := c.retainMessage(msg)
+		if err != nil {
+			return err
+		}
+	}
 	cb := c.callback
 	if p.Message.QOS == 0 {
 		cb = nil
@@ -181,8 +178,7 @@ func (c *ClientMQTT) onSubscribe(p *common.Subscribe) error {
 	if err != nil {
 		return err
 	}
-	// TODO: return c.sendRetainMessage(p)
-	return nil
+	return c.sendRetainMessage()
 }
 
 func (c *ClientMQTT) onUnsubscribe(p *common.Unsubscribe) error {

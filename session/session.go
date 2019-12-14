@@ -6,12 +6,13 @@ import (
 
 	"github.com/baetyl/baetyl-broker/common"
 	"github.com/baetyl/baetyl-broker/queue"
-	"github.com/baetyl/baetyl-go/utils/log"
+	"github.com/baetyl/baetyl-go/log"
 )
 
 // Info session information
 type Info struct {
 	ID            string
+	Will          *common.Message `json:"Will,omitempty"` // will message
 	CleanSession  bool
 	Subscriptions map[string]common.QOS
 }

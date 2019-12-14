@@ -2,8 +2,8 @@ package transport
 
 import (
 	trans "github.com/256dpi/gomqtt/transport"
-	"github.com/baetyl/baetyl-broker/utils"
-	"github.com/baetyl/baetyl-go/utils/log"
+	"github.com/baetyl/baetyl-go/log"
+	"github.com/baetyl/baetyl-go/utils"
 )
 
 // Server the server to accept connections

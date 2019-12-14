@@ -5,7 +5,7 @@ import (
 	"time"
 
 	"github.com/baetyl/baetyl-broker/common"
-	"github.com/baetyl/baetyl-go/utils/log"
+	"github.com/baetyl/baetyl-go/log"
 )
 
 type epl struct {
