@@ -15,7 +15,7 @@ type Config struct {
 	Location string
 }
 
-// Backend the backend database of queue
+// Backend the backend database of retain
 type Backend struct {
 	cfg Config
 	db  database.DB

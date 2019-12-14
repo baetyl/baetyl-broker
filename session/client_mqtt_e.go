@@ -141,7 +141,7 @@ func (c *ClientMQTT) send(pkt common.Packet, async bool) error {
 	c.Unlock()
 	if err != nil {
 		c.log.Error("failed to send packet", log.Error(err))
-		c.die(err)
+		c.die(err, true)
 		return err
 	}
 	if ent := c.log.Check(log.DebugLevel, "client sent a packet"); ent != nil {

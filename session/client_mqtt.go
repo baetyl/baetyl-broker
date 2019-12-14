@@ -73,7 +73,7 @@ func (c *ClientMQTT) Close() error {
 }
 
 // closes client by itself
-func (c *ClientMQTT) die(err error) {
+func (c *ClientMQTT) die(err error, will bool) {
 	if !c.Alive() {
 		return
 	}

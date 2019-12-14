@@ -579,7 +579,7 @@ func TestSessionRetain(t *testing.T) {
 	// subscribe packet
 	skt := &common.Subscribe{}
 
-	fmt.Println("\n--> 1. client1 publish topic 'test' and 'talks' with retain is true --> client2 subscribe topic 'test' --> client2 receive message of topic 'test' <--")
+	fmt.Println("\n--> 1. client1 publish topic 'test' and 'talks' with retain is true --> client2 subscribe topic 'test' --> client2 receive message of topic 'test' as retain<--")
 
 	// client1 to connect
 	conn.ClientID = "pub"
@@ -638,16 +638,16 @@ func TestSessionRetain(t *testing.T) {
 
 	// client1 publish message("offline") to topic "test" with retain is false
 	pkt.ID = 2
-	pkt.Message.QOS = 0
 	pkt.Message.Topic = "test"
 	pkt.Message.Payload = []byte("offline")
 	pkt.Message.Retain = false
 	pub.sendC2S(pkt)
+	pub.assertS2CPacket("<Puback ID=2>")
+	pub.assertS2CPacketTimeout()
 
 	// client2 to receive message of topic test as normal message, because it is already subscribed
-	sub1.assertS2CPacket("<Publish ID=0 Message=<Message Topic=\"test\" QOS=0 Retain=false Payload=[111 102 102 108 105 110 101]> Dup=false>")
-	sub1.sendC2S(&common.Puback{ID: 0})
-	sub1.assertS2CPacketTimeout()
+	sub1.assertS2CPacket("<Publish ID=2 Message=<Message Topic=\"test\" QOS=1 Retain=false Payload=[111 102 102 108 105 110 101]> Dup=false>")
+	sub1.sendC2S(&common.Puback{ID: 2})
 
 	fmt.Println("\n--> 3. client3 subscribe topic 'test' --> client3 Will receive message of topic 'test' <--")
 
@@ -678,7 +678,6 @@ func TestSessionRetain(t *testing.T) {
 	pkt.ID = 3
 	pkt.Message.Payload = nil
 	pkt.Message.Retain = true
-	pkt.Message.QOS = 1
 
 	// client1 republish message with topic test of retain, and set the payload is nil
 	pub.sendC2S(pkt)
@@ -694,7 +693,7 @@ func TestSessionRetain(t *testing.T) {
 	sub3.sendC2S(conn)
 	sub3.assertS2CPacket("<Connack SessionPresent=false ReturnCode=0>")
 
-	// client4 subscribe topic test. If retain message of topic test exists, client4 Will receive the message.
+	// client4 subscribe topic test. If retain message of topic test exists, client4 Will receive the message
 	skt.ID = 3
 	skt.Subscriptions = []common.Subscription{{Topic: "test", QOS: 1}}
 	sub3.sendC2S(skt)
