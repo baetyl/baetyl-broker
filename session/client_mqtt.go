@@ -73,7 +73,7 @@ func (c *ClientMQTT) Close() error {
 }
 
 // closes client by itself
-func (c *ClientMQTT) die(err error, will bool) {
+func (c *ClientMQTT) die(err error) {
 	if !c.Alive() {
 		return
 	}
@@ -139,7 +139,6 @@ func (c *ClientMQTT) sendRetainMessage() error {
 			if err != nil {
 				return err
 			}
-			c.log.Info("retain message sent", log.String("topic", msg.Context.Topic))
 		}
 	}
 	return nil

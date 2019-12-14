@@ -284,7 +284,6 @@ func (m *Manager) setRetain(topic string, msg *common.Message) error {
 	if err != nil {
 		return err
 	}
-	m.log.Info("retain message persisted", log.String("topic", topic))
 	return nil
 }
 
@@ -311,6 +310,5 @@ func (m *Manager) removeRetain(topic string) error {
 	if err != nil {
 		return err
 	}
-	m.log.Info("retain message removed", log.String("topic", topic))
 	return nil
 }

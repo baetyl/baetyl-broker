@@ -93,7 +93,7 @@ func NewMessage(pkt *Publish) *Message {
 	}
 }
 
-// Retain check message is retain or not
+// Retain checks whether the message is need to retain
 func (m *Message) Retain() bool {
 	return m.Context.Flags&0x1 == 0x1
 }
