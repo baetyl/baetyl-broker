@@ -6,6 +6,7 @@ import (
 	"os"
 	"path"
 	"testing"
+	"time"
 
 	_ "github.com/mattn/go-sqlite3"
 	"github.com/stretchr/testify/assert"
@@ -180,6 +181,35 @@ func TestDatabaseSQLiteNoEncoder(t *testing.T) {
 	values, err = db.Get(5, 10)
 	assert.NoError(t, err)
 	assert.Len(t, values, 0)
+}
+
+func TestSQLiteDelExpiredData(t *testing.T) {
+	dir, err := ioutil.TempDir("", t.Name())
+	assert.NoError(t, err)
+	defer os.RemoveAll(dir)
+
+	db, err := New(Conf{Driver: "sqlite3", Source: path.Join(dir, "kv.db")}, nil)
+	assert.NoError(t, err)
+	assert.NotNil(t, db)
+	defer db.Close()
+
+	var a []interface{}
+	for i := 0; i < 100; i++ {
+		a = append(a, []byte("name"))
+	}
+	err = db.Put(a)
+	assert.NoError(t, err)
+
+	v, err := db.Get(0, 1000)
+	assert.NoError(t, err)
+	assert.Len(t, v, 100)
+
+	time.Sleep(100 * time.Millisecond)
+	err = db.DelBefore(time.Now())
+
+	v, err = db.Get(0, 1000)
+	assert.NoError(t, err)
+	assert.Len(t, v, 0)
 }
 
 func TestDatabaseSQLiteKV(t *testing.T) {

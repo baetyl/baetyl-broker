@@ -35,6 +35,8 @@ type Config struct {
 	MaxInflightQOS0Messages int           `yaml:"maxInflightQOS0Messages" json:"maxInflightQOS0Messages" default:"100" validate:"min=1"`
 	MaxInflightQOS1Messages int           `yaml:"maxInflightQOS1Messages" json:"maxInflightQOS1Messages" default:"20" validate:"min=1"`
 	RepublishInterval       time.Duration `yaml:"republishInterval" json:"republishInterval" default:"20s"`
+	CleanInterval           time.Duration `yaml:"cleanInterval" json:"cleanInterval" default:"1h"`
+	ExpireDay               int           `yaml:"expireDay" json:"expireDay" default:"7" validate:"min=1"`
 	// MaxConnections          int           `yaml:"maxConnections" json:"maxConnections"`
 }
 
@@ -177,7 +179,14 @@ func (m *Manager) initSession(si *Info, c client, unique bool) (exists bool, err
 
 func (m *Manager) newSession(si *Info) (*Session, error) {
 	sid := si.ID
-	backend, err := m.backend.NewQueueBackend(sid)
+	cfg := queue.Config{
+		Name:          sid,
+		Driver:        m.config.PersistenceDriver,
+		Location:      m.config.PersistenceLocation,
+		ExpireTime:    time.Duration(m.config.ExpireDay) * time.Hour,
+		CleanInterval: m.config.CleanInterval,
+	}
+	backend, err := m.backend.NewQueueBackend(cfg)
 	if err != nil {
 		m.log.Error("failed to create session", log.String("session", sid), log.Error(err))
 		return nil, err
@@ -187,7 +196,7 @@ func (m *Manager) newSession(si *Info) (*Session, error) {
 		Info: *si,
 		subs: common.NewTrie(),
 		qos0: queue.NewTemporary(sid, m.config.MaxInflightQOS0Messages, true),
-		qos1: queue.NewPersistence(sid, m.config.MaxInflightQOS1Messages, backend),
+		qos1: queue.NewPersistence(cfg, backend, m.config.MaxInflightQOS1Messages),
 		log:  m.log.With(log.String("id", sid)),
 	}, nil
 }

@@ -11,6 +11,7 @@ import (
 // Persistence is a persistent queue
 type Persistence struct {
 	backend *Backend
+	cfg     Config
 	input   chan *common.Event
 	output  chan *common.Event
 	edel    chan uint64 // del events with message id
@@ -20,14 +21,15 @@ type Persistence struct {
 }
 
 // NewPersistence creates a new in-memory queue
-func NewPersistence(id string, capacity int, backend *Backend) Queue {
+func NewPersistence(cfg Config, backend *Backend, capacity int) Queue {
 	q := &Persistence{
 		backend: backend,
+		cfg:     cfg,
 		input:   make(chan *common.Event, capacity),
 		output:  make(chan *common.Event, capacity),
 		edel:    make(chan uint64, capacity),
 		eget:    make(chan bool, 1),
-		log:     log.With(log.String("queue", "persist"), log.String("id", id)),
+		log:     log.With(log.String("queue", "persist"), log.String("id", cfg.Name)),
 	}
 	// to read persistent message
 	q.trigger()
@@ -64,7 +66,7 @@ func (q *Persistence) writing() error {
 	q.log.Info("queue starts to write messages into backend in batch mode")
 	defer utils.Trace(q.log.Info, "queue has stopped writing messages")()
 
-	buf := []*common.Event{}
+	var buf []*common.Event
 	max := cap(q.input)
 	// ? Is it possible to remove the timer?
 	duration := time.Millisecond * 100
@@ -138,17 +140,19 @@ func (q *Persistence) deleting() error {
 	q.log.Info("queue starts to delete messages from backend in batch mode")
 	defer utils.Trace(q.log.Info, "queue has stopped deleting messages")()
 
-	buf := []uint64{}
+	var buf []uint64
 	max := cap(q.edel)
 	// ? Is it possible to remove the timer?
 	duration := time.Millisecond * 500
+	cleanDuration := q.cfg.CleanInterval
 	timer := time.NewTimer(duration)
+	cleanTimer := time.NewTicker(cleanDuration)
 	defer timer.Stop()
+	defer cleanTimer.Stop()
 
 	for {
 		select {
 		case e := <-q.edel:
-			timer.Reset(time.Second)
 			q.log.Debug("queue received a delete event")
 			buf = append(buf, e)
 			if len(buf) == max {
@@ -158,6 +162,9 @@ func (q *Persistence) deleting() error {
 		case <-timer.C:
 			q.log.Debug("queue deletes message from backend when timeout")
 			buf = q.delete(buf)
+		case <-cleanTimer.C:
+			q.log.Debug("queue starts to clean expired messages from backend")
+			q.clean()
 		case <-q.Dying():
 			q.log.Debug("queue deletes message from backend during closing")
 			buf = q.delete(buf)
@@ -174,7 +181,7 @@ func (q *Persistence) get(offset uint64, length int) ([]*common.Event, error) {
 	if err != nil {
 		return nil, err
 	}
-	events := []*common.Event{}
+	var events []*common.Event
 	for _, m := range msgs {
 		events = append(events, common.NewEvent(m.(*common.Message), 1, q.acknowledge))
 	}
@@ -193,7 +200,7 @@ func (q *Persistence) add(buf []*common.Event) []*common.Event {
 
 	defer utils.Trace(q.log.Debug, "queue has written message to backend", log.Int("count", len(buf)))()
 
-	msgs := []interface{}{}
+	var msgs []interface{}
 	for _, e := range buf {
 		msgs = append(msgs, e.Message)
 	}
@@ -223,6 +230,15 @@ func (q *Persistence) delete(buf []uint64) []uint64 {
 		q.log.Error("failed to delete messages from backend database", log.Error(err))
 	}
 	return []uint64{}
+}
+
+// clean expired messages
+func (q *Persistence) clean() {
+	defer utils.Trace(q.log.Debug, "queue has cleaned expired messages from backend")
+	err := q.backend.DelBefore(time.Now().Add(-q.cfg.ExpireTime))
+	if err != nil {
+		q.log.Error("failed to clean expired messages from backend", log.Error(err))
+	}
 }
 
 // triggers an event to get message from backend database in batch mode
