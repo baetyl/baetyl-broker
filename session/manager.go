@@ -294,9 +294,6 @@ func (m *Manager) setRetain(topic string, msg *common.Message) error {
 
 // GetRetain gets retain messages
 func (m *Manager) getRetain() ([]*common.Message, error) {
-	m.Lock()
-	defer m.Unlock()
-
 	retains, err := m.retain.List()
 	if err != nil {
 		return nil, err
