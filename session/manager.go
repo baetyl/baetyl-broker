@@ -282,8 +282,6 @@ func (m *Manager) delClient(c client) {
 
 // SetRetain sets retain message
 func (m *Manager) setRetain(topic string, msg *common.Message) error {
-	m.Lock()
-	defer m.Unlock()
 	retain := &retain.Retain{Topic: msg.Context.Topic, Message: msg}
 	err := m.retain.Set(retain)
 	if err != nil {
