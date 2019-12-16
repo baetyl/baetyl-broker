@@ -169,25 +169,25 @@ func TestSessionConnectException(t *testing.T) {
 }
 
 func TestMaxConnections(t *testing.T) {
-	b := newMockBroker(t)
+	b := newMockBrokerWith(t, 2)
 	defer b.close()
 
-	// connect
 	c1 := newMockConn(t)
 	b.manager.ClientMQTTHandler(c1, false)
 	c1.assertClosed(false)
-
-	c1.sendC2S(&mqtt.Connect{ClientID: t.Name(), Username: "u1", Password: "p1", Version: 3})
-	c1.assertS2CPacket("<Connack SessionPresent=false ReturnCode=0>")
-	b.assertSession(t.Name(), "{\"ID\":\"TestMaxConnections\",\"CleanSession\":false,\"Subscriptions\":null}")
 
 	c2 := newMockConn(t)
 	b.manager.ClientMQTTHandler(c2, false)
 	c2.assertClosed(false)
 
-	c2.sendC2S(&mqtt.Connect{ClientID: t.Name() + "2", Username: "u1", Password: "p1", Version: 3})
-	c2.assertS2CPacket("<Connack SessionPresent=false ReturnCode=0>")
-	b.assertSession(t.Name()+"2", "{\"ID\":\"TestMaxConnections2\",\"CleanSession\":false,\"Subscriptions\":null}")
+	c3 := newMockConn(t)
+	b.manager.ClientMQTTHandler(c3, false)
+	c3.assertClosed(true)
+
+	// connect
+	c1.sendC2S(&mqtt.Connect{ClientID: t.Name(), Username: "u1", Password: "p1", Version: 3})
+	c1.assertS2CPacket("<Connack SessionPresent=false ReturnCode=0>")
+	b.assertSession(t.Name(), "{\"ID\":\"TestMaxConnections\",\"CleanSession\":false,\"Subscriptions\":null}")
 
 	// disconnect
 	c1.sendC2S(&mqtt.Disconnect{})
@@ -195,25 +195,9 @@ func TestMaxConnections(t *testing.T) {
 	c1.assertClosed(true)
 	b.assertSession(t.Name(), "{\"ID\":\"TestMaxConnections\",\"CleanSession\":false,\"Subscriptions\":null}")
 
-	b.manager.config.MaxConnections = 1
-
-	c1 = newMockConn(t)
-	b.manager.ClientMQTTHandler(c1, false)
-	c1.assertClosed(true)
-
-	// disconnect
-	c2.sendC2S(&mqtt.Disconnect{})
-	c2.assertS2CPacketTimeout()
-	c2.assertClosed(true)
-	b.assertSession(t.Name()+"2", "{\"ID\":\"TestMaxConnections2\",\"CleanSession\":false,\"Subscriptions\":null}")
-
-	c1 = newMockConn(t)
-	b.manager.ClientMQTTHandler(c1, false)
-	c1.assertClosed(false)
-
-	c1.sendC2S(&mqtt.Connect{ClientID: t.Name(), Username: "u1", Password: "p1", Version: 3})
-	c1.assertS2CPacket("<Connack SessionPresent=true ReturnCode=0>")
-	b.assertSession(t.Name(), "{\"ID\":\"TestMaxConnections\",\"CleanSession\":false,\"Subscriptions\":null}")
+	c3 = newMockConn(t)
+	b.manager.ClientMQTTHandler(c3, false)
+	c2.assertClosed(false)
 }
 
 func TestSessionSubscribe(t *testing.T) {

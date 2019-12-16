@@ -37,7 +37,7 @@ type Config struct {
 	RepublishInterval       time.Duration `yaml:"republishInterval" json:"republishInterval" default:"20s"`
 	CleanInterval           time.Duration `yaml:"cleanInterval" json:"cleanInterval" default:"1h"`
 	ExpireDay               int           `yaml:"expireDay" json:"expireDay" default:"7" validate:"min=1"`
-	MaxConnections          int           `yaml:"maxConnections" json:"maxConnections" default:"-1"`
+	MaxConnections          int           `yaml:"maxConnections" json:"maxConnections"`
 }
 
 // Manager the manager of sessions
@@ -124,7 +124,8 @@ func (m *Manager) Close() error {
 func (m *Manager) ClientMQTTHandler(connection mqtt.Connection, anonymous bool) {
 	m.Lock()
 	defer m.Unlock()
-	if m.config.MaxConnections >= 0 && len(m.clients) == m.config.MaxConnections {
+	if m.config.MaxConnections > 0 && len(m.clients) >= m.config.MaxConnections {
+		m.log.Warn("client connection denied because max connections exceeded", log.Any("max", m.config.MaxConnections))
 		connection.Close()
 		return
 	}
