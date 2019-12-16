@@ -3,17 +3,16 @@ package main
 import (
 	"github.com/baetyl/baetyl-broker/auth"
 	"github.com/baetyl/baetyl-broker/session"
-	"github.com/baetyl/baetyl-broker/transport"
+	"github.com/baetyl/baetyl-go/mqtt"
 )
 
 type broker struct {
 	cfg       config
 	manager   *session.Manager
-	transport *transport.Transport
+	transport *mqtt.Transport
 }
 
 func newBroker(cfg config) (*broker, error) {
-
 	var err error
 	b := &broker{
 		cfg: cfg,
@@ -24,21 +23,21 @@ func newBroker(cfg config) (*broker, error) {
 		return nil, err
 	}
 
-	endpoints := []*transport.Endpoint{}
+	endpoints := []*mqtt.Endpoint{}
 	for _, addr := range cfg.Addresses {
-		endpoints = append(endpoints, &transport.Endpoint{
+		endpoints = append(endpoints, &mqtt.Endpoint{
 			Address: addr,
 			Handle:  b.manager.ClientMQTTHandler,
 		})
 	}
 	if !cfg.InternalEndpoint.Disable {
-		endpoints = append(endpoints, &transport.Endpoint{
+		endpoints = append(endpoints, &mqtt.Endpoint{
 			Address:   cfg.InternalEndpoint.Address,
 			Handle:    b.manager.ClientMQTTHandler,
 			Anonymous: true,
 		})
 	}
-	b.transport, err = transport.NewTransport(endpoints, nil)
+	b.transport, err = mqtt.NewTransport(endpoints, cfg.Certificate)
 	if err != nil {
 		b.close()
 		return nil, err

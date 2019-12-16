@@ -1,6 +1,10 @@
 package common
 
-import "strings"
+import (
+	"strings"
+
+	"github.com/baetyl/baetyl-go/mqtt"
+)
 
 const (
 	maxTopicLevels = 9
@@ -40,4 +44,19 @@ func CheckTopic(topic string, wildcard bool) bool {
 		}
 	}
 	return true
+}
+
+// MatchTopicQOS if topic matched, return the lowest qos
+func MatchTopicQOS(t *mqtt.Trie, topic string) (bool, uint32) {
+	ss := t.Match(topic)
+	ok := len(ss) != 0
+	qos := uint32(1)
+	for _, s := range ss {
+		us := uint32(s.(mqtt.QOS))
+		if us < qos {
+			qos = us
+			break
+		}
+	}
+	return ok, qos
 }

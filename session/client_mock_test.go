@@ -10,15 +10,15 @@ import (
 
 	"github.com/baetyl/baetyl-broker/auth"
 	"github.com/baetyl/baetyl-broker/common"
-	"github.com/baetyl/baetyl-broker/transport"
 	"github.com/baetyl/baetyl-go/log"
+	"github.com/baetyl/baetyl-go/mqtt"
 	"github.com/creasty/defaults"
 	"github.com/stretchr/testify/assert"
 )
 
 type mockConfig struct {
 	Session    Config
-	Endpoints  []*transport.Endpoint
+	Endpoints  []*mqtt.Endpoint
 	Principals []auth.Principal
 }
 
@@ -26,7 +26,7 @@ type mockBroker struct {
 	t         *testing.T
 	cfg       mockConfig
 	manager   *Manager
-	transport *transport.Transport
+	transport *mqtt.Transport
 }
 
 func newMockBroker(t *testing.T) *mockBroker {
@@ -105,8 +105,8 @@ func (b *mockBroker) close() {
 
 type mockConn struct {
 	t      *testing.T
-	c2s    chan common.Packet
-	s2c    chan common.Packet
+	c2s    chan mqtt.Packet
+	s2c    chan mqtt.Packet
 	err    chan error
 	closed bool
 	sync.RWMutex
@@ -115,18 +115,21 @@ type mockConn struct {
 func newMockConn(t *testing.T) *mockConn {
 	return &mockConn{
 		t:   t,
-		c2s: make(chan common.Packet, 10),
-		s2c: make(chan common.Packet, 10),
+		c2s: make(chan mqtt.Packet, 10),
+		s2c: make(chan mqtt.Packet, 10),
 		err: make(chan error, 10),
 	}
 }
 
-func (c *mockConn) Send(pkt common.Packet, _ bool) error {
+func (c *mockConn) SetMaxWriteDelay(t time.Duration) {
+}
+
+func (c *mockConn) Send(pkt mqtt.Packet, _ bool) error {
 	c.s2c <- pkt
 	return nil
 }
 
-func (c *mockConn) Receive() (common.Packet, error) {
+func (c *mockConn) Receive() (mqtt.Packet, error) {
 	select {
 	case pkt := <-c.c2s:
 		return pkt, nil
@@ -139,11 +142,11 @@ func (c *mockConn) Close() error {
 	c.Lock()
 	c.closed = true
 	c.Unlock()
-	c.err <- ErrClientClosed
+	c.err <- ErrSessionClientAlreadyClosed
 	return nil
 }
 
-func (c *mockConn) sendC2S(pkt common.Packet) error {
+func (c *mockConn) sendC2S(pkt mqtt.Packet) error {
 	select {
 	case c.c2s <- pkt:
 		return nil
@@ -153,7 +156,7 @@ func (c *mockConn) sendC2S(pkt common.Packet) error {
 	}
 }
 
-func (c *mockConn) receiveS2C() common.Packet {
+func (c *mockConn) receiveS2C() mqtt.Packet {
 	select {
 	case pkt := <-c.s2c:
 		return pkt
@@ -201,12 +204,12 @@ func (c *mockConn) RemoteAddr() net.Addr {
 
 // mockExchange the message exchange
 type mockExchange struct {
-	bindings *common.Trie
+	bindings *mqtt.Trie
 }
 
 // NewExchange creates a new exchange
 func newMockExchange() *mockExchange {
-	return &mockExchange{bindings: common.NewTrie()}
+	return &mockExchange{bindings: mqtt.NewTrie()}
 }
 
 // Bind binds a new queue with a specify topic
