@@ -6,27 +6,25 @@ import (
 	"github.com/baetyl/baetyl-broker/auth"
 	"github.com/baetyl/baetyl-broker/common"
 	"github.com/baetyl/baetyl-go/log"
+	"github.com/baetyl/baetyl-go/mqtt"
 )
 
 func (c *ClientMQTT) receiving() error {
 	c.log.Info("client starts to receive messages")
 	defer c.log.Info("client has stopped receiving messages")
 
-	var err error
-	var pkt common.Packet
-
-	pkt, err = c.connection.Receive()
+	pkt, err := c.connection.Receive()
 	if err != nil {
 		c.die(err)
 		return err
 	}
 	if ent := c.log.Check(log.DebugLevel, "client received a packet"); ent != nil {
-		ent.Write(log.String("packet", pkt.String()))
+		ent.Write(log.Any("packet", pkt.String()))
 	}
-	p, ok := pkt.(*common.Connect)
+	p, ok := pkt.(*mqtt.Connect)
 	if !ok {
-		c.die(ErrPacketUnexpected)
-		return ErrPacketUnexpected
+		c.die(ErrSessionClientUnexpectedPacket)
+		return ErrSessionClientUnexpectedPacket
 	}
 	if err = c.onConnect(p); err != nil {
 		c.die(err)
@@ -40,28 +38,28 @@ func (c *ClientMQTT) receiving() error {
 			return err
 		}
 		if ent := c.log.Check(log.DebugLevel, "client received a packet"); ent != nil {
-			ent.Write(log.String("packet", pkt.String()))
+			ent.Write(log.Any("packet", pkt.String()))
 		}
 		switch p := pkt.(type) {
-		case *common.Publish:
+		case *mqtt.Publish:
 			err = c.onPublish(p)
-		case *common.Puback:
+		case *mqtt.Puback:
 			err = c.onPuback(p)
-		case *common.Subscribe:
+		case *mqtt.Subscribe:
 			err = c.onSubscribe(p)
-		case *common.Pingreq:
+		case *mqtt.Pingreq:
 			err = c.onPingreq(p)
-		case *common.Unsubscribe:
+		case *mqtt.Unsubscribe:
 			err = c.onUnsubscribe(p)
-		case *common.Pingresp:
+		case *mqtt.Pingresp:
 			err = nil // just ignore
-		case *common.Disconnect:
+		case *mqtt.Disconnect:
 			c.die(nil)
 			return nil
-		case *common.Connect:
-			err = ErrConnectUnexpected
+		case *mqtt.Connect:
+			err = ErrSessionClientAlreadyConnecting
 		default:
-			err = ErrPacketUnexpected
+			err = ErrSessionClientUnexpectedPacket
 		}
 
 		if err != nil {
@@ -71,17 +69,17 @@ func (c *ClientMQTT) receiving() error {
 	}
 }
 
-func (c *ClientMQTT) onConnect(p *common.Connect) error {
+func (c *ClientMQTT) onConnect(p *mqtt.Connect) error {
 	si := Info{
 		ID:           p.ClientID,
 		CleanSession: p.CleanSession,
 	}
-	if p.Version != common.Version31 && p.Version != common.Version311 {
-		c.sendConnack(common.InvalidProtocolVersion, false)
+	if p.Version != mqtt.Version31 && p.Version != mqtt.Version311 {
+		c.sendConnack(mqtt.InvalidProtocolVersion, false)
 		return errors.New("protocol version invalid")
 	}
 	if !checkClientID(si.ID) {
-		c.sendConnack(common.IdentifierRejected, false)
+		c.sendConnack(mqtt.IdentifierRejected, false)
 		return errors.New("client ID invalid")
 	}
 	if !c.anonymous && c.manager.auth != nil {
@@ -89,16 +87,16 @@ func (c *ClientMQTT) onConnect(p *common.Connect) error {
 
 		// username/password authentication
 		if p.Username == "" {
-			c.sendConnack(common.BadUsernameOrPassword, false)
+			c.sendConnack(mqtt.BadUsernameOrPassword, false)
 			return errors.New("username not set")
 		}
 		if p.Password == "" {
-			c.sendConnack(common.BadUsernameOrPassword, false)
+			c.sendConnack(mqtt.BadUsernameOrPassword, false)
 			return errors.New("password not set")
 		}
 		c.authorizer = c.manager.auth.AuthenticateAccount(p.Username, p.Password)
 		if c.authorizer == nil {
-			c.sendConnack(common.BadUsernameOrPassword, false)
+			c.sendConnack(mqtt.BadUsernameOrPassword, false)
 			return errors.New("username or password not permitted")
 		}
 	}
@@ -108,13 +106,13 @@ func (c *ClientMQTT) onConnect(p *common.Connect) error {
 			return errors.New("will topic invalid")
 		}
 		if !c.authorize(auth.Publish, p.Will.Topic) {
-			c.sendConnack(common.NotAuthorized, false)
+			c.sendConnack(mqtt.NotAuthorized, false)
 			return errors.New("will topic not permitted")
 		}
 		if p.Will.QOS > 1 {
 			return errors.New("will QoS not supported")
 		}
-		si.Will = common.NewMessage(&common.Publish{Message: *p.Will})
+		si.Will = common.NewMessage(&mqtt.Publish{Message: *p.Will})
 	}
 	if si.ID == "" {
 		si.ID = c.id
@@ -128,7 +126,7 @@ func (c *ClientMQTT) onConnect(p *common.Connect) error {
 	c.Go(c.republishing, c.publishing)
 
 	// TODO: Re-check subscriptions, if subscription not permit, log error and skip
-	err = c.sendConnack(common.ConnectionAccepted, exists)
+	err = c.sendConnack(mqtt.ConnectionAccepted, exists)
 	if err != nil {
 		return err
 	}
@@ -137,7 +135,7 @@ func (c *ClientMQTT) onConnect(p *common.Connect) error {
 	return nil
 }
 
-func (c *ClientMQTT) onPublish(p *common.Publish) error {
+func (c *ClientMQTT) onPublish(p *mqtt.Publish) error {
 	// TODO: improvement, cache auth result
 	if p.Message.QOS > 1 {
 		return errors.New("publish QOS not supported")
@@ -163,58 +161,58 @@ func (c *ClientMQTT) onPublish(p *common.Publish) error {
 	return nil
 }
 
-func (c *ClientMQTT) onPuback(p *common.Puback) error {
+func (c *ClientMQTT) onPuback(p *mqtt.Puback) error {
 	c.acknowledge(p)
 	return nil
 }
 
-func (c *ClientMQTT) onSubscribe(p *common.Subscribe) error {
+func (c *ClientMQTT) onSubscribe(p *mqtt.Subscribe) error {
 	sa, subs := c.genSuback(p)
 	err := c.manager.subscribe(c, subs)
 	if err != nil {
 		return err
 	}
-	err = c.send(sa, true)
+	err = c.send(sa, false)
 	if err != nil {
 		return err
 	}
 	return c.sendRetainMessage()
 }
 
-func (c *ClientMQTT) onUnsubscribe(p *common.Unsubscribe) error {
-	usa := &common.Unsuback{}
+func (c *ClientMQTT) onUnsubscribe(p *mqtt.Unsubscribe) error {
+	usa := mqtt.NewUnsuback()
 	usa.ID = p.ID
 	err := c.manager.unsubscribe(c, p.Topics)
 	if err != nil {
 		return err
 	}
-	return c.send(usa, true)
+	return c.send(usa, false)
 }
 
-func (c *ClientMQTT) onPingreq(p *common.Pingreq) error {
-	return c.send(&common.Pingresp{}, true)
+func (c *ClientMQTT) onPingreq(p *mqtt.Pingreq) error {
+	return c.send(mqtt.NewPingresp(), false)
 }
 
 func (c *ClientMQTT) callback(id uint64) {
-	c.send(&common.Puback{ID: common.ID(id)}, false)
+	c.send(&mqtt.Puback{ID: mqtt.ID(id)}, true)
 }
 
-func (c *ClientMQTT) genSuback(p *common.Subscribe) (*common.Suback, []common.Subscription) {
-	sa := &common.Suback{
+func (c *ClientMQTT) genSuback(p *mqtt.Subscribe) (*mqtt.Suback, []mqtt.Subscription) {
+	sa := &mqtt.Suback{
 		ID:          p.ID,
-		ReturnCodes: make([]common.QOS, len(p.Subscriptions)),
+		ReturnCodes: make([]mqtt.QOS, len(p.Subscriptions)),
 	}
-	subs := []common.Subscription{}
+	subs := []mqtt.Subscription{}
 	for i, sub := range p.Subscriptions {
 		if !common.CheckTopic(sub.Topic, true) {
-			c.log.Error("subscribe topic invalid", log.String("topic", sub.Topic))
-			sa.ReturnCodes[i] = common.QOSFailure
+			c.log.Error("subscribe topic invalid", log.Any("topic", sub.Topic))
+			sa.ReturnCodes[i] = mqtt.QOSFailure
 		} else if sub.QOS > 1 {
-			c.log.Error("subscribe QOS not supported", log.Int("qos", int(sub.QOS)))
-			sa.ReturnCodes[i] = common.QOSFailure
+			c.log.Error("subscribe QOS not supported", log.Any("qos", int(sub.QOS)))
+			sa.ReturnCodes[i] = mqtt.QOSFailure
 		} else if !c.authorize(auth.Subscribe, sub.Topic) {
-			c.log.Error("subscribe topic not permitted", log.String("topic", sub.Topic))
-			sa.ReturnCodes[i] = common.QOSFailure
+			c.log.Error("subscribe topic not permitted", log.Any("topic", sub.Topic))
+			sa.ReturnCodes[i] = mqtt.QOSFailure
 		} else {
 			sa.ReturnCodes[i] = sub.QOS
 			subs = append(subs, sub)

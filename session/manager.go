@@ -9,8 +9,8 @@ import (
 	"github.com/baetyl/baetyl-broker/common"
 	"github.com/baetyl/baetyl-broker/queue"
 	"github.com/baetyl/baetyl-broker/retain"
-	"github.com/baetyl/baetyl-broker/transport"
 	"github.com/baetyl/baetyl-go/log"
+	"github.com/baetyl/baetyl-go/mqtt"
 )
 
 // Exchange exchange interface
@@ -79,7 +79,7 @@ func NewManager(config Config, exchange Exchange, auth *auth.Auth) (*Manager, er
 		sessions: map[string]*Session{},
 		clients:  map[string]client{},
 		bindings: map[string]map[string]client{},
-		log:      log.With(log.String("manager", "session")),
+		log:      log.With(log.Any("manager", "session")),
 	}
 	for _, i := range items {
 		si := i.(*Info)
@@ -121,7 +121,7 @@ func (m *Manager) Close() error {
 // * connection handlers
 
 // ClientMQTTHandler the connection handler to create a new MQTT client
-func (m *Manager) ClientMQTTHandler(connection transport.Connection, anonymous bool) {
+func (m *Manager) ClientMQTTHandler(connection mqtt.Connection, anonymous bool) {
 	c := newClientMQTT(m, connection, anonymous)
 	m.Lock()
 	m.clients[c.getID()] = c
@@ -188,23 +188,23 @@ func (m *Manager) newSession(si *Info) (*Session, error) {
 	}
 	backend, err := m.backend.NewQueueBackend(cfg)
 	if err != nil {
-		m.log.Error("failed to create session", log.String("session", sid), log.Error(err))
+		m.log.Error("failed to create session", log.Any("session", sid), log.Error(err))
 		return nil, err
 	}
-	defer m.log.Info("session is created", log.String("session", sid))
+	defer m.log.Info("session is created", log.Any("session", sid))
 	return &Session{
 		Info: *si,
-		subs: common.NewTrie(),
+		subs: mqtt.NewTrie(),
 		qos0: queue.NewTemporary(sid, m.config.MaxInflightQOS0Messages, true),
 		qos1: queue.NewPersistence(cfg, backend, m.config.MaxInflightQOS1Messages),
-		log:  m.log.With(log.String("id", sid)),
+		log:  m.log.With(log.Any("id", sid)),
 	}, nil
 }
 
 // * subscription
 
 // Subscribe subscribes topics
-func (m *Manager) subscribe(c client, subs []common.Subscription) error {
+func (m *Manager) subscribe(c client, subs []mqtt.Subscription) error {
 	m.Lock()
 	defer m.Unlock()
 
@@ -213,7 +213,7 @@ func (m *Manager) subscribe(c client, subs []common.Subscription) error {
 		panic("session should be prepared before client subscribes")
 	}
 	if s.Subscriptions == nil {
-		s.Subscriptions = map[string]common.QOS{}
+		s.Subscriptions = map[string]mqtt.QOS{}
 	}
 	for _, sub := range subs {
 		s.Subscriptions[sub.Topic] = sub.QOS

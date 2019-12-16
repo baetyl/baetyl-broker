@@ -6,16 +6,17 @@ import (
 
 	"github.com/baetyl/baetyl-broker/common"
 	"github.com/baetyl/baetyl-go/log"
+	"github.com/baetyl/baetyl-go/mqtt"
 )
 
 type epl struct {
 	e *common.Event
-	p common.Publish
+	p mqtt.Publish
 	l time.Time // last send time
 }
 
-func newEPL(id common.ID, qos common.QOS, e *common.Event) *epl {
-	pkt := common.Publish{ID: id}
+func newEPL(id mqtt.ID, qos mqtt.QOS, e *common.Event) *epl {
+	pkt := mqtt.Publish{ID: id}
 	pkt.Message.QOS = qos
 	pkt.Message.Topic = e.Context.Topic
 	pkt.Message.Payload = e.Content
@@ -30,19 +31,19 @@ type publisher struct {
 	d time.Duration
 	m sync.Map
 	c chan *epl
-	n *common.Counter // Only used by mqtt client
+	n *mqtt.Counter // Only used by mqtt client
 }
 
 func newPublisher(d time.Duration, c int) *publisher {
 	return &publisher{
 		d: d,
 		c: make(chan *epl, c),
-		n: common.NewCounter(),
+		n: mqtt.NewCounter(),
 	}
 }
 
 func (c *ClientMQTT) publishQOS0(e *common.Event) error {
-	pkt := &common.Publish{}
+	pkt := &mqtt.Publish{}
 	pkt.Message.Topic = e.Context.Topic
 	pkt.Message.Payload = e.Content
 	return c.send(pkt, true)
@@ -63,19 +64,19 @@ func (c *ClientMQTT) publishQOS1(e *common.Event) error {
 	case c.publisher.c <- _epl:
 		return nil
 	case <-c.Dying():
-		return ErrClientClosed
+		return ErrSessionClientAlreadyClosed
 	}
 }
 
-func (c *ClientMQTT) republishQOS1(pkt common.Publish) error {
+func (c *ClientMQTT) republishQOS1(pkt mqtt.Publish) error {
 	pkt.Dup = true
 	return c.send(&pkt, true)
 }
 
-func (c *ClientMQTT) acknowledge(p *common.Puback) {
+func (c *ClientMQTT) acknowledge(p *mqtt.Puback) {
 	m, ok := c.publisher.m.Load(p.ID)
 	if !ok {
-		c.log.Warn("puback not found", log.Int("id", int(p.ID)))
+		c.log.Warn("puback not found", log.Any("id", int(p.ID)))
 		return
 	}
 	c.publisher.m.Delete(p.ID)
@@ -106,7 +107,7 @@ func (c *ClientMQTT) publishing() (err error) {
 }
 
 func (c *ClientMQTT) republishing() error {
-	c.log.Info("client starts to republish messages", log.Duration("interval", c.publisher.d))
+	c.log.Info("client starts to republish messages", log.Any("interval", c.publisher.d))
 	defer c.log.Info("client has stopped republishing messages")
 
 	var _epl *epl
@@ -126,15 +127,15 @@ func (c *ClientMQTT) republishing() error {
 	}
 }
 
-func (c *ClientMQTT) sendConnack(code common.ConnackCode, exists bool) error {
-	ack := &common.Connack{
+func (c *ClientMQTT) sendConnack(code mqtt.ConnackCode, exists bool) error {
+	ack := &mqtt.Connack{
 		SessionPresent: exists,
 		ReturnCode:     code,
 	}
 	return c.send(ack, false)
 }
 
-func (c *ClientMQTT) send(pkt common.Packet, async bool) error {
+func (c *ClientMQTT) send(pkt mqtt.Packet, async bool) error {
 	// TODO: remove lock
 	c.Lock()
 	err := c.connection.Send(pkt, async)
@@ -145,7 +146,7 @@ func (c *ClientMQTT) send(pkt common.Packet, async bool) error {
 		return err
 	}
 	if ent := c.log.Check(log.DebugLevel, "client sent a packet"); ent != nil {
-		ent.Write(log.String("packet", pkt.String()))
+		ent.Write(log.Any("packet", pkt.String()))
 	}
 	return nil
 }

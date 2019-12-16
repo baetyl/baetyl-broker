@@ -7,6 +7,7 @@ import (
 	"github.com/baetyl/baetyl-broker/common"
 	"github.com/baetyl/baetyl-broker/queue"
 	"github.com/baetyl/baetyl-go/log"
+	"github.com/baetyl/baetyl-go/mqtt"
 )
 
 // Info session information
@@ -14,7 +15,7 @@ type Info struct {
 	ID            string
 	Will          *common.Message `json:"Will,omitempty"` // will message
 	CleanSession  bool
-	Subscriptions map[string]common.QOS
+	Subscriptions map[string]mqtt.QOS
 }
 
 func (i *Info) String() string {
@@ -27,7 +28,7 @@ type Session struct {
 	Info
 	qos0 queue.Queue // queue for qos0
 	qos1 queue.Queue // queue for qos1
-	subs *common.Trie
+	subs *mqtt.Trie
 	log  *log.Logger
 	sync.Once
 }
@@ -44,7 +45,7 @@ func (s *Session) Push(e *common.Event) error {
 		panic("At least one object matched")
 	}
 	for _, q := range qs {
-		if q.(common.QOS) > 0 {
+		if q.(mqtt.QOS) > 0 {
 			return s.qos1.Push(e)
 		}
 	}

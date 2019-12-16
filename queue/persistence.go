@@ -29,7 +29,7 @@ func NewPersistence(cfg Config, backend *Backend, capacity int) Queue {
 		output:  make(chan *common.Event, capacity),
 		edel:    make(chan uint64, capacity),
 		eget:    make(chan bool, 1),
-		log:     log.With(log.String("queue", "persist"), log.String("id", cfg.Name)),
+		log:     log.With(log.Any("queue", "persist"), log.Any("id", cfg.Name)),
 	}
 	// to read persistent message
 	q.trigger()
@@ -77,7 +77,7 @@ func (q *Persistence) writing() error {
 		select {
 		case e := <-q.input:
 			if ent := q.log.Check(log.DebugLevel, "queue received a message"); ent != nil {
-				ent.Write(log.String("event", e.String()))
+				ent.Write(log.Any("event", e.String()))
 			}
 			buf = append(buf, e)
 			if len(buf) == max {
@@ -187,7 +187,7 @@ func (q *Persistence) get(offset uint64, length int) ([]*common.Event, error) {
 	}
 
 	if ent := q.log.Check(log.DebugLevel, "queue has read message from backend"); ent != nil {
-		ent.Write(log.Int("count", len(msgs)), log.Duration("cost", time.Since(start)))
+		ent.Write(log.Any("count", len(msgs)), log.Any("cost", time.Since(start)))
 	}
 	return events, nil
 }
@@ -198,7 +198,7 @@ func (q *Persistence) add(buf []*common.Event) []*common.Event {
 		return buf
 	}
 
-	defer utils.Trace(q.log.Debug, "queue has written message to backend", log.Int("count", len(buf)))()
+	defer utils.Trace(q.log.Debug, "queue has written message to backend", log.Any("count", len(buf)))()
 
 	var msgs []interface{}
 	for _, e := range buf {
@@ -223,7 +223,7 @@ func (q *Persistence) delete(buf []uint64) []uint64 {
 		return buf
 	}
 
-	defer utils.Trace(q.log.Debug, "queue has deleted message from backend", log.Int("count", len(buf)))()
+	defer utils.Trace(q.log.Debug, "queue has deleted message from backend", log.Any("count", len(buf)))()
 
 	err := q.backend.Del(buf)
 	if err != nil {

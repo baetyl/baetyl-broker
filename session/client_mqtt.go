@@ -7,20 +7,20 @@ import (
 
 	"github.com/baetyl/baetyl-broker/auth"
 	"github.com/baetyl/baetyl-broker/common"
-	"github.com/baetyl/baetyl-broker/transport"
 	"github.com/baetyl/baetyl-go/log"
+	"github.com/baetyl/baetyl-go/mqtt"
 	"github.com/baetyl/baetyl-go/utils"
 	"github.com/docker/distribution/uuid"
 )
 
-// ErrClientClosed the client is closed
-var ErrClientClosed = errors.New("client is closed")
-
-// ErrConnectUnexpected the connect packet is not expected
-var ErrConnectUnexpected = errors.New("packet (connect) is not expected after connected")
-
-// ErrPacketUnexpected the packet type is not expected
-var ErrPacketUnexpected = errors.New("packet type is not expected")
+var (
+	// ErrSessionClientAlreadyClosed the session client is already closed
+	ErrSessionClientAlreadyClosed = errors.New("session client is already closed")
+	// ErrSessionClientAlreadyConnecting the session client is already connecting
+	ErrSessionClientAlreadyConnecting = errors.New("session client is already connecting")
+	// ErrSessionClientUnexpectedPacket the session client received unexpected packet
+	ErrSessionClientUnexpectedPacket = errors.New("session client received unexpected packet")
+)
 
 // ClientMQTT the client of MQTT
 type ClientMQTT struct {
@@ -28,7 +28,7 @@ type ClientMQTT struct {
 	manager    *Manager
 	session    *Session
 	publisher  *publisher
-	connection transport.Connection
+	connection mqtt.Connection
 	anonymous  bool
 	authorizer *auth.Authorizer
 	log        *log.Logger
@@ -38,7 +38,7 @@ type ClientMQTT struct {
 }
 
 // NewClientMQTT creates a new MQTT client
-func newClientMQTT(m *Manager, connection transport.Connection, anonymous bool) *ClientMQTT {
+func newClientMQTT(m *Manager, connection mqtt.Connection, anonymous bool) *ClientMQTT {
 	id := uuid.Generate().String()
 	c := &ClientMQTT{
 		id:         id,
@@ -46,7 +46,7 @@ func newClientMQTT(m *Manager, connection transport.Connection, anonymous bool) 
 		connection: connection,
 		anonymous:  anonymous,
 		publisher:  newPublisher(m.config.RepublishInterval, m.config.MaxInflightQOS1Messages),
-		log:        log.With(log.String("id", id)),
+		log:        log.With(log.Any("id", id)),
 	}
 	c.Go(c.receiving)
 	return c
@@ -58,7 +58,7 @@ func (c *ClientMQTT) getID() string {
 
 func (c *ClientMQTT) setSession(s *Session) {
 	c.session = s
-	c.log = c.log.With(log.String("sid", s.ID))
+	c.log = c.log.With(log.Any("cid", s.ID))
 }
 
 func (c *ClientMQTT) getSession() *Session {
@@ -89,8 +89,10 @@ func (c *ClientMQTT) die(err error) {
 }
 
 func (c *ClientMQTT) close() error {
-	c.Kill(nil)
-	c.connection.Close()
+	c.Do(func() {
+		c.Kill(nil)
+		c.connection.Close()
+	})
 	return c.Wait()
 }
 
@@ -107,7 +109,7 @@ func (c *ClientMQTT) sendWillMessage() {
 	if msg.Retain() {
 		err := c.retainMessage(msg)
 		if err != nil {
-			c.log.Error("failed to retain will message", log.String("topic", msg.Context.Topic))
+			c.log.Error("failed to retain will message", log.Any("topic", msg.Context.Topic))
 		}
 	}
 	c.manager.exchange.Route(msg, c.callback)
@@ -130,7 +132,7 @@ func (c *ClientMQTT) sendRetainMessage() error {
 		return err
 	}
 	for _, msg := range msgs {
-		if ok, qos := common.IsMatch(c.session.subs, msg.Context.Topic); ok {
+		if ok, qos := common.MatchTopicQOS(c.session.subs, msg.Context.Topic); ok {
 			if msg.Context.QOS > qos {
 				msg.Context.QOS = qos
 			}

@@ -4,7 +4,7 @@ import (
 	"reflect"
 	"strings"
 
-	"github.com/baetyl/baetyl-broker/common"
+	"github.com/baetyl/baetyl-go/mqtt"
 )
 
 // all permit actions
@@ -109,12 +109,12 @@ type cert struct {
 
 // Authorizer checks topic permission
 type Authorizer struct {
-	*common.Trie
+	*mqtt.Trie
 }
 
 // NewAuthorizer create a new authorizer
 func NewAuthorizer() *Authorizer {
-	return &Authorizer{Trie: common.NewTrie()}
+	return &Authorizer{Trie: mqtt.NewTrie()}
 }
 
 // Authorize auth action

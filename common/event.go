@@ -4,6 +4,8 @@ import (
 	"errors"
 	"sync/atomic"
 	"time"
+
+	"github.com/baetyl/baetyl-go/mqtt"
 )
 
 // all errors of acknowledgement
@@ -77,7 +79,7 @@ func NewEvent(msg *Message, count int32, call func(uint64)) *Event {
 }
 
 // NewMessage creates a new message by packet
-func NewMessage(pkt *Publish) *Message {
+func NewMessage(pkt *mqtt.Publish) *Message {
 	var flags uint32
 	if pkt.Message.Retain {
 		flags = 1

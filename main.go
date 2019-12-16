@@ -49,7 +49,8 @@ func main() {
 		return
 	}
 
-	l, _ := log.Init(log.Config{Level: "debug", Format: "text"})
+	// l, _ := log.Init(log.Config{Level: "debug", Format: "text"})
+	l := log.With()
 	defer l.Sync()
 
 	// baetyl.Run(func(ctx baetyl.Context) error {
