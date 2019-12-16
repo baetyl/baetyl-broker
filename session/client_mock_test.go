@@ -30,6 +30,10 @@ type mockBroker struct {
 }
 
 func newMockBroker(t *testing.T) *mockBroker {
+	return newMockBrokerWith(t, 0)
+}
+
+func newMockBrokerWith(t *testing.T, maxConnections int) *mockBroker {
 	log.Init(log.Config{Level: "debug", Format: "text"})
 	dir, _ := ioutil.TempDir("", "broker")
 
@@ -38,6 +42,7 @@ func newMockBroker(t *testing.T) *mockBroker {
 	defaults.Set(&b.cfg.Session)
 	b.cfg.Session.PersistenceLocation = dir
 	b.cfg.Session.RepublishInterval = time.Millisecond * 200
+	b.cfg.Session.MaxConnections = maxConnections
 	b.cfg.Principals = []auth.Principal{{
 		Username: "u1",
 		Password: "p1",
