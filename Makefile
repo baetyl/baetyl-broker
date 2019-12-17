@@ -1,17 +1,66 @@
+MODULE:=baetyl-broker
+SRC_FILES:=$(shell find . -type f -name '*.go')
+PLATFORM_ALL:=darwin/amd64 linux/amd64 linux/arm64 linux/386 linux/arm/v7
+
+GIT_TAG:=$(shell git tag --contains HEAD)
+GIT_REV:=git-$(shell git rev-parse --short HEAD)
+VERSION:=$(if $(GIT_TAG),$(GIT_TAG),$(GIT_REV))
+
+GO_RACE?=
+GO_FLAGS?=-ldflags '-linkmode external -w -extldflags "-static"' $(GO_RACE)
 GO_TEST_FLAGS?=-race
 GO_TEST_PKGS?=$(shell go list ./...)
-SRC_FILES:=$(shell find . -type f -name '*.go')
+
+ifndef PLATFORMS
+	GO_OS:=$(shell go env GOOS)
+	GO_ARCH:=$(shell go env GOARCH)
+	GO_ARM:=$(shell go env GOARM)
+	PLATFORMS:=$(if $(GO_ARM),$(GO_OS)/$(GO_ARCH)/$(GO_ARM),$(GO_OS)/$(GO_ARCH))
+	ifeq ($(GO_OS),darwin)
+		PLATFORMS+=linux/amd64
+	endif
+else ifeq ($(PLATFORMS),all)
+	override PLATFORMS:=$(PLATFORM_ALL)
+endif
+
+REGISTRY?=
+XFLAGS?=--load
+XPLATFORMS:=$(shell echo $(filter-out darwin/amd64,$(PLATFORMS)) | sed 's: :,:g')
 
 .PHONY: all
 all: $(SRC_FILES)
-	@echo "BUILD $@"
-	@env CGO_ENABLED=1 go build -race -o baetyl-broker
+	@echo "BUILD $(MODULE)"
+	@env CGO_ENABLED=1 go build -o $(MODULE) .
+
+.PHONY: static
+static: $(SRC_FILES)
+	@echo "BUILD $(MODULE)"
+	@env GO111MODULE=on GOPROXY=https://goproxy.cn CGO_ENABLED=1 go build -o $(MODULE) $(GO_FLAGS) .
+
+.PHONY: image
+image: 
+	@echo "BUILDX: $(REGISTRY)$(MODULE):$(VERSION)"
+	@-docker buildx create --name baetyl
+	@docker buildx use baetyl
+	docker buildx build $(XFLAGS) --platform $(XPLATFORMS) -t $(REGISTRY)$(MODULE):$(VERSION) -f Dockerfile .
+
+.PHONY: race-image
+race-image: 
+	@echo "BUILDX: $(REGISTRY)$(MODULE):$(VERSION)-race"
+	@-docker buildx create --name baetyl
+	@docker buildx use baetyl
+	docker buildx build $(XFLAGS) --build-arg RACE=-race --platform linux/amd64,linux/arm64 -t $(REGISTRY)$(MODULE):$(VERSION)-race -f Dockerfile . 
 
 .PHONY: test
 test: fmt
-	@go test ${GO_TEST_FLAGS} -coverprofile=coverage.out ./...
+	@go test ${GO_TEST_FLAGS} -coverprofile=coverage.out ${GO_TEST_PKGS}
 	@go tool cover -func=coverage.out | grep total
 
 .PHONY: fmt
 fmt:
-	go fmt  ./...
+	go fmt ./...
+
+.PHONY: clean
+clean:
+	@rm -rf $(MODULE)
+	
