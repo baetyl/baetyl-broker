@@ -6,11 +6,9 @@ GIT_TAG:=$(shell git tag --contains HEAD)
 GIT_REV:=git-$(shell git rev-parse --short HEAD)
 VERSION:=$(if $(GIT_TAG),$(GIT_TAG),$(GIT_REV))
 
-GO_RACE?=
-GO_FLAGS?=-ldflags '-linkmode external -w -extldflags "-static"' $(GO_RACE)
+GO_FLAGS?=-ldflags '-X "github.com/baetyl/baetyl-go/cmd.REVISION=$(GIT_REV)" -X "github.com/baetyl/baetyl-go/cmd.VERSION=$(VERSION)" -linkmode external -w -extldflags "-static"'
 GO_TEST_FLAGS?=-race
 GO_TEST_PKGS?=$(shell go list ./...)
-
 ifndef PLATFORMS
 	GO_OS:=$(shell go env GOOS)
 	GO_ARCH:=$(shell go env GOARCH)
@@ -32,8 +30,8 @@ all: $(SRC_FILES)
 	@echo "BUILD $(MODULE)"
 	@env CGO_ENABLED=1 go build -o $(MODULE) .
 
-.PHONY: static
-static: $(SRC_FILES)
+.PHONY: build-static
+build-static: $(SRC_FILES)
 	@echo "BUILD $(MODULE)"
 	@env GO111MODULE=on GOPROXY=https://goproxy.cn CGO_ENABLED=1 go build -o $(MODULE) $(GO_FLAGS) .
 
@@ -44,12 +42,6 @@ image:
 	@docker buildx use baetyl
 	docker buildx build $(XFLAGS) --platform $(XPLATFORMS) -t $(REGISTRY)$(MODULE):$(VERSION) -f Dockerfile .
 
-.PHONY: race-image
-race-image: 
-	@echo "BUILDX: $(REGISTRY)$(MODULE):$(VERSION)-race"
-	@-docker buildx create --name baetyl
-	@docker buildx use baetyl
-	docker buildx build $(XFLAGS) --build-arg RACE=-race --platform linux/amd64,linux/arm64 -t $(REGISTRY)$(MODULE):$(VERSION)-race -f Dockerfile . 
 
 .PHONY: test
 test: fmt
@@ -63,4 +55,3 @@ fmt:
 .PHONY: clean
 clean:
 	@rm -rf $(MODULE)
-	
