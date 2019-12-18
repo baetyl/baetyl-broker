@@ -23,18 +23,11 @@ func newBroker(cfg config) (*broker, error) {
 		return nil, err
 	}
 
-	endpoints := []*mqtt.Endpoint{}
+	var endpoints []*mqtt.Endpoint
 	for _, addr := range cfg.Addresses {
 		endpoints = append(endpoints, &mqtt.Endpoint{
 			Address: addr,
 			Handle:  b.manager.ClientMQTTHandler,
-		})
-	}
-	if !cfg.InternalEndpoint.Disable {
-		endpoints = append(endpoints, &mqtt.Endpoint{
-			Address:   cfg.InternalEndpoint.Address,
-			Handle:    b.manager.ClientMQTTHandler,
-			Anonymous: true,
 		})
 	}
 	b.transport, err = mqtt.NewTransport(endpoints, cfg.Certificate)

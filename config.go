@@ -15,8 +15,6 @@ type config struct {
 	Certificate utils.Certificate `yaml:"certificate" json:"certificate"`
 	Principals  []auth.Principal  `yaml:"principals" json:"principals" validate:"principals"`
 	Session     session.Config    `yaml:"session" json:"session"`
-
-	InternalEndpoint InternalEndpoint `yaml:"internalEndpoint" json:"internalEndpoint"`
 }
 
 // principalsValidate validate principals config is valid or not

@@ -3,7 +3,7 @@ module github.com/baetyl/baetyl-broker
 go 1.12
 
 require (
-	github.com/baetyl/baetyl-go v0.0.0-20191215143427-8f7688de72d6
+	github.com/baetyl/baetyl-go v0.0.0-20191218020428-5414115311d0
 	github.com/creasty/defaults v1.3.0
 	github.com/docker/distribution v2.7.1+incompatible
 	github.com/gogo/protobuf v1.3.1
