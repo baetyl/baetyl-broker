@@ -8,7 +8,6 @@ import (
 	"os/signal"
 	"syscall"
 
-	"github.com/baetyl/baetyl-go/cmd"
 	"github.com/baetyl/baetyl-go/log"
 	"github.com/baetyl/baetyl-go/utils"
 	_ "github.com/mattn/go-sqlite3"
@@ -25,7 +24,7 @@ func init() {
 }
 
 func main() {
-	cmd.Version()
+	utils.Version()
 
 	// // go tool pprof http://localhost:6060/debug/pprof/profile
 	// go func() {
