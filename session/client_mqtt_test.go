@@ -707,7 +707,7 @@ func TestSessionRetain(t *testing.T) {
 	sub2.sendC2S(&mqtt.Puback{ID: 1})
 	sub2.assertS2CPacketTimeout()
 
-	fmt.Println("--> 4. clear retain message of topic 'test' --> client4 subscribe topic 'test' --> client4 Will not receive message of topic 'test'<--")
+	fmt.Println("\n--> 4. clear retain message of topic 'test' --> client4 subscribe topic 'test' --> client4 Will not receive message of topic 'test'<--")
 
 	// clear retain message of topic test
 	pkt.ID = 3

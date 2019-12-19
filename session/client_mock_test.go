@@ -4,6 +4,7 @@ import (
 	"io/ioutil"
 	"net"
 	"os"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -94,8 +95,24 @@ func (b *mockBroker) assertSession(id string, expect string) {
 	}
 }
 
+func (b *mockBroker) exchangeCommonCount() int {
+	return b.manager.exchange.(*mockExchange).bindings["$common"].Count()
+}
+
+func (b *mockBroker) exchangeShadowCount() int {
+	return b.manager.exchange.(*mockExchange).bindings["$baidu"].Count()
+}
+
+func (b *mockBroker) exchangeLinkCount() int {
+	return b.manager.exchange.(*mockExchange).bindings["$link"].Count()
+}
+
 func (b *mockBroker) assertExchangeCount(expect int) {
-	assert.Equal(b.t, expect, b.manager.exchange.(*mockExchange).bindings.Count())
+	shadowCount := b.exchangeShadowCount()
+	linkCount := b.exchangeLinkCount()
+	commonCount := b.exchangeCommonCount()
+	allCount := shadowCount + linkCount + commonCount
+	assert.Equal(b.t, expect, allCount)
 }
 
 func (b *mockBroker) close() {
@@ -209,33 +226,72 @@ func (c *mockConn) RemoteAddr() net.Addr {
 
 // mockExchange the message exchange
 type mockExchange struct {
-	bindings *mqtt.Trie
+	bindings map[string]*mqtt.Trie
 }
 
 // NewExchange creates a new exchange
 func newMockExchange() *mockExchange {
-	return &mockExchange{bindings: mqtt.NewTrie()}
+	return &mockExchange{bindings: map[string]*mqtt.Trie{"$baidu": mqtt.NewTrie(), "$link": mqtt.NewTrie(), "$common": mqtt.NewTrie()}}
 }
 
 // Bind binds a new queue with a specify topic
 func (b *mockExchange) Bind(topic string, queue common.Queue) {
-	b.bindings.Add(topic, queue)
+	if strings.HasPrefix(topic, "$baidu/") {
+		b.bindings["$baidu"].Add(topic, queue)
+	} else if strings.HasPrefix(topic, "$link/") {
+		b.bindings["$link"].Add(topic, queue)
+	} else {
+		b.bindings["$common"].Add(topic, queue)
+	}
 }
 
 // Unbind unbinds a queue from a specify topic
 func (b *mockExchange) Unbind(topic string, queue common.Queue) {
-	b.bindings.Remove(topic, queue)
+	if strings.HasPrefix(topic, "$baidu/") {
+		b.bindings["$baidu"].Remove(topic, queue)
+	} else if strings.HasPrefix(topic, "$link/") {
+		b.bindings["$link"].Remove(topic, queue)
+	} else {
+		b.bindings["$common"].Remove(topic, queue)
+	}
+}
+
+// UnbindShadow unbinds a queue from $baidu topics
+func (b *mockExchange) UnbindShadowAll(queue common.Queue) {
+	b.bindings["$baidu"].Clear(queue)
+}
+
+// UnbindLink unbinds a queue from $link topics
+func (b *mockExchange) UnbindLinkAll(queue common.Queue) {
+	b.bindings["$link"].Clear(queue)
+}
+
+// UnbindCommon unbinds a queue from common topics
+func (b *mockExchange) UnbindCommonAll(queue common.Queue) {
+	b.bindings["$common"].Clear(queue)
 }
 
 // UnbindAll unbinds a queue from all topics
 func (b *mockExchange) UnbindAll(queue common.Queue) {
-	b.bindings.Clear(queue)
+	b.UnbindShadowAll(queue)
+	b.UnbindLinkAll(queue)
+	b.UnbindCommonAll(queue)
 }
 
 // Route routes message to binding queues
 func (b *mockExchange) Route(msg *common.Message, cb func(uint64)) {
-	sss := b.bindings.Match(msg.Context.Topic)
-	length := len(sss)
+	length := 0
+	sss := make([]interface{}, 0)
+	if strings.HasPrefix(msg.Context.Topic, "$baidu/") {
+		qq := b.bindings["$baidu"].Get(msg.Context.Topic)
+		sss = append(sss, qq...)
+	} else if strings.HasPrefix(msg.Context.Topic, "$link/") {
+		qq := b.bindings["$link"].Get(msg.Context.Topic)
+		sss = append(sss, qq...)
+	} else {
+		sss = b.bindings["$common"].Match(msg.Context.Topic)
+	}
+	length = len(sss)
 	if length == 0 {
 		if cb != nil {
 			cb(msg.Context.ID)
