@@ -49,10 +49,10 @@ func newMockBrokerWith(t *testing.T, maxConnections int) *mockBroker {
 		Password: "p1",
 		Permissions: []auth.Permission{{
 			Action:  "sub",
-			Permits: []string{"test", "talks", "talks1", "talks2"},
+			Permits: []string{"test", "talks", "talks1", "talks2", "$baidu/iot", "$link/data"},
 		}, {
 			Action:  "pub",
-			Permits: []string{"test", "talks"},
+			Permits: []string{"test", "talks", "$baidu/iot", "$link/data"},
 		}}}, {
 		Username: "u2",
 		Password: "p2",
