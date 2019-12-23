@@ -8,7 +8,7 @@ import (
 
 const (
 	maxTopicLength = 255
-	// maxTopicLevels = 9
+	maxTopicLevels = 9
 	// topicSeparator    = "/"
 	// singleWildcard    = "+"
 	// multipleWildcard  = "#"
@@ -16,16 +16,16 @@ const (
 
 // CheckTopic checks the topic
 func CheckTopic(topic string, wildcard bool) bool {
-	var maxTopicLevels = 9
 	if topic == "" {
 		return false
 	}
 	if len(topic) > maxTopicLength || strings.Contains(topic, "\u0000") {
 		return false
 	}
+	var maxTopicLevels = maxTopicLevels
 	segments := strings.Split(topic, "/")
-	if strings.HasPrefix(topic, "$") {
-		if !strings.EqualFold(segments[0], "$baidu") && !strings.EqualFold(segments[0], "$link") {
+	if strings.HasPrefix(segments[0], "$") {
+		if strings.Contains(segments[0], "+") || strings.Contains(segments[0], "#") {
 			return false
 		}
 		segments = segments[1:]
@@ -51,16 +51,6 @@ func CheckTopic(topic string, wildcard bool) bool {
 		}
 	}
 	return true
-}
-
-// IsShadowTopic check the given topic is shadow topic or not
-func IsShadowTopic(topic string) bool {
-	return strings.HasPrefix(topic, "$baidu/")
-}
-
-// IsLinkTopic check the given topic is link topic or not
-func IsLinkTopic(topic string) bool {
-	return strings.HasPrefix(topic, "$link/")
 }
 
 // MatchTopicQOS if topic matched, return the lowest qos

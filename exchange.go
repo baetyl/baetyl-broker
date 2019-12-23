@@ -8,55 +8,62 @@ import (
 	"github.com/baetyl/baetyl-go/mqtt"
 )
 
+type systemTopic struct {
+	shadow string `default:"$baidu"`
+	link   string `default:"$link"`
+}
+
 // Exchange the message exchange
 type Exchange struct {
-	bindings map[string]*mqtt.Trie
-	log      *log.Logger
+	bindings     map[string]*mqtt.Trie
+	systemTopics systemTopic
+	log          *log.Logger
 }
 
 // NewExchange creates a new exchange
 func NewExchange() *Exchange {
+	ex := &Exchange{}
 	return &Exchange{
-		bindings: map[string]*mqtt.Trie{"$baidu": mqtt.NewTrie(), "$link": mqtt.NewTrie(), "$common": mqtt.NewTrie()},
+		bindings: map[string]*mqtt.Trie{ex.systemTopics.shadow: mqtt.NewTrie(), ex.systemTopics.link: mqtt.NewTrie(), "/": mqtt.NewTrie()},
 		log:      log.With(log.Any("broker", "exchange")),
 	}
 }
 
 // Bind binds a new queue with a specify topic
 func (b *Exchange) Bind(topic string, queue common.Queue) {
-	if strings.HasPrefix(topic, "$baidu/") {
-		b.bindings["$baidu"].Add(topic, queue)
-	} else if strings.HasPrefix(topic, "$link/") {
-		b.bindings["$link"].Add(topic, queue)
-	} else {
-		b.bindings["$common"].Add(topic, queue)
+	parts := strings.SplitN(topic, "/", 2)
+	if bind, ok := b.bindings[parts[0]]; ok && (parts[0] == b.systemTopics.shadow || parts[0] == b.systemTopics.link) {
+		bind.Add(parts[1], queue)
+		return
 	}
+	// common
+	b.bindings["/"].Add(topic, queue)
 }
 
 // Unbind unbinds a queue from a specify topic
 func (b *Exchange) Unbind(topic string, queue common.Queue) {
-	if strings.HasPrefix(topic, "$baidu/") {
-		b.bindings["$baidu"].Remove(topic, queue)
-	} else if strings.HasPrefix(topic, "$link/") {
-		b.bindings["$link"].Remove(topic, queue)
-	} else {
-		b.bindings["$common"].Remove(topic, queue)
+	parts := strings.SplitN(topic, "/", 2)
+	if bind, ok := b.bindings[parts[0]]; ok {
+		bind.Remove(parts[1], queue)
+		return
 	}
+	// common
+	b.bindings["/"].Remove(topic, queue)
 }
 
 // UnbindShadowAll unbinds a queue from $baidu topics
 func (b *Exchange) UnbindShadowAll(queue common.Queue) {
-	b.bindings["$baidu"].Clear(queue)
+	b.bindings[b.systemTopics.shadow].Clear(queue)
 }
 
 // UnbindLinkAll unbinds a queue from $link topics
 func (b *Exchange) UnbindLinkAll(queue common.Queue) {
-	b.bindings["$link"].Clear(queue)
+	b.bindings[b.systemTopics.link].Clear(queue)
 }
 
 // UnbindCommonAll unbinds a queue from common topics
 func (b *Exchange) UnbindCommonAll(queue common.Queue) {
-	b.bindings["$common"].Clear(queue)
+	b.bindings["/"].Clear(queue)
 }
 
 // UnbindAll unbinds queues from all topics
@@ -70,14 +77,12 @@ func (b *Exchange) UnbindAll(queue common.Queue) {
 func (b *Exchange) Route(msg *common.Message, cb func(uint64)) {
 	length := 1
 	sss := make([]interface{}, 0)
-	if strings.HasPrefix(msg.Context.Topic, "$baidu/") {
-		qq := b.bindings["$baidu"].Get(msg.Context.Topic)
-		sss = append(sss, qq...)
-	} else if strings.HasPrefix(msg.Context.Topic, "$link/") {
-		qq := b.bindings["$link"].Get(msg.Context.Topic)
+	parts := strings.SplitN(msg.Context.Topic, "/", 2)
+	if bind, ok := b.bindings[parts[0]]; ok && (parts[0] == b.systemTopics.shadow || parts[0] == b.systemTopics.link) {
+		qq := bind.Get(parts[1])
 		sss = append(sss, qq...)
 	} else {
-		sss = b.bindings["$common"].Match(msg.Context.Topic)
+		sss = b.bindings["/"].Match(msg.Context.Topic)
 	}
 	length = len(sss)
 	b.log.Debug("exchange routes a message to queues", log.Any("count", length))

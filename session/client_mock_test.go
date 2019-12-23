@@ -96,15 +96,15 @@ func (b *mockBroker) assertSession(id string, expect string) {
 }
 
 func (b *mockBroker) exchangeCommonCount() int {
-	return b.manager.exchange.(*mockExchange).bindings["$common"].Count()
+	return b.manager.exchange.(*mockExchange).bindings["/"].Count()
 }
 
 func (b *mockBroker) exchangeShadowCount() int {
-	return b.manager.exchange.(*mockExchange).bindings["$baidu"].Count()
+	return b.manager.exchange.(*mockExchange).bindings[b.manager.exchange.(*mockExchange).systemTopics.shadow].Count()
 }
 
 func (b *mockBroker) exchangeLinkCount() int {
-	return b.manager.exchange.(*mockExchange).bindings["$link"].Count()
+	return b.manager.exchange.(*mockExchange).bindings[b.manager.exchange.(*mockExchange).systemTopics.link].Count()
 }
 
 func (b *mockBroker) assertExchangeCount(expect int) {
@@ -224,51 +224,58 @@ func (c *mockConn) RemoteAddr() net.Addr {
 	return nil
 }
 
+type mockSystemTopic struct {
+	shadow string `default:"$baidu"`
+	link   string `default:"$link"`
+}
+
 // mockExchange the message exchange
 type mockExchange struct {
-	bindings map[string]*mqtt.Trie
+	bindings     map[string]*mqtt.Trie
+	systemTopics mockSystemTopic
 }
 
 // NewExchange creates a new exchange
 func newMockExchange() *mockExchange {
-	return &mockExchange{bindings: map[string]*mqtt.Trie{"$baidu": mqtt.NewTrie(), "$link": mqtt.NewTrie(), "$common": mqtt.NewTrie()}}
+	ex := &mockExchange{}
+	return &mockExchange{bindings: map[string]*mqtt.Trie{ex.systemTopics.shadow: mqtt.NewTrie(), ex.systemTopics.link: mqtt.NewTrie(), "/": mqtt.NewTrie()}}
 }
 
 // Bind binds a new queue with a specify topic
 func (b *mockExchange) Bind(topic string, queue common.Queue) {
-	if strings.HasPrefix(topic, "$baidu/") {
-		b.bindings["$baidu"].Add(topic, queue)
-	} else if strings.HasPrefix(topic, "$link/") {
-		b.bindings["$link"].Add(topic, queue)
-	} else {
-		b.bindings["$common"].Add(topic, queue)
+	parts := strings.SplitN(topic, "/", 2)
+	if bind, ok := b.bindings[parts[0]]; ok && (parts[0] == b.systemTopics.shadow || parts[0] == b.systemTopics.link) {
+		bind.Add(parts[1], queue)
+		return
 	}
+	// common
+	b.bindings["/"].Add(topic, queue)
 }
 
 // Unbind unbinds a queue from a specify topic
 func (b *mockExchange) Unbind(topic string, queue common.Queue) {
-	if strings.HasPrefix(topic, "$baidu/") {
-		b.bindings["$baidu"].Remove(topic, queue)
-	} else if strings.HasPrefix(topic, "$link/") {
-		b.bindings["$link"].Remove(topic, queue)
-	} else {
-		b.bindings["$common"].Remove(topic, queue)
+	parts := strings.SplitN(topic, "/", 2)
+	if bind, ok := b.bindings[parts[0]]; ok {
+		bind.Remove(parts[1], queue)
+		return
 	}
+	// common
+	b.bindings["/"].Remove(topic, queue)
 }
 
 // UnbindShadow unbinds a queue from $baidu topics
 func (b *mockExchange) UnbindShadowAll(queue common.Queue) {
-	b.bindings["$baidu"].Clear(queue)
+	b.bindings[b.systemTopics.shadow].Clear(queue)
 }
 
 // UnbindLink unbinds a queue from $link topics
 func (b *mockExchange) UnbindLinkAll(queue common.Queue) {
-	b.bindings["$link"].Clear(queue)
+	b.bindings[b.systemTopics.link].Clear(queue)
 }
 
 // UnbindCommon unbinds a queue from common topics
 func (b *mockExchange) UnbindCommonAll(queue common.Queue) {
-	b.bindings["$common"].Clear(queue)
+	b.bindings["/"].Clear(queue)
 }
 
 // UnbindAll unbinds a queue from all topics
@@ -282,14 +289,12 @@ func (b *mockExchange) UnbindAll(queue common.Queue) {
 func (b *mockExchange) Route(msg *common.Message, cb func(uint64)) {
 	length := 0
 	sss := make([]interface{}, 0)
-	if strings.HasPrefix(msg.Context.Topic, "$baidu/") {
-		qq := b.bindings["$baidu"].Get(msg.Context.Topic)
-		sss = append(sss, qq...)
-	} else if strings.HasPrefix(msg.Context.Topic, "$link/") {
-		qq := b.bindings["$link"].Get(msg.Context.Topic)
+	parts := strings.SplitN(msg.Context.Topic, "/", 2)
+	if bind, ok := b.bindings[parts[0]]; ok && (parts[0] == b.systemTopics.shadow || parts[0] == b.systemTopics.link) {
+		qq := bind.Get(parts[1])
 		sss = append(sss, qq...)
 	} else {
-		sss = b.bindings["$common"].Match(msg.Context.Topic)
+		sss = b.bindings["/"].Match(msg.Context.Topic)
 	}
 	length = len(sss)
 	if length == 0 {
