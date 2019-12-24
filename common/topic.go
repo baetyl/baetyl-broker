@@ -14,8 +14,20 @@ const (
 	// multipleWildcard  = "#"
 )
 
+// TopicChecker checks topic
+type TopicChecker struct {
+	SysTopics map[string]struct{}
+}
+
+// NewTopicChecker create topicChecker
+func NewTopicChecker() *TopicChecker {
+	return &TopicChecker{
+		SysTopics: map[string]struct{}{},
+	}
+}
+
 // CheckTopic checks the topic
-func CheckTopic(topic string, sysTopics []string, wildcard bool) bool {
+func (tc *TopicChecker) CheckTopic(topic string, wildcard bool) bool {
 	if topic == "" {
 		return false
 	}
@@ -27,10 +39,7 @@ func CheckTopic(topic string, sysTopics []string, wildcard bool) bool {
 		if len(segments) < 2 {
 			return false
 		}
-		if _, found := find(segments[0], sysTopics); !found {
-			return false
-		}
-		if strings.Contains(segments[0], "+") || strings.Contains(segments[0], "#") {
+		if _, ok := tc.SysTopics[segments[0]]; !ok {
 			return false
 		}
 		segments = segments[1:]
@@ -70,13 +79,4 @@ func MatchTopicQOS(t *mqtt.Trie, topic string) (bool, uint32) {
 		}
 	}
 	return ok, qos
-}
-
-func find(val string, slice []string) (int, bool) {
-	for _, item := range slice {
-		if item == val {
-			return 1, true
-		}
-	}
-	return -1, false
 }

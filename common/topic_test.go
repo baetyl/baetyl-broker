@@ -5,12 +5,14 @@ import (
 )
 
 func TestCheckTopic(t *testing.T) {
+	tc := &TopicChecker{
+		SysTopics: map[string]struct{}{"$baidu": struct{}{}, "$link": struct{}{}},
+	}
 	tests := []struct {
-		name      string
-		topic     string
-		sysTopics []string
-		wildcard  bool
-		want      bool
+		name     string
+		topic    string
+		wildcard bool
+		want     bool
 	}{
 		{name: "1", topic: "topic", wildcard: false, want: true},
 		{name: "2", topic: "topic/a", wildcard: false, want: true},
@@ -83,9 +85,8 @@ func TestCheckTopic(t *testing.T) {
 		{name: "66", topic: "$baidu/a/b/c/d/e/f/g/h/i/j", wildcard: false, want: false},
 	}
 	for _, tt := range tests {
-		tt.sysTopics = []string{"$baidu", "$link"}
 		t.Run(tt.name, func(t *testing.T) {
-			if got := CheckTopic(tt.topic, tt.sysTopics, tt.wildcard); got != tt.want {
+			if got := tc.CheckTopic(tt.topic, tt.wildcard); got != tt.want {
 				t.Errorf("topic = %s CheckTopic() = %v, want %v", tt.topic, got, tt.want)
 			}
 		})

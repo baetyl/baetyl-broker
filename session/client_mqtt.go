@@ -146,15 +146,6 @@ func (c *ClientMQTT) sendRetainMessage() error {
 	return nil
 }
 
-// getSysTopics gets sysTopics from configuration
-func (c *ClientMQTT) getSysTopics() []string {
-	var sysTopics []string
-	for item := range c.manager.exchange.Bindings {
-		sysTopics = append(sysTopics, item)
-	}
-	return sysTopics
-}
-
 // checkClientID checks clientID
 func checkClientID(v string) bool {
 	return regexpClientID.MatchString(v)

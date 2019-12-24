@@ -98,7 +98,7 @@ func (b *mockBroker) assertSession(id string, expect string) {
 
 func (b *mockBroker) assertExchangeCount(expect int) {
 	count := 0
-	for _, bind := range b.manager.exchange.Bindings {
+	for _, bind := range b.manager.exchange.Bindings() {
 		count += bind.Count()
 	}
 	assert.Equal(b.t, expect, count)

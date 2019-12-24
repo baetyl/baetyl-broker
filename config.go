@@ -21,16 +21,20 @@ type config struct {
 }
 
 // principalsValidate validate principals config is valid or not
-func principalsValidate(v interface{}, param string, sysTopics []string) error {
+func (c *config) principalsValidate(v interface{}, param string) error {
 	principals := v.([]auth.Principal)
 	err := userValidate(principals)
 	if err != nil {
 		return err
 	}
+	tc := common.NewTopicChecker()
+	for _, t := range c.SysTopics {
+		tc.SysTopics[t] = struct{}{}
+	}
 	for _, principal := range principals {
 		for _, permission := range principal.Permissions {
 			for _, permit := range permission.Permits {
-				if !common.CheckTopic(permit, sysTopics, true) {
+				if !tc.CheckTopic(permit, true) {
 					return fmt.Errorf("%s topic(%s) invalid", permission.Action, permit)
 				}
 			}

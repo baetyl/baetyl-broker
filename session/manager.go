@@ -43,15 +43,16 @@ type Config struct {
 
 // Manager the manager of sessions
 type Manager struct {
-	auth     *auth.Auth
-	config   Config
-	retain   *retain.Backend
-	backend  *Backend
-	exchange *exchange.Exchange
-	sessions map[string]*Session
-	clients  map[string]client            // TODO: limit the number of clients
-	bindings map[string]map[string]client // map[sid]map[cid]client
-	log      *log.Logger
+	auth         *auth.Auth
+	config       Config
+	retain       *retain.Backend
+	backend      *Backend
+	exchange     *exchange.Exchange
+	topicChecker *common.TopicChecker
+	sessions     map[string]*Session
+	clients      map[string]client            // TODO: limit the number of clients
+	bindings     map[string]map[string]client // map[sid]map[cid]client
+	log          *log.Logger
 	sync.Mutex
 }
 
@@ -71,16 +72,21 @@ func NewManager(config Config, exchange *exchange.Exchange, auth *auth.Auth) (*M
 		backend.Close()
 		return nil, err
 	}
+	checker := common.NewTopicChecker()
+	for bind := range exchange.Bindings() {
+		checker.SysTopics[bind] = struct{}{}
+	}
 	manager := &Manager{
-		auth:     auth,
-		config:   config,
-		backend:  backend,
-		retain:   retainBackend,
-		exchange: exchange,
-		sessions: map[string]*Session{},
-		clients:  map[string]client{},
-		bindings: map[string]map[string]client{},
-		log:      log.With(log.Any("manager", "session")),
+		auth:         auth,
+		config:       config,
+		backend:      backend,
+		retain:       retainBackend,
+		exchange:     exchange,
+		topicChecker: checker,
+		sessions:     map[string]*Session{},
+		clients:      map[string]client{},
+		bindings:     map[string]map[string]client{},
+		log:          log.With(log.Any("manager", "session")),
 	}
 	for _, i := range items {
 		si := i.(*Info)
