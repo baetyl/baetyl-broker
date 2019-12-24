@@ -59,7 +59,7 @@ func (b *Exchange) UnbindAll(queue common.Queue) {
 
 // Route routes message to binding queues
 func (b *Exchange) Route(msg *common.Message, cb func(uint64)) {
-	sss := make([]interface{}, 0)
+	var sss []interface{}
 	parts := strings.SplitN(msg.Context.Topic, "/", 2)
 	if bind, ok := b.Bindings[parts[0]]; ok {
 		sss = bind.Match(parts[1])

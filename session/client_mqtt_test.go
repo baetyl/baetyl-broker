@@ -596,7 +596,7 @@ func TestSystemTopicIsolation(t *testing.T) {
 	c.assertS2CPacket("<Puback ID=2>")
 	c.assertS2CPacketTimeout()
 
-	fmt.Println("\n--> 2. client subscribe topic '$link/#' --> will receive sysTopic message --> will not receive normal message<--")
+	fmt.Println("\n--> 2. client subscribe topic '$link/#' --> will receive the specified sysTopic message --> will not receive normal and other sysTopic message<--")
 
 	// client unsubscribe topic #
 	unskt.ID = 1
@@ -636,6 +636,21 @@ func TestSystemTopicIsolation(t *testing.T) {
 	c.sendC2S(pkt)
 	c.assertS2CPacket("<Puback ID=5>")
 	c.assertS2CPacket("<Publish ID=0 Message=<Message Topic=\"$link/data\" QOS=0 Retain=false Payload=[104 101 108 108 111]> Dup=false>")
+	c.assertS2CPacketTimeout()
+
+	fmt.Println("\n--> 3. client subscribe or publish unspecified sysTopic --> client will not publish or subscribe successfully<--")
+
+	// client publish unspecified sysTopic $SYS/data, client will not publish successfully
+	pkt.ID = 6
+	pkt.Message.Topic = "$SYS/data"
+	pkt.Message.Payload = []byte("system data")
+	c.sendC2S(pkt)
+	c.assertS2CPacketTimeout()
+
+	// client subscribe unspecified sysTopic $SYS/data, client will not subscribe successfully
+	skt.ID = 3
+	skt.Subscriptions = []mqtt.Subscription{{Topic: "$SYS/data", QOS: 0}}
+	c.sendC2S(skt)
 	c.assertS2CPacketTimeout()
 }
 

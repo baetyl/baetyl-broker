@@ -30,7 +30,7 @@ func principalsValidate(v interface{}, param string) error {
 	for _, principal := range principals {
 		for _, permission := range principal.Permissions {
 			for _, permit := range permission.Permits {
-				if !common.CheckTopic(permit, true) {
+				if !common.CheckTopic(permit, []string{}, true) {
 					return fmt.Errorf("%s topic(%s) invalid", permission.Action, permit)
 				}
 			}
