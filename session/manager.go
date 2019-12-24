@@ -7,6 +7,7 @@ import (
 
 	"github.com/baetyl/baetyl-broker/auth"
 	"github.com/baetyl/baetyl-broker/common"
+	"github.com/baetyl/baetyl-broker/exchange"
 	"github.com/baetyl/baetyl-broker/queue"
 	"github.com/baetyl/baetyl-broker/retain"
 	"github.com/baetyl/baetyl-go/log"
@@ -46,7 +47,7 @@ type Manager struct {
 	config   Config
 	retain   *retain.Backend
 	backend  *Backend
-	exchange Exchange
+	exchange *exchange.Exchange
 	sessions map[string]*Session
 	clients  map[string]client            // TODO: limit the number of clients
 	bindings map[string]map[string]client // map[sid]map[cid]client
@@ -55,7 +56,7 @@ type Manager struct {
 }
 
 // NewManager create a new session manager
-func NewManager(config Config, exchange Exchange, auth *auth.Auth) (*Manager, error) {
+func NewManager(config Config, exchange *exchange.Exchange, auth *auth.Auth) (*Manager, error) {
 	backend, err := NewBackend(config)
 	if err != nil {
 		return nil, err

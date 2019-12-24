@@ -4,13 +4,12 @@ import (
 	"io/ioutil"
 	"net"
 	"os"
-	"strings"
 	"sync"
 	"testing"
 	"time"
 
 	"github.com/baetyl/baetyl-broker/auth"
-	"github.com/baetyl/baetyl-broker/common"
+	"github.com/baetyl/baetyl-broker/exchange"
 	"github.com/baetyl/baetyl-go/log"
 	"github.com/baetyl/baetyl-go/mqtt"
 	"github.com/creasty/defaults"
@@ -42,6 +41,7 @@ func newMockBrokerWith(t *testing.T, maxConnections int) *mockBroker {
 	var err error
 	b := &mockBroker{t: t}
 	defaults.Set(&b.cfg.Session)
+	b.cfg.SysTopics = []string{"$link", "$baidu"}
 	b.cfg.Session.PersistenceLocation = dir
 	b.cfg.Session.RepublishInterval = time.Millisecond * 200
 	b.cfg.Session.MaxConnections = maxConnections
@@ -50,7 +50,7 @@ func newMockBrokerWith(t *testing.T, maxConnections int) *mockBroker {
 		Password: "p1",
 		Permissions: []auth.Permission{{
 			Action:  "sub",
-			Permits: []string{"test", "talks", "talks1", "talks2", "$baidu/iot", "$link/data"},
+			Permits: []string{"test", "talks", "talks1", "talks2", "$baidu/iot", "$link/data", "$link/#", "#"},
 		}, {
 			Action:  "pub",
 			Permits: []string{"test", "talks", "$baidu/iot", "$link/data"},
@@ -73,7 +73,7 @@ func newMockBrokerWith(t *testing.T, maxConnections int) *mockBroker {
 			Action:  "sub",
 			Permits: []string{"test", "talks"},
 		}}}}
-	b.manager, err = NewManager(b.cfg.Session, newMockExchange(b.cfg.SysTopics), auth.NewAuth(b.cfg.Principals))
+	b.manager, err = NewManager(b.cfg.Session, exchange.NewExchange(b.cfg.SysTopics), auth.NewAuth(b.cfg.Principals))
 	assert.NoError(t, err)
 	return b
 }
@@ -98,7 +98,7 @@ func (b *mockBroker) assertSession(id string, expect string) {
 
 func (b *mockBroker) assertExchangeCount(expect int) {
 	count := 0
-	for _, bind := range b.manager.exchange.(*mockExchange).bindings {
+	for _, bind := range b.manager.exchange.Bindings {
 		count += bind.Count()
 	}
 	assert.Equal(b.t, expect, count)
@@ -211,72 +211,4 @@ func (c *mockConn) LocalAddr() net.Addr {
 
 func (c *mockConn) RemoteAddr() net.Addr {
 	return nil
-}
-
-// mockExchange the message exchange
-type mockExchange struct {
-	bindings map[string]*mqtt.Trie
-}
-
-// NewExchange creates a new exchange
-func newMockExchange(sysTopics []string) *mockExchange {
-	ex := &mockExchange{
-		bindings: make(map[string]*mqtt.Trie),
-	}
-	for _, v := range sysTopics {
-		ex.bindings[v] = mqtt.NewTrie()
-	}
-	ex.bindings["/"] = mqtt.NewTrie()
-	return ex
-}
-
-// Bind binds a new queue with a specify topic
-func (b *mockExchange) Bind(topic string, queue common.Queue) {
-	parts := strings.SplitN(topic, "/", 2)
-	if bind, ok := b.bindings[parts[0]]; ok {
-		bind.Add(parts[1], queue)
-		return
-	}
-	// common
-	b.bindings["/"].Add(topic, queue)
-}
-
-// Unbind unbinds a queue from a specify topic
-func (b *mockExchange) Unbind(topic string, queue common.Queue) {
-	parts := strings.SplitN(topic, "/", 2)
-	if bind, ok := b.bindings[parts[0]]; ok {
-		bind.Remove(parts[1], queue)
-		return
-	}
-	// common
-	b.bindings["/"].Remove(topic, queue)
-}
-
-// UnbindAll unbinds a queue from all topics
-func (b *mockExchange) UnbindAll(queue common.Queue) {
-	for _, bind := range b.bindings {
-		bind.Clear(queue)
-	}
-}
-
-// Route routes message to binding queues
-func (b *mockExchange) Route(msg *common.Message, cb func(uint64)) {
-	sss := make([]interface{}, 0)
-	parts := strings.SplitN(msg.Context.Topic, "/", 2)
-	if bind, ok := b.bindings[parts[0]]; ok {
-		sss = bind.Match(parts[1])
-	} else {
-		sss = b.bindings["/"].Match(msg.Context.Topic)
-	}
-	length := len(sss)
-	if length == 0 {
-		if cb != nil {
-			cb(msg.Context.ID)
-		}
-		return
-	}
-	event := common.NewEvent(msg, int32(length), cb)
-	for _, s := range sss {
-		s.(common.Queue).Push(event)
-	}
 }

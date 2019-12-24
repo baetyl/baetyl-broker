@@ -1,4 +1,4 @@
-package main
+package exchange
 
 import (
 	"strings"
@@ -10,49 +10,49 @@ import (
 
 // Exchange the message exchange
 type Exchange struct {
-	bindings map[string]*mqtt.Trie
+	Bindings map[string]*mqtt.Trie
 	log      *log.Logger
 }
 
 // NewExchange creates a new exchange
 func NewExchange(sysTopics []string) *Exchange {
 	ex := &Exchange{
-		bindings: make(map[string]*mqtt.Trie),
+		Bindings: make(map[string]*mqtt.Trie),
 		log:      log.With(log.Any("broker", "exchange")),
 	}
 	for _, v := range sysTopics {
-		ex.bindings[v] = mqtt.NewTrie()
+		ex.Bindings[v] = mqtt.NewTrie()
 	}
 	// common
-	ex.bindings["/"] = mqtt.NewTrie()
+	ex.Bindings["/"] = mqtt.NewTrie()
 	return ex
 }
 
 // Bind binds a new queue with a specify topic
 func (b *Exchange) Bind(topic string, queue common.Queue) {
 	parts := strings.SplitN(topic, "/", 2)
-	if bind, ok := b.bindings[parts[0]]; ok {
+	if bind, ok := b.Bindings[parts[0]]; ok {
 		bind.Add(parts[1], queue)
 		return
 	}
 	// common
-	b.bindings["/"].Add(topic, queue)
+	b.Bindings["/"].Add(topic, queue)
 }
 
 // Unbind unbinds a queue from a specify topic
 func (b *Exchange) Unbind(topic string, queue common.Queue) {
 	parts := strings.SplitN(topic, "/", 2)
-	if bind, ok := b.bindings[parts[0]]; ok {
+	if bind, ok := b.Bindings[parts[0]]; ok {
 		bind.Remove(parts[1], queue)
 		return
 	}
 	// common
-	b.bindings["/"].Remove(topic, queue)
+	b.Bindings["/"].Remove(topic, queue)
 }
 
 // UnbindAll unbinds queues from all topics
 func (b *Exchange) UnbindAll(queue common.Queue) {
-	for _, bind := range b.bindings {
+	for _, bind := range b.Bindings {
 		bind.Clear(queue)
 	}
 }
@@ -61,10 +61,10 @@ func (b *Exchange) UnbindAll(queue common.Queue) {
 func (b *Exchange) Route(msg *common.Message, cb func(uint64)) {
 	sss := make([]interface{}, 0)
 	parts := strings.SplitN(msg.Context.Topic, "/", 2)
-	if bind, ok := b.bindings[parts[0]]; ok {
+	if bind, ok := b.Bindings[parts[0]]; ok {
 		sss = bind.Match(parts[1])
 	} else {
-		sss = b.bindings["/"].Match(msg.Context.Topic)
+		sss = b.Bindings["/"].Match(msg.Context.Topic)
 	}
 	length := len(sss)
 	b.log.Debug("exchange routes a message to queues", log.Any("count", length))

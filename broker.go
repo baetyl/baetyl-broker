@@ -2,6 +2,7 @@ package main
 
 import (
 	"github.com/baetyl/baetyl-broker/auth"
+	"github.com/baetyl/baetyl-broker/exchange"
 	"github.com/baetyl/baetyl-broker/session"
 	"github.com/baetyl/baetyl-go/mqtt"
 )
@@ -17,7 +18,7 @@ func newBroker(cfg config) (*broker, error) {
 	b := &broker{
 		cfg: cfg,
 	}
-	b.manager, err = session.NewManager(cfg.Session, NewExchange(cfg.SysTopics), auth.NewAuth(cfg.Principals))
+	b.manager, err = session.NewManager(cfg.Session, exchange.NewExchange(cfg.SysTopics), auth.NewAuth(cfg.Principals))
 	if err != nil {
 		return nil, err
 	}

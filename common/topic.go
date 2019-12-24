@@ -24,6 +24,9 @@ func CheckTopic(topic string, wildcard bool) bool {
 	}
 	segments := strings.Split(topic, "/")
 	if strings.HasPrefix(segments[0], "$") {
+		if len(segments) < 2 {
+			return false
+		}
 		if strings.Contains(segments[0], "+") || strings.Contains(segments[0], "#") {
 			return false
 		}
