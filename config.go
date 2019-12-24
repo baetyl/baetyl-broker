@@ -21,7 +21,7 @@ type config struct {
 }
 
 // principalsValidate validate principals config is valid or not
-func principalsValidate(v interface{}, param string) error {
+func principalsValidate(v interface{}, param string, sysTopics []string) error {
 	principals := v.([]auth.Principal)
 	err := userValidate(principals)
 	if err != nil {
@@ -30,7 +30,7 @@ func principalsValidate(v interface{}, param string) error {
 	for _, principal := range principals {
 		for _, permission := range principal.Permissions {
 			for _, permit := range permission.Permits {
-				if !common.CheckTopic(permit, []string{}, true) {
+				if !common.CheckTopic(permit, sysTopics, true) {
 					return fmt.Errorf("%s topic(%s) invalid", permission.Action, permit)
 				}
 			}

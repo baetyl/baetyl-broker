@@ -74,7 +74,7 @@ func TestPrincipalsValidate(t *testing.T) {
 			auth.Permission{Action: "pub", Permits: []string{"test", "benchmark", "a/+/b", "+/a/+", "+/a/#"}},
 			auth.Permission{Action: "sub", Permits: []string{"test", "benchmark", "a/+/b", "+/a/+", "+/a/#"}},
 		}}}
-	err := principalsValidate(principals, "")
+	err := principalsValidate(principals, "", []string{"$baidu", "$link"})
 	assert.NoError(t, err)
 
 	// round 2: duplicate username validate
@@ -85,7 +85,7 @@ func TestPrincipalsValidate(t *testing.T) {
 		Permissions: []auth.Permission{
 			auth.Permission{Action: "pub", Permits: []string{"test", "benchmark"}},
 		}})
-	err = principalsValidate(principals, "")
+	err = principalsValidate(principals, "", []string{"$baidu", "$link"})
 	assert.NotNil(t, err)
 	assert.Equal(t, fmt.Sprintf("username (test) duplicate"), err.Error())
 
@@ -97,7 +97,7 @@ func TestPrincipalsValidate(t *testing.T) {
 		Permissions: []auth.Permission{
 			auth.Permission{Action: "pub", Permits: []string{"test/a+/b", "benchmark"}},
 		}})
-	err = principalsValidate(principals, "")
+	err = principalsValidate(principals, "", []string{"$baidu", "$link"})
 	assert.NotNil(t, err)
 	assert.Equal(t, fmt.Sprintf("pub topic(test/a+/b) invalid"), err.Error())
 
@@ -110,7 +110,7 @@ func TestPrincipalsValidate(t *testing.T) {
 			auth.Permission{Action: "pub", Permits: []string{"test", "benchmark"}},
 			auth.Permission{Action: "sub", Permits: []string{"test", "test/#/temp"}},
 		}})
-	err = principalsValidate(principals, "")
+	err = principalsValidate(principals, "", []string{"$baidu", "$link"})
 	assert.NotNil(t, err)
 	assert.Equal(t, fmt.Sprintf("sub topic(test/#/temp) invalid"), err.Error())
 }
