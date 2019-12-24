@@ -21,6 +21,7 @@ type mockConfig struct {
 	Session    Config
 	Endpoints  []*mqtt.Endpoint
 	Principals []auth.Principal
+	SysTopics  []string
 }
 
 type mockBroker struct {
@@ -72,7 +73,7 @@ func newMockBrokerWith(t *testing.T, maxConnections int) *mockBroker {
 			Action:  "sub",
 			Permits: []string{"test", "talks"},
 		}}}}
-	b.manager, err = NewManager(b.cfg.Session, newMockExchange(), auth.NewAuth(b.cfg.Principals))
+	b.manager, err = NewManager(b.cfg.Session, newMockExchange(b.cfg.SysTopics), auth.NewAuth(b.cfg.Principals))
 	assert.NoError(t, err)
 	return b
 }
@@ -95,24 +96,12 @@ func (b *mockBroker) assertSession(id string, expect string) {
 	}
 }
 
-func (b *mockBroker) exchangeCommonCount() int {
-	return b.manager.exchange.(*mockExchange).bindings["/"].Count()
-}
-
-func (b *mockBroker) exchangeShadowCount() int {
-	return b.manager.exchange.(*mockExchange).bindings[b.manager.exchange.(*mockExchange).systemTopics.shadow].Count()
-}
-
-func (b *mockBroker) exchangeLinkCount() int {
-	return b.manager.exchange.(*mockExchange).bindings[b.manager.exchange.(*mockExchange).systemTopics.link].Count()
-}
-
 func (b *mockBroker) assertExchangeCount(expect int) {
-	shadowCount := b.exchangeShadowCount()
-	linkCount := b.exchangeLinkCount()
-	commonCount := b.exchangeCommonCount()
-	allCount := shadowCount + linkCount + commonCount
-	assert.Equal(b.t, expect, allCount)
+	count := 0
+	for _, bind := range b.manager.exchange.(*mockExchange).bindings {
+		count += bind.Count()
+	}
+	assert.Equal(b.t, expect, count)
 }
 
 func (b *mockBroker) close() {
@@ -224,27 +213,27 @@ func (c *mockConn) RemoteAddr() net.Addr {
 	return nil
 }
 
-type mockSystemTopic struct {
-	shadow string `default:"$baidu"`
-	link   string `default:"$link"`
-}
-
 // mockExchange the message exchange
 type mockExchange struct {
-	bindings     map[string]*mqtt.Trie
-	systemTopics mockSystemTopic
+	bindings map[string]*mqtt.Trie
 }
 
 // NewExchange creates a new exchange
-func newMockExchange() *mockExchange {
-	ex := &mockExchange{}
-	return &mockExchange{bindings: map[string]*mqtt.Trie{ex.systemTopics.shadow: mqtt.NewTrie(), ex.systemTopics.link: mqtt.NewTrie(), "/": mqtt.NewTrie()}}
+func newMockExchange(sysTopics []string) *mockExchange {
+	ex := &mockExchange{
+		bindings: make(map[string]*mqtt.Trie),
+	}
+	for _, v := range sysTopics {
+		ex.bindings[v] = mqtt.NewTrie()
+	}
+	ex.bindings["/"] = mqtt.NewTrie()
+	return ex
 }
 
 // Bind binds a new queue with a specify topic
 func (b *mockExchange) Bind(topic string, queue common.Queue) {
 	parts := strings.SplitN(topic, "/", 2)
-	if bind, ok := b.bindings[parts[0]]; ok && (parts[0] == b.systemTopics.shadow || parts[0] == b.systemTopics.link) {
+	if bind, ok := b.bindings[parts[0]]; ok {
 		bind.Add(parts[1], queue)
 		return
 	}
@@ -263,40 +252,23 @@ func (b *mockExchange) Unbind(topic string, queue common.Queue) {
 	b.bindings["/"].Remove(topic, queue)
 }
 
-// UnbindShadow unbinds a queue from $baidu topics
-func (b *mockExchange) UnbindShadowAll(queue common.Queue) {
-	b.bindings[b.systemTopics.shadow].Clear(queue)
-}
-
-// UnbindLink unbinds a queue from $link topics
-func (b *mockExchange) UnbindLinkAll(queue common.Queue) {
-	b.bindings[b.systemTopics.link].Clear(queue)
-}
-
-// UnbindCommon unbinds a queue from common topics
-func (b *mockExchange) UnbindCommonAll(queue common.Queue) {
-	b.bindings["/"].Clear(queue)
-}
-
 // UnbindAll unbinds a queue from all topics
 func (b *mockExchange) UnbindAll(queue common.Queue) {
-	b.UnbindShadowAll(queue)
-	b.UnbindLinkAll(queue)
-	b.UnbindCommonAll(queue)
+	for _, bind := range b.bindings {
+		bind.Clear(queue)
+	}
 }
 
 // Route routes message to binding queues
 func (b *mockExchange) Route(msg *common.Message, cb func(uint64)) {
-	length := 0
 	sss := make([]interface{}, 0)
 	parts := strings.SplitN(msg.Context.Topic, "/", 2)
-	if bind, ok := b.bindings[parts[0]]; ok && (parts[0] == b.systemTopics.shadow || parts[0] == b.systemTopics.link) {
-		qq := bind.Get(parts[1])
-		sss = append(sss, qq...)
+	if bind, ok := b.bindings[parts[0]]; ok {
+		sss = bind.Match(parts[1])
 	} else {
 		sss = b.bindings["/"].Match(msg.Context.Topic)
 	}
-	length = len(sss)
+	length := len(sss)
 	if length == 0 {
 		if cb != nil {
 			cb(msg.Context.ID)

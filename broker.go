@@ -17,8 +17,7 @@ func newBroker(cfg config) (*broker, error) {
 	b := &broker{
 		cfg: cfg,
 	}
-
-	b.manager, err = session.NewManager(cfg.Session, NewExchange(), auth.NewAuth(cfg.Principals))
+	b.manager, err = session.NewManager(cfg.Session, NewExchange(cfg.SysTopics), auth.NewAuth(cfg.Principals))
 	if err != nil {
 		return nil, err
 	}

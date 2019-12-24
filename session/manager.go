@@ -17,9 +17,6 @@ import (
 type Exchange interface {
 	Bind(topic string, sub common.Queue)
 	Unbind(topic string, sub common.Queue)
-	UnbindShadowAll(sub common.Queue)
-	UnbindLinkAll(sub common.Queue)
-	UnbindCommonAll(sub common.Queue)
 	UnbindAll(sub common.Queue)
 	Route(*common.Message, func(uint64))
 }

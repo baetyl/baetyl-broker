@@ -22,14 +22,12 @@ func CheckTopic(topic string, wildcard bool) bool {
 	if len(topic) > maxTopicLength || strings.Contains(topic, "\u0000") {
 		return false
 	}
-	var maxTopicLevels = maxTopicLevels
 	segments := strings.Split(topic, "/")
 	if strings.HasPrefix(segments[0], "$") {
 		if strings.Contains(segments[0], "+") || strings.Contains(segments[0], "#") {
 			return false
 		}
 		segments = segments[1:]
-		maxTopicLevels = maxTopicLevels - 1
 	}
 	levels := len(segments)
 	if levels > maxTopicLevels {

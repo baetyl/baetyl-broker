@@ -6,6 +6,7 @@ import (
 	"github.com/baetyl/baetyl-broker/auth"
 	"github.com/baetyl/baetyl-broker/common"
 	"github.com/baetyl/baetyl-broker/session"
+	"github.com/baetyl/baetyl-go/link"
 	"github.com/baetyl/baetyl-go/utils"
 )
 
@@ -15,6 +16,8 @@ type config struct {
 	Certificate utils.Certificate `yaml:"certificate" json:"certificate"`
 	Principals  []auth.Principal  `yaml:"principals" json:"principals" validate:"principals"`
 	Session     session.Config    `yaml:"session" json:"session"`
+	Link        link.ServerConfig `yaml:"link" json:"link"`
+	SysTopics   []string          `yaml:"sysTopics" json:"sysTopics" default:"[\"$link\"]"`
 }
 
 // principalsValidate validate principals config is valid or not
