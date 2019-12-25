@@ -6,6 +6,7 @@ import (
 
 	"github.com/baetyl/baetyl-broker/common"
 	"github.com/baetyl/baetyl-broker/queue"
+	"github.com/baetyl/baetyl-go/link"
 	"github.com/baetyl/baetyl-go/log"
 	"github.com/baetyl/baetyl-go/mqtt"
 )
@@ -13,7 +14,7 @@ import (
 // Info session information
 type Info struct {
 	ID            string
-	Will          *common.Message `json:"Will,omitempty"` // will message
+	Will          *link.Message `json:"Will,omitempty"` // will message
 	CleanSession  bool
 	Subscriptions map[string]mqtt.QOS
 }

@@ -5,8 +5,8 @@ import (
 	"os"
 	"path"
 
-	"github.com/baetyl/baetyl-broker/common"
 	"github.com/baetyl/baetyl-broker/database"
+	"github.com/baetyl/baetyl-go/link"
 )
 
 // Config retain config
@@ -24,7 +24,7 @@ type Backend struct {
 // Retain retain struct
 type Retain struct {
 	Topic   string
-	Message *common.Message
+	Message *link.Message
 }
 
 // NewBackend create a new backend database
@@ -84,4 +84,9 @@ func (b *Backend) Del(topic string) error {
 // List lists retain information
 func (b *Backend) List() ([]interface{}, error) {
 	return b.db.ListKV()
+}
+
+// Close closes backend database
+func (b *Backend) Close() error {
+	return b.db.Close()
 }

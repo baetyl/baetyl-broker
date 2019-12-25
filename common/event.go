@@ -5,6 +5,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/baetyl/baetyl-go/link"
 	"github.com/baetyl/baetyl-go/mqtt"
 )
 
@@ -47,7 +48,7 @@ func (a *acknowledge) _wait(timeout <-chan time.Time, cancel <-chan struct{}) er
 
 // Event event with message and acknowledge
 type Event struct {
-	*Message
+	*link.Message
 	ack *acknowledge
 }
 
@@ -64,7 +65,7 @@ func (e *Event) Wait(timeout <-chan time.Time, cancel <-chan struct{}) error {
 }
 
 // NewEvent creates a new event
-func NewEvent(msg *Message, count int32, call func(uint64)) *Event {
+func NewEvent(msg *link.Message, count int32, call func(uint64)) *Event {
 	if count == 0 || call == nil {
 		return &Event{Message: msg}
 	}
@@ -79,13 +80,13 @@ func NewEvent(msg *Message, count int32, call func(uint64)) *Event {
 }
 
 // NewMessage creates a new message by packet
-func NewMessage(pkt *mqtt.Publish) *Message {
+func NewMessage(pkt *mqtt.Publish) *link.Message {
 	var flags uint32
 	if pkt.Message.Retain {
 		flags = 1
 	}
-	return &Message{
-		Context: &Context{
+	return &link.Message{
+		Context: link.Context{
 			ID:    uint64(pkt.ID),
 			QOS:   uint32(pkt.Message.QOS),
 			Topic: pkt.Message.Topic,
@@ -93,9 +94,4 @@ func NewMessage(pkt *mqtt.Publish) *Message {
 		},
 		Content: pkt.Message.Payload,
 	}
-}
-
-// Retain checks whether the message is need to retain
-func (m *Message) Retain() bool {
-	return m.Context.Flags&0x1 == 0x1
 }

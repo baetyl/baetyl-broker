@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/baetyl/baetyl-broker/common"
+	"github.com/baetyl/baetyl-go/link"
 	"github.com/gogo/protobuf/proto"
 	_ "github.com/mattn/go-sqlite3"
 	"github.com/stretchr/testify/assert"
@@ -19,9 +20,8 @@ func TestTemporaryQueue(t *testing.T) {
 	assert.NotNil(t, b)
 	defer b.Close()
 
-	m := new(common.Message)
+	m := new(link.Message)
 	m.Content = []byte("hi")
-	m.Context = new(common.Context)
 	m.Context.ID = 111
 	m.Context.TS = 123
 	m.Context.QOS = 1
@@ -64,9 +64,8 @@ func TestPersistentQueue(t *testing.T) {
 	assert.NotNil(t, b)
 	defer b.Close()
 
-	m := new(common.Message)
+	m := new(link.Message)
 	m.Content = []byte("hi")
-	m.Context = new(common.Context)
 	m.Context.ID = 111
 	m.Context.TS = 123
 	m.Context.QOS = 1
@@ -134,9 +133,8 @@ func BenchmarkPersistentQueue(b *testing.B) {
 	assert.NotNil(b, q)
 	defer q.Close()
 
-	m := new(common.Message)
+	m := new(link.Message)
 	m.Content = []byte("hi")
-	m.Context = new(common.Context)
 	m.Context.ID = 111
 	m.Context.TS = 123
 	m.Context.QOS = 1
@@ -187,9 +185,8 @@ func BenchmarkPersistentQueueParallel(b *testing.B) {
 	assert.NotNil(b, q)
 	defer q.Close()
 
-	m := new(common.Message)
+	m := new(link.Message)
 	m.Content = []byte("hi")
-	m.Context = new(common.Context)
 	m.Context.ID = 111
 	m.Context.TS = 123
 	m.Context.QOS = 1
@@ -210,9 +207,8 @@ func BenchmarkTemporaryQueueParallel(b *testing.B) {
 	assert.NotNil(b, q)
 	defer q.Close()
 
-	m := new(common.Message)
+	m := new(link.Message)
 	m.Content = []byte("hi")
-	m.Context = new(common.Context)
 	m.Context.ID = 111
 	m.Context.TS = 123
 	m.Context.QOS = 1
@@ -238,9 +234,8 @@ func BenchmarkTimer(b *testing.B) {
 }
 
 func BenchmarkUnmarshal(b *testing.B) {
-	m := new(common.Message)
+	m := new(link.Message)
 	m.Content = []byte("hi")
-	m.Context = new(common.Context)
 	m.Context.ID = 111
 	m.Context.TS = 123
 	m.Context.QOS = 1

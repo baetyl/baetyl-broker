@@ -4,6 +4,7 @@ import (
 	"time"
 
 	"github.com/baetyl/baetyl-broker/common"
+	"github.com/baetyl/baetyl-go/link"
 	"github.com/baetyl/baetyl-go/log"
 	"github.com/baetyl/baetyl-go/utils"
 )
@@ -183,7 +184,7 @@ func (q *Persistence) get(offset uint64, length int) ([]*common.Event, error) {
 	}
 	var events []*common.Event
 	for _, m := range msgs {
-		events = append(events, common.NewEvent(m.(*common.Message), 1, q.acknowledge))
+		events = append(events, common.NewEvent(m.(*link.Message), 1, q.acknowledge))
 	}
 
 	if ent := q.log.Check(log.DebugLevel, "queue has read message from backend"); ent != nil {

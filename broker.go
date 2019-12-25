@@ -2,15 +2,17 @@ package main
 
 import (
 	"github.com/baetyl/baetyl-broker/auth"
-	"github.com/baetyl/baetyl-broker/exchange"
 	"github.com/baetyl/baetyl-broker/session"
+	"github.com/baetyl/baetyl-go/link"
 	"github.com/baetyl/baetyl-go/mqtt"
+	"google.golang.org/grpc"
 )
 
 type broker struct {
 	cfg       config
 	manager   *session.Manager
 	transport *mqtt.Transport
+	server    *grpc.Server
 }
 
 func newBroker(cfg config) (*broker, error) {
@@ -18,7 +20,7 @@ func newBroker(cfg config) (*broker, error) {
 	b := &broker{
 		cfg: cfg,
 	}
-	b.manager, err = session.NewManager(cfg.Session, exchange.NewExchange(cfg.SysTopics), auth.NewAuth(cfg.Principals))
+	b.manager, err = session.NewManager(cfg.Session, auth.NewAuth(cfg.Principals))
 	if err != nil {
 		return nil, err
 	}
@@ -30,12 +32,29 @@ func newBroker(cfg config) (*broker, error) {
 			Handle:  b.manager.ClientMQTTHandler,
 		})
 	}
+	if len(endpoints) == 0 && cfg.Link.Address == "" {
+		// if no address configured, to use default address with anonymous
+		endpoints = append(endpoints, &mqtt.Endpoint{
+			Address:   "tcp://0.0.0.0:1883",
+			Handle:    b.manager.ClientMQTTHandler,
+			Anonymous: true,
+		})
+	}
 	b.transport, err = mqtt.NewTransport(endpoints, cfg.Certificate)
 	if err != nil {
 		b.close()
 		return nil, err
 	}
 
+	// to start link server
+	if cfg.Link.Address != "" {
+		b.server, err = link.NewServer(cfg.Link, nil)
+		if err != nil {
+			b.close()
+			return nil, err
+		}
+		link.RegisterLinkServer(b.server, b.manager)
+	}
 	return b, nil
 }
 
