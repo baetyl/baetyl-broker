@@ -7,6 +7,7 @@ import (
 
 	"github.com/baetyl/baetyl-broker/auth"
 	"github.com/baetyl/baetyl-broker/common"
+	"github.com/baetyl/baetyl-go/link"
 	"github.com/baetyl/baetyl-go/log"
 	"github.com/baetyl/baetyl-go/mqtt"
 	"github.com/baetyl/baetyl-go/utils"
@@ -45,7 +46,7 @@ func newClientMQTT(m *Manager, connection mqtt.Connection, anonymous bool) *Clie
 		manager:    m,
 		connection: connection,
 		anonymous:  anonymous,
-		publisher:  newPublisher(m.config.RepublishInterval, m.config.MaxInflightQOS1Messages),
+		publisher:  newPublisher(m.cfg.RepublishInterval, m.cfg.MaxInflightQOS1Messages),
 		log:        log.With(log.Any("id", id)),
 	}
 	c.Go(c.receiving)
@@ -78,9 +79,11 @@ func (c *ClientMQTT) die(err error) {
 		return
 	}
 	go func() {
-		c.log.Info("client is closing by itself", log.Error(err))
+		c.log.Info("client is closing by itself")
 		if err != nil {
 			c.sendWillMessage()
+		} else {
+			c.log.Error("client arises an error", log.Error(err))
 		}
 		c.manager.delClient(c)
 		c.close()
@@ -115,7 +118,7 @@ func (c *ClientMQTT) sendWillMessage() {
 	c.manager.exchange.Route(msg, c.callback)
 }
 
-func (c *ClientMQTT) retainMessage(msg *common.Message) error {
+func (c *ClientMQTT) retainMessage(msg *link.Message) error {
 	if len(msg.Content) == 0 {
 		return c.manager.removeRetain(msg.Context.Topic)
 	}
@@ -132,7 +135,7 @@ func (c *ClientMQTT) sendRetainMessage() error {
 		return err
 	}
 	for _, msg := range msgs {
-		if ok, qos := common.MatchTopicQOS(c.session.subs, msg.Context.Topic); ok {
+		if ok, qos := mqtt.MatchTopicQOS(c.session.subs, msg.Context.Topic); ok {
 			if msg.Context.QOS > qos {
 				msg.Context.QOS = qos
 			}

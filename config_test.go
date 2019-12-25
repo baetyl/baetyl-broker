@@ -60,9 +60,9 @@ M:
 }
 
 func TestPrincipalsValidate(t *testing.T) {
-	c := &config{
-		SysTopics: []string{"$baidu", "$link"},
-	}
+	c := new(config)
+	c.Session.SysTopics = []string{"$baidu", "$link"}
+
 	// round 1: regular principals config validate
 	principals := []auth.Principal{{
 		Username: "test",

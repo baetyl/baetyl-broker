@@ -9,7 +9,6 @@ import (
 	"time"
 
 	"github.com/baetyl/baetyl-broker/auth"
-	"github.com/baetyl/baetyl-broker/exchange"
 	"github.com/baetyl/baetyl-go/log"
 	"github.com/baetyl/baetyl-go/mqtt"
 	"github.com/creasty/defaults"
@@ -20,7 +19,6 @@ type mockConfig struct {
 	Session    Config
 	Endpoints  []*mqtt.Endpoint
 	Principals []auth.Principal
-	SysTopics  []string
 }
 
 type mockBroker struct {
@@ -41,10 +39,10 @@ func newMockBrokerWith(t *testing.T, maxConnections int) *mockBroker {
 	var err error
 	b := &mockBroker{t: t}
 	defaults.Set(&b.cfg.Session)
-	b.cfg.SysTopics = []string{"$link", "$baidu"}
 	b.cfg.Session.PersistenceLocation = dir
 	b.cfg.Session.RepublishInterval = time.Millisecond * 200
 	b.cfg.Session.MaxConnections = maxConnections
+	b.cfg.Session.SysTopics = []string{"$link", "$baidu"}
 	b.cfg.Principals = []auth.Principal{{
 		Username: "u1",
 		Password: "p1",
@@ -73,7 +71,7 @@ func newMockBrokerWith(t *testing.T, maxConnections int) *mockBroker {
 			Action:  "sub",
 			Permits: []string{"test", "talks"},
 		}}}}
-	b.manager, err = NewManager(b.cfg.Session, exchange.NewExchange(b.cfg.SysTopics), auth.NewAuth(b.cfg.Principals))
+	b.manager, err = NewManager(b.cfg.Session, auth.NewAuth(b.cfg.Principals))
 	assert.NoError(t, err)
 	return b
 }
@@ -87,7 +85,7 @@ func (b *mockBroker) assertBindingCount(sid string, expect int) {
 }
 
 func (b *mockBroker) assertSession(id string, expect string) {
-	ses, err := b.manager.backend.Get(id)
+	ses, err := b.manager.sessiondb.Get(id)
 	assert.NoError(b.t, err)
 	if expect == "" {
 		assert.Nil(b.t, ses)

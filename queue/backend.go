@@ -5,8 +5,8 @@ import (
 	"path"
 	"time"
 
-	"github.com/baetyl/baetyl-broker/common"
 	"github.com/baetyl/baetyl-broker/database"
+	"github.com/baetyl/baetyl-go/link"
 	"github.com/gogo/protobuf/proto"
 )
 
@@ -46,7 +46,7 @@ func NewBackend(cfg Config) (*Backend, error) {
 
 // Encode encodes the message to byte array
 func (b *Backend) Encode(v interface{}) []byte {
-	d, _ := proto.Marshal(v.(*common.Message))
+	d, _ := proto.Marshal(v.(*link.Message))
 	return d
 }
 
@@ -55,7 +55,7 @@ func (b *Backend) Decode(value []byte, others ...interface{}) interface{} {
 	if len(others) != 1 {
 		panic("the length of others must be 1")
 	}
-	v := new(common.Message)
+	v := new(link.Message)
 	proto.Unmarshal(value, v)
 	v.Context.ID = others[0].(uint64)
 	return v
