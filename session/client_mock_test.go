@@ -9,7 +9,7 @@ import (
 	"time"
 
 	"github.com/baetyl/baetyl-broker/auth"
-	"github.com/baetyl/baetyl-broker/common"
+	"github.com/baetyl/baetyl-broker/exchange"
 	"github.com/baetyl/baetyl-go/log"
 	"github.com/baetyl/baetyl-go/mqtt"
 	"github.com/creasty/defaults"
@@ -20,6 +20,7 @@ type mockConfig struct {
 	Session    Config
 	Endpoints  []*mqtt.Endpoint
 	Principals []auth.Principal
+	SysTopics  []string
 }
 
 type mockBroker struct {
@@ -40,6 +41,7 @@ func newMockBrokerWith(t *testing.T, maxConnections int) *mockBroker {
 	var err error
 	b := &mockBroker{t: t}
 	defaults.Set(&b.cfg.Session)
+	b.cfg.SysTopics = []string{"$link", "$baidu"}
 	b.cfg.Session.PersistenceLocation = dir
 	b.cfg.Session.RepublishInterval = time.Millisecond * 200
 	b.cfg.Session.MaxConnections = maxConnections
@@ -48,10 +50,10 @@ func newMockBrokerWith(t *testing.T, maxConnections int) *mockBroker {
 		Password: "p1",
 		Permissions: []auth.Permission{{
 			Action:  "sub",
-			Permits: []string{"test", "talks", "talks1", "talks2"},
+			Permits: []string{"test", "talks", "talks1", "talks2", "$baidu/iot", "$link/data", "$link/#", "#"},
 		}, {
 			Action:  "pub",
-			Permits: []string{"test", "talks"},
+			Permits: []string{"test", "talks", "$baidu/iot", "$link/data"},
 		}}}, {
 		Username: "u2",
 		Password: "p2",
@@ -71,7 +73,7 @@ func newMockBrokerWith(t *testing.T, maxConnections int) *mockBroker {
 			Action:  "sub",
 			Permits: []string{"test", "talks"},
 		}}}}
-	b.manager, err = NewManager(b.cfg.Session, newMockExchange(), auth.NewAuth(b.cfg.Principals))
+	b.manager, err = NewManager(b.cfg.Session, exchange.NewExchange(b.cfg.SysTopics), auth.NewAuth(b.cfg.Principals))
 	assert.NoError(t, err)
 	return b
 }
@@ -95,7 +97,11 @@ func (b *mockBroker) assertSession(id string, expect string) {
 }
 
 func (b *mockBroker) assertExchangeCount(expect int) {
-	assert.Equal(b.t, expect, b.manager.exchange.(*mockExchange).bindings.Count())
+	count := 0
+	for _, bind := range b.manager.exchange.Bindings() {
+		count += bind.Count()
+	}
+	assert.Equal(b.t, expect, count)
 }
 
 func (b *mockBroker) close() {
@@ -205,45 +211,4 @@ func (c *mockConn) LocalAddr() net.Addr {
 
 func (c *mockConn) RemoteAddr() net.Addr {
 	return nil
-}
-
-// mockExchange the message exchange
-type mockExchange struct {
-	bindings *mqtt.Trie
-}
-
-// NewExchange creates a new exchange
-func newMockExchange() *mockExchange {
-	return &mockExchange{bindings: mqtt.NewTrie()}
-}
-
-// Bind binds a new queue with a specify topic
-func (b *mockExchange) Bind(topic string, queue common.Queue) {
-	b.bindings.Add(topic, queue)
-}
-
-// Unbind unbinds a queue from a specify topic
-func (b *mockExchange) Unbind(topic string, queue common.Queue) {
-	b.bindings.Remove(topic, queue)
-}
-
-// UnbindAll unbinds a queue from all topics
-func (b *mockExchange) UnbindAll(queue common.Queue) {
-	b.bindings.Clear(queue)
-}
-
-// Route routes message to binding queues
-func (b *mockExchange) Route(msg *common.Message, cb func(uint64)) {
-	sss := b.bindings.Match(msg.Context.Topic)
-	length := len(sss)
-	if length == 0 {
-		if cb != nil {
-			cb(msg.Context.ID)
-		}
-		return
-	}
-	event := common.NewEvent(msg, int32(length), cb)
-	for _, s := range sss {
-		s.(common.Queue).Push(event)
-	}
 }

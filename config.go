@@ -6,6 +6,7 @@ import (
 	"github.com/baetyl/baetyl-broker/auth"
 	"github.com/baetyl/baetyl-broker/common"
 	"github.com/baetyl/baetyl-broker/session"
+	"github.com/baetyl/baetyl-go/link"
 	"github.com/baetyl/baetyl-go/utils"
 )
 
@@ -15,19 +16,22 @@ type config struct {
 	Certificate utils.Certificate `yaml:"certificate" json:"certificate"`
 	Principals  []auth.Principal  `yaml:"principals" json:"principals" validate:"principals"`
 	Session     session.Config    `yaml:"session" json:"session"`
+	Link        link.ServerConfig `yaml:"link" json:"link"`
+	SysTopics   []string          `yaml:"sysTopics" json:"sysTopics" default:"[\"$link\"]"`
 }
 
 // principalsValidate validate principals config is valid or not
-func principalsValidate(v interface{}, param string) error {
+func (c *config) principalsValidate(v interface{}, param string) error {
 	principals := v.([]auth.Principal)
 	err := userValidate(principals)
 	if err != nil {
 		return err
 	}
+	tc := common.NewTopicChecker(c.SysTopics)
 	for _, principal := range principals {
 		for _, permission := range principal.Permissions {
 			for _, permit := range permission.Permits {
-				if !common.CheckTopic(permit, true) {
+				if !tc.CheckTopic(permit, true) {
 					return fmt.Errorf("%s topic(%s) invalid", permission.Action, permit)
 				}
 			}

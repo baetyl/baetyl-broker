@@ -217,51 +217,51 @@ func TestSessionSubscribe(t *testing.T) {
 	b.assertExchangeCount(1)
 
 	// subscribe talk
-	c.sendC2S(&mqtt.Subscribe{ID: 1, Subscriptions: []mqtt.Subscription{{Topic: "talks"}, {Topic: "talks1", QOS: 1}, {Topic: "talks2", QOS: 1}}})
+	c.sendC2S(&mqtt.Subscribe{ID: 1, Subscriptions: []mqtt.Subscription{{Topic: "talks"}, {Topic: "$baidu/iot", QOS: 1}, {Topic: "$link/data", QOS: 1}}})
 	c.assertS2CPacket("<Suback ID=1 ReturnCodes=[0, 1, 1]>")
-	b.assertSession(t.Name(), "{\"ID\":\"TestSessionSubscribe\",\"CleanSession\":false,\"Subscriptions\":{\"talks\":0,\"talks1\":1,\"talks2\":1,\"test\":0}}")
+	b.assertSession(t.Name(), "{\"ID\":\"TestSessionSubscribe\",\"CleanSession\":false,\"Subscriptions\":{\"$baidu/iot\":1,\"$link/data\":1,\"talks\":0,\"test\":0}}")
 	b.assertExchangeCount(4)
 
 	// subscribe talk again
-	c.sendC2S(&mqtt.Subscribe{ID: 1, Subscriptions: []mqtt.Subscription{{Topic: "talks", QOS: 1}, {Topic: "talks1", QOS: 1}, {Topic: "talks2", QOS: 0}}})
+	c.sendC2S(&mqtt.Subscribe{ID: 1, Subscriptions: []mqtt.Subscription{{Topic: "talks", QOS: 1}, {Topic: "$baidu/iot", QOS: 1}, {Topic: "$link/data", QOS: 0}}})
 	c.assertS2CPacket("<Suback ID=1 ReturnCodes=[1, 1, 0]>")
-	b.assertSession(t.Name(), "{\"ID\":\"TestSessionSubscribe\",\"CleanSession\":false,\"Subscriptions\":{\"talks\":1,\"talks1\":1,\"talks2\":0,\"test\":0}}")
+	b.assertSession(t.Name(), "{\"ID\":\"TestSessionSubscribe\",\"CleanSession\":false,\"Subscriptions\":{\"$baidu/iot\":1,\"$link/data\":0,\"talks\":1,\"test\":0}}")
 	b.assertExchangeCount(4)
 
 	// subscribe wrong qos
-	c.sendC2S(&mqtt.Subscribe{ID: 1, Subscriptions: []mqtt.Subscription{{Topic: "test", QOS: 2}, {Topic: "talks1", QOS: 0}, {Topic: "talks2", QOS: 1}}})
+	c.sendC2S(&mqtt.Subscribe{ID: 1, Subscriptions: []mqtt.Subscription{{Topic: "test", QOS: 2}, {Topic: "$baidu/iot", QOS: 0}, {Topic: "$link/data", QOS: 1}}})
 	c.assertS2CPacket("<Suback ID=1 ReturnCodes=[128, 0, 1]>")
-	b.assertSession(t.Name(), "{\"ID\":\"TestSessionSubscribe\",\"CleanSession\":false,\"Subscriptions\":{\"talks\":1,\"talks1\":0,\"talks2\":1,\"test\":0}}")
+	b.assertSession(t.Name(), "{\"ID\":\"TestSessionSubscribe\",\"CleanSession\":false,\"Subscriptions\":{\"$baidu/iot\":0,\"$link/data\":1,\"talks\":1,\"test\":0}}")
 	b.assertExchangeCount(4)
 
 	// subscribe with exceptions: wrong qos, no permit, wrong topic
 	c.sendC2S(&mqtt.Subscribe{ID: 1, Subscriptions: []mqtt.Subscription{{Topic: "test", QOS: 2}, {Topic: "temp", QOS: 1}, {Topic: "talks1#/", QOS: 1}}})
-	c.assertS2CPacket("<Suback ID=1 ReturnCodes=[128, 128, 128]>")
-	b.assertSession(t.Name(), "{\"ID\":\"TestSessionSubscribe\",\"CleanSession\":false,\"Subscriptions\":{\"talks\":1,\"talks1\":0,\"talks2\":1,\"test\":0}}")
-	b.assertExchangeCount(4)
+	c.assertS2CPacket("<Suback ID=1 ReturnCodes=[128, 1, 128]>")
+	b.assertSession(t.Name(), "{\"ID\":\"TestSessionSubscribe\",\"CleanSession\":false,\"Subscriptions\":{\"$baidu/iot\":0,\"$link/data\":1,\"talks\":1,\"temp\":1,\"test\":0}}")
+	b.assertExchangeCount(5)
 
 	// unsubscribe test
 	c.sendC2S(&mqtt.Unsubscribe{ID: 1, Topics: []string{"test"}})
 	c.assertS2CPacket("<Unsuback ID=1>")
-	b.assertSession(t.Name(), "{\"ID\":\"TestSessionSubscribe\",\"CleanSession\":false,\"Subscriptions\":{\"talks\":1,\"talks1\":0,\"talks2\":1}}")
-	b.assertExchangeCount(3)
+	b.assertSession(t.Name(), "{\"ID\":\"TestSessionSubscribe\",\"CleanSession\":false,\"Subscriptions\":{\"$baidu/iot\":0,\"$link/data\":1,\"talks\":1,\"temp\":1}}")
+	b.assertExchangeCount(4)
 
 	// subscribe test
 	c.sendC2S(&mqtt.Subscribe{ID: 1, Subscriptions: []mqtt.Subscription{{Topic: "test", QOS: 0}}})
 	c.assertS2CPacket("<Suback ID=1 ReturnCodes=[0]>")
-	b.assertSession(t.Name(), "{\"ID\":\"TestSessionSubscribe\",\"CleanSession\":false,\"Subscriptions\":{\"talks\":1,\"talks1\":0,\"talks2\":1,\"test\":0}}")
-	b.assertExchangeCount(4)
+	b.assertSession(t.Name(), "{\"ID\":\"TestSessionSubscribe\",\"CleanSession\":false,\"Subscriptions\":{\"$baidu/iot\":0,\"$link/data\":1,\"talks\":1,\"temp\":1,\"test\":0}}")
+	b.assertExchangeCount(5)
 
 	// unsubscribe nonexists
 	c.sendC2S(&mqtt.Unsubscribe{ID: 1, Topics: []string{"test", "nonexists"}})
 	c.assertS2CPacket("<Unsuback ID=1>")
-	b.assertSession(t.Name(), "{\"ID\":\"TestSessionSubscribe\",\"CleanSession\":false,\"Subscriptions\":{\"talks\":1,\"talks1\":0,\"talks2\":1}}")
-	b.assertExchangeCount(3)
+	b.assertSession(t.Name(), "{\"ID\":\"TestSessionSubscribe\",\"CleanSession\":false,\"Subscriptions\":{\"$baidu/iot\":0,\"$link/data\":1,\"talks\":1,\"temp\":1}}")
+	b.assertExchangeCount(4)
 
 	c.sendC2S(&mqtt.Disconnect{})
 	c.assertS2CPacketTimeout()
 	c.assertClosed(true)
-	b.assertExchangeCount(3)
+	b.assertExchangeCount(4)
 	b.assertBindingCount(t.Name(), 0)
 
 	// anonymous
@@ -269,7 +269,7 @@ func TestSessionSubscribe(t *testing.T) {
 	b.manager.ClientMQTTHandler(c, true)
 	c.sendC2S(&mqtt.Connect{ClientID: t.Name(), Version: 3})
 	c.assertS2CPacket("<Connack SessionPresent=true ReturnCode=0>")
-	b.assertExchangeCount(3)
+	b.assertExchangeCount(4)
 	b.assertBindingCount(t.Name(), 1)
 
 	c.sendC2S(&mqtt.Subscribe{ID: 1, Subscriptions: []mqtt.Subscription{{Topic: "temp", QOS: 1}}})
@@ -287,10 +287,10 @@ func TestSessionPublish(t *testing.T) {
 	b.assertExchangeCount(0)
 
 	// subscribe test
-	c.sendC2S(&mqtt.Subscribe{ID: 1, Subscriptions: []mqtt.Subscription{{Topic: "test", QOS: 1}}})
-	c.assertS2CPacket("<Suback ID=1 ReturnCodes=[1]>")
-	b.assertSession(t.Name(), "{\"ID\":\"TestSessionPublish\",\"CleanSession\":false,\"Subscriptions\":{\"test\":1}}")
-	b.assertExchangeCount(1)
+	c.sendC2S(&mqtt.Subscribe{ID: 1, Subscriptions: []mqtt.Subscription{{Topic: "test", QOS: 1}, {Topic: "$baidu/iot", QOS: 1}, {Topic: "$link/data", QOS: 1}}})
+	c.assertS2CPacket("<Suback ID=1 ReturnCodes=[1, 1, 1]>")
+	b.assertSession(t.Name(), "{\"ID\":\"TestSessionPublish\",\"CleanSession\":false,\"Subscriptions\":{\"$baidu/iot\":1,\"$link/data\":1,\"test\":1}}")
+	b.assertExchangeCount(3)
 
 	// publish test qos 0
 	pkt := &mqtt.Publish{}
@@ -310,6 +310,24 @@ func TestSessionPublish(t *testing.T) {
 	c.assertS2CPacket("<Publish ID=1 Message=<Message Topic=\"test\" QOS=1 Retain=false Payload=[104 105]> Dup=true>")
 	c.sendC2S(&mqtt.Puback{ID: 1})
 	c.assertS2CPacketTimeout()
+
+	// publish $baidu/iot topic qos 1
+	pkt.ID = 3
+	pkt.Message.Topic = "$baidu/iot"
+	pkt.Message.Payload = []byte("baidu iot test")
+	c.sendC2S(pkt)
+	c.assertS2CPacket("<Puback ID=3>")
+	c.assertS2CPacket("<Publish ID=2 Message=<Message Topic=\"$baidu/iot\" QOS=1 Retain=false Payload=[98 97 105 100 117 32 105 111 116 32 116 101 115 116]> Dup=false>")
+	c.assertS2CPacket("<Publish ID=2 Message=<Message Topic=\"$baidu/iot\" QOS=1 Retain=false Payload=[98 97 105 100 117 32 105 111 116 32 116 101 115 116]> Dup=true>")
+	c.assertS2CPacketTimeout()
+
+	// publish $link/data topic qos 0
+	pkt.ID = 4
+	pkt.Message.QOS = 0
+	pkt.Message.Topic = "$link/data"
+	pkt.Message.Payload = []byte("module link test")
+	c.sendC2S(pkt)
+	c.assertS2CPacket("<Publish ID=0 Message=<Message Topic=\"$link/data\" QOS=0 Retain=false Payload=[109 111 100 117 108 101 32 108 105 110 107 32 116 101 115 116]> Dup=false>")
 
 	// publish with wrong qos
 	pkt.Message.QOS = 2
@@ -334,15 +352,15 @@ func TestSessionPublish(t *testing.T) {
 	b.manager.ClientMQTTHandler(c, true)
 	c.sendC2S(&mqtt.Connect{ClientID: t.Name(), Version: 3})
 	c.assertS2CPacket("<Connack SessionPresent=true ReturnCode=0>")
-	b.assertExchangeCount(1)
+	b.assertExchangeCount(3)
 	b.assertBindingCount(t.Name(), 1)
 
 	c.sendC2S(&mqtt.Subscribe{ID: 1, Subscriptions: []mqtt.Subscription{{Topic: "#", QOS: 1}}})
 	c.assertS2CPacket("<Suback ID=1 ReturnCodes=[1]>")
 
 	c.sendC2S(pkt)
-	c.assertS2CPacket("<Puback ID=2>")
-	c.assertS2CPacket("<Publish ID=1 Message=<Message Topic=\"no-permit\" QOS=1 Retain=false Payload=[104 105]> Dup=false>")
+	c.assertS2CPacket("<Puback ID=4>")
+	c.assertS2CPacket("<Publish ID=1 Message=<Message Topic=\"no-permit\" QOS=1 Retain=false Payload=[109 111 100 117 108 101 32 108 105 110 107 32 116 101 115 116]> Dup=false>")
 	c.assertClosed(false)
 }
 
@@ -532,6 +550,110 @@ func TestPubSubQOS(t *testing.T) {
 	sub.assertS2CPacketTimeout()
 }
 
+func TestSystemTopicIsolation(t *testing.T) {
+	b := newMockBroker(t)
+	defer b.close()
+
+	// publish packet
+	pkt := &mqtt.Publish{}
+
+	// subscribe packet
+	skt := &mqtt.Subscribe{}
+
+	// unsubscribe packet
+	unskt := &mqtt.Unsubscribe{}
+
+	// client connect to broker
+	c := newMockConn(t)
+	b.manager.ClientMQTTHandler(c, false)
+	c.sendC2S(&mqtt.Connect{ClientID: "client-1", Username: "u1", Password: "p1", Version: 4})
+	c.assertS2CPacket("<Connack SessionPresent=false ReturnCode=0>")
+
+	fmt.Println("\n--> 1. client subscribe topic '#' --> will receive normal topic message --> will not receive sysTopic message<--")
+
+	// client sub topic #
+	skt.ID = 1
+	skt.Subscriptions = []mqtt.Subscription{{Topic: "#", QOS: 0}}
+	c.sendC2S(skt)
+	c.assertS2CPacket("<Suback ID=1 ReturnCodes=[0]>")
+	b.assertExchangeCount(1)
+
+	// client publish message with topic test, will receive message
+	pkt.ID = 1
+	pkt.Message.Topic = "test"
+	pkt.Message.QOS = 1
+	pkt.Message.Payload = []byte("hi")
+	c.sendC2S(pkt)
+	c.assertS2CPacket("<Puback ID=1>")
+	c.assertS2CPacket("<Publish ID=0 Message=<Message Topic=\"test\" QOS=0 Retain=false Payload=[104 105]> Dup=false>")
+	c.assertS2CPacketTimeout()
+
+	// client publish message with topic $link/data, will not receive message
+	pkt.ID = 2
+	pkt.Message.Topic = "$link/data"
+	pkt.Message.Payload = []byte("hello")
+	c.sendC2S(pkt)
+	c.assertS2CPacket("<Puback ID=2>")
+	c.assertS2CPacketTimeout()
+
+	fmt.Println("\n--> 2. client subscribe topic '$link/#' --> will receive the specified sysTopic message --> will not receive normal and other sysTopic message<--")
+
+	// client unsubscribe topic #
+	unskt.ID = 1
+	unskt.Topics = []string{"#"}
+	c.sendC2S(unskt)
+	c.assertS2CPacket("<Unsuback ID=1>")
+	b.assertSession("client-1", "{\"ID\":\"client-1\",\"CleanSession\":false,\"Subscriptions\":{}}")
+	b.assertExchangeCount(0)
+
+	// client subscribe topic $link/#
+	skt.ID = 2
+	skt.Subscriptions = []mqtt.Subscription{{Topic: "$link/#", QOS: 0}}
+	c.sendC2S(skt)
+	c.assertS2CPacket("<Suback ID=2 ReturnCodes=[0]>")
+	b.assertExchangeCount(1)
+
+	// client publish message with topic test, client will not receive message
+	pkt.ID = 3
+	pkt.Message.Topic = "test"
+	pkt.Message.Payload = []byte("test")
+	c.sendC2S(pkt)
+	c.assertS2CPacket("<Puback ID=3>")
+	c.assertS2CPacketTimeout()
+
+	// client publish message with topic $baidu/data, client will not receive message
+	pkt.ID = 4
+	pkt.Message.Topic = "$baidu/iot"
+	pkt.Message.Payload = []byte("iot test")
+	c.sendC2S(pkt)
+	c.assertS2CPacket("<Puback ID=4>")
+	c.assertS2CPacketTimeout()
+
+	// client publish message with topic $link/data, client will receive message
+	pkt.ID = 5
+	pkt.Message.Topic = "$link/data"
+	pkt.Message.Payload = []byte("hello")
+	c.sendC2S(pkt)
+	c.assertS2CPacket("<Puback ID=5>")
+	c.assertS2CPacket("<Publish ID=0 Message=<Message Topic=\"$link/data\" QOS=0 Retain=false Payload=[104 101 108 108 111]> Dup=false>")
+	c.assertS2CPacketTimeout()
+
+	fmt.Println("\n--> 3. client subscribe or publish unspecified sysTopic --> client will not publish or subscribe successfully<--")
+
+	// client publish unspecified sysTopic $SYS/data, client will not publish successfully
+	pkt.ID = 6
+	pkt.Message.Topic = "$SYS/data"
+	pkt.Message.Payload = []byte("system data")
+	c.sendC2S(pkt)
+	c.assertS2CPacketTimeout()
+
+	// client subscribe unspecified sysTopic $SYS/data, client will not subscribe successfully
+	skt.ID = 3
+	skt.Subscriptions = []mqtt.Subscription{{Topic: "$SYS/data", QOS: 0}}
+	c.sendC2S(skt)
+	c.assertS2CPacketTimeout()
+}
+
 func TestSessionWill(t *testing.T) {
 	b := newMockBroker(t)
 	defer b.close()
@@ -707,7 +829,7 @@ func TestSessionRetain(t *testing.T) {
 	sub2.sendC2S(&mqtt.Puback{ID: 1})
 	sub2.assertS2CPacketTimeout()
 
-	fmt.Println("--> 4. clear retain message of topic 'test' --> client4 subscribe topic 'test' --> client4 Will not receive message of topic 'test'<--")
+	fmt.Println("\n--> 4. clear retain message of topic 'test' --> client4 subscribe topic 'test' --> client4 Will not receive message of topic 'test'<--")
 
 	// clear retain message of topic test
 	pkt.ID = 3

@@ -7,16 +7,31 @@ import (
 )
 
 const (
-	maxTopicLevels = 9
 	maxTopicLength = 255
+	maxTopicLevels = 9
 	// topicSeparator    = "/"
 	// singleWildcard    = "+"
 	// multipleWildcard  = "#"
-	// systemTopicPrefix = "$SYS"
 )
 
+// TopicChecker checks topic
+type TopicChecker struct {
+	sysTopics map[string]struct{}
+}
+
+// NewTopicChecker create topicChecker
+func NewTopicChecker(sysTopics []string) *TopicChecker {
+	tc := &TopicChecker{
+		sysTopics: make(map[string]struct{}),
+	}
+	for _, t := range sysTopics {
+		tc.sysTopics[t] = struct{}{}
+	}
+	return tc
+}
+
 // CheckTopic checks the topic
-func CheckTopic(topic string, wildcard bool) bool {
+func (tc *TopicChecker) CheckTopic(topic string, wildcard bool) bool {
 	if topic == "" {
 		return false
 	}
@@ -24,6 +39,15 @@ func CheckTopic(topic string, wildcard bool) bool {
 		return false
 	}
 	segments := strings.Split(topic, "/")
+	if strings.HasPrefix(segments[0], "$") {
+		if len(segments) < 2 {
+			return false
+		}
+		if _, ok := tc.sysTopics[segments[0]]; !ok {
+			return false
+		}
+		segments = segments[1:]
+	}
 	levels := len(segments)
 	if levels > maxTopicLevels {
 		return false

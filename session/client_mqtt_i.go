@@ -102,7 +102,7 @@ func (c *ClientMQTT) onConnect(p *mqtt.Connect) error {
 	}
 
 	if p.Will != nil {
-		if !common.CheckTopic(p.Will.Topic, false) {
+		if !c.manager.topicChecker.CheckTopic(p.Will.Topic, false) {
 			return errors.New("will topic invalid")
 		}
 		if !c.authorize(auth.Publish, p.Will.Topic) {
@@ -140,7 +140,7 @@ func (c *ClientMQTT) onPublish(p *mqtt.Publish) error {
 	if p.Message.QOS > 1 {
 		return errors.New("publish QOS not supported")
 	}
-	if !common.CheckTopic(p.Message.Topic, false) {
+	if !c.manager.topicChecker.CheckTopic(p.Message.Topic, false) {
 		return errors.New("publish topic invalid")
 	}
 	if !c.authorize(auth.Publish, p.Message.Topic) {
@@ -204,7 +204,7 @@ func (c *ClientMQTT) genSuback(p *mqtt.Subscribe) (*mqtt.Suback, []mqtt.Subscrip
 	}
 	subs := []mqtt.Subscription{}
 	for i, sub := range p.Subscriptions {
-		if !common.CheckTopic(sub.Topic, true) {
+		if !c.manager.topicChecker.CheckTopic(sub.Topic, true) {
 			c.log.Error("subscribe topic invalid", log.Any("topic", sub.Topic))
 			sa.ReturnCodes[i] = mqtt.QOSFailure
 		} else if sub.QOS > 1 {
