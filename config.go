@@ -27,10 +27,7 @@ func (c *config) principalsValidate(v interface{}, param string) error {
 	if err != nil {
 		return err
 	}
-	tc := common.NewTopicChecker()
-	for _, t := range c.SysTopics {
-		tc.SysTopics[t] = struct{}{}
-	}
+	tc := common.NewTopicChecker(c.SysTopics)
 	for _, principal := range principals {
 		for _, permission := range principal.Permissions {
 			for _, permit := range permission.Permits {

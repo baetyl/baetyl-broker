@@ -6,7 +6,7 @@ import (
 
 func TestCheckTopic(t *testing.T) {
 	tc := &TopicChecker{
-		SysTopics: map[string]struct{}{"$baidu": struct{}{}, "$link": struct{}{}},
+		sysTopics: map[string]struct{}{"$baidu": struct{}{}, "$link": struct{}{}},
 	}
 	tests := []struct {
 		name     string

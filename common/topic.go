@@ -16,14 +16,18 @@ const (
 
 // TopicChecker checks topic
 type TopicChecker struct {
-	SysTopics map[string]struct{}
+	sysTopics map[string]struct{}
 }
 
 // NewTopicChecker create topicChecker
-func NewTopicChecker() *TopicChecker {
-	return &TopicChecker{
-		SysTopics: map[string]struct{}{},
+func NewTopicChecker(sysTopics []string) *TopicChecker {
+	tc := &TopicChecker{
+		sysTopics: make(map[string]struct{}),
 	}
+	for _, t := range sysTopics {
+		tc.sysTopics[t] = struct{}{}
+	}
+	return tc
 }
 
 // CheckTopic checks the topic
@@ -39,7 +43,7 @@ func (tc *TopicChecker) CheckTopic(topic string, wildcard bool) bool {
 		if len(segments) < 2 {
 			return false
 		}
-		if _, ok := tc.SysTopics[segments[0]]; !ok {
+		if _, ok := tc.sysTopics[segments[0]]; !ok {
 			return false
 		}
 		segments = segments[1:]

@@ -72,10 +72,11 @@ func NewManager(config Config, exchange *exchange.Exchange, auth *auth.Auth) (*M
 		backend.Close()
 		return nil, err
 	}
-	checker := common.NewTopicChecker()
+	var sysTopics []string
 	for bind := range exchange.Bindings() {
-		checker.SysTopics[bind] = struct{}{}
+		sysTopics = append(sysTopics, bind)
 	}
+	checker := common.NewTopicChecker(sysTopics)
 	manager := &Manager{
 		auth:         auth,
 		config:       config,
