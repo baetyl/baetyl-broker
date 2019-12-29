@@ -1,6 +1,7 @@
 package queue
 
 import (
+	"fmt"
 	"time"
 
 	"github.com/baetyl/baetyl-broker/common"
@@ -166,6 +167,7 @@ func (q *Persistence) deleting() error {
 		case <-cleanTimer.C:
 			q.log.Debug("queue starts to clean expired messages from backend")
 			q.clean()
+			q.log.Info(fmt.Sprintf("queue state: input size %d, output size %d, deletion size %d", len(q.input), len(q.output), len(q.edel)))
 		case <-q.Dying():
 			q.log.Debug("queue deletes message from backend during closing")
 			buf = q.delete(buf)
