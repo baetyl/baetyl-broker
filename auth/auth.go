@@ -1,6 +1,9 @@
 package auth
 
 import (
+	"crypto/x509"
+	"encoding/pem"
+	"io/ioutil"
 	"reflect"
 	"strings"
 
@@ -35,7 +38,7 @@ type Auth struct {
 }
 
 // NewAuth creates auth
-func NewAuth(principals []Principal) *Auth {
+func NewAuth(principals []Principal, certPath string) *Auth {
 	_certs := make(map[string]cert)
 	_accounts := make(map[string]account)
 	for _, principal := range principals {
@@ -46,7 +49,7 @@ func NewAuth(principals []Principal) *Auth {
 			}
 		}
 		if principal.Password == "" {
-			_certs[principal.Username] = cert{
+			_certs[getCommonName(certPath)] = cert{
 				Authorizer: authorizer,
 			}
 		} else {
@@ -90,8 +93,8 @@ func (a *Auth) AuthenticateAccount(username, password string) *Authorizer {
 }
 
 // AuthenticateCert auth client cert, then return authorizer if pass
-func (a *Auth) AuthenticateCert(serialNumber string) *Authorizer {
-	_cert, ok := a.certs[serialNumber]
+func (a *Auth) AuthenticateCert(commonName string) *Authorizer {
+	_cert, ok := a.certs[commonName]
 	if ok {
 		return _cert.Authorizer
 	}
@@ -136,4 +139,23 @@ func getKeys(m map[string]struct{}) []string {
 		result = append(result, key.Interface().(string))
 	}
 	return result
+}
+
+// getCommonName gets common name of cert
+func getCommonName(path string) string {
+	var cn string
+	certPEMBlock, err := ioutil.ReadFile(path)
+	if err != nil {
+		return cn
+	}
+	certDERBlock, _ := pem.Decode(certPEMBlock)
+	if certDERBlock == nil {
+		return cn
+	}
+	x509Cert, err := x509.ParseCertificate(certDERBlock.Bytes)
+	if err != nil {
+		return cn
+	}
+	cn = x509Cert.Subject.CommonName
+	return cn
 }

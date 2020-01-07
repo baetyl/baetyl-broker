@@ -15,7 +15,7 @@ func TestAuth(t *testing.T) {
 			{Action: "sub", Permits: []string{"+"}},
 		}},
 	}
-	au := NewAuth(p1)
+	au := NewAuth(p1, "")
 
 	assert.Nil(t, au.AuthenticateAccount("", ""))
 	assert.Nil(t, au.AuthenticateAccount("test", ""))
@@ -61,7 +61,7 @@ func TestAuth(t *testing.T) {
 		}},
 	}
 
-	au = NewAuth(p2)
+	au = NewAuth(p2, "")
 	authorizer = au.AuthenticateAccount("test", "hahaha")
 	assert.NotNil(t, authorizer)
 
@@ -126,7 +126,7 @@ func TestAuth(t *testing.T) {
 		}},
 	}
 
-	au = NewAuth(p3)
+	au = NewAuth(p3, "")
 	authorizer = au.AuthenticateAccount("test", "hahaha")
 	assert.NotNil(t, authorizer)
 
@@ -193,7 +193,7 @@ func TestAuth(t *testing.T) {
 		}},
 	}
 
-	au = NewAuth(p4)
+	au = NewAuth(p4, "")
 	authorizer = au.AuthenticateAccount("test", "hahaha")
 	assert.NotNil(t, authorizer)
 
@@ -238,7 +238,7 @@ func TestAuth(t *testing.T) {
 		}},
 	}
 
-	au = NewAuth(p5)
+	au = NewAuth(p5, "")
 	authorizer = au.AuthenticateAccount("test", "hahaha")
 	assert.NotNil(t, authorizer)
 
@@ -353,7 +353,7 @@ func TestAuth(t *testing.T) {
 		}
 	}
 
-	au = NewAuth(principals)
+	au = NewAuth(principals, "")
 	// config username & password authenticate
 	assert.NotNil(t, au.AuthenticateAccount("test", "hahaha"))
 	assert.Nil(t, au.AuthenticateAccount("test", "lalala"))

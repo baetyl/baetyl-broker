@@ -71,7 +71,7 @@ func newMockBrokerWith(t *testing.T, maxConnections int) *mockBroker {
 			Action:  "sub",
 			Permits: []string{"test", "talks"},
 		}}}}
-	b.manager, err = NewManager(b.cfg.Session, auth.NewAuth(b.cfg.Principals))
+	b.manager, err = NewManager(b.cfg.Session, auth.NewAuth(b.cfg.Principals, ""))
 	assert.NoError(t, err)
 	return b
 }

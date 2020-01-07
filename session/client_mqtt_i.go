@@ -90,14 +90,23 @@ func (c *ClientMQTT) onConnect(p *mqtt.Connect) error {
 			c.sendConnack(mqtt.BadUsernameOrPassword, false)
 			return errors.New("username not set")
 		}
-		if p.Password == "" {
+		if p.Password != "" {
+			c.authorizer = c.manager.auth.AuthenticateAccount(p.Username, p.Password)
+			if c.authorizer == nil {
+				c.sendConnack(mqtt.BadUsernameOrPassword, false)
+				return errors.New("username or password not permitted")
+			}
+		} else if mqtt.IsBidirectionalAuthentication(c.connection) {
+			// if IsBidirectionalAuthentication, will use certificate authentication
+			c.authorizer = c.manager.auth.AuthenticateCert(p.Username)
+			if c.authorizer == nil {
+				c.log.Info("authorizer is nil")
+				c.sendConnack(mqtt.BadUsernameOrPassword, false)
+				return errors.New("username is not permitted over ssl/tls")
+			}
+		} else {
 			c.sendConnack(mqtt.BadUsernameOrPassword, false)
 			return errors.New("password not set")
-		}
-		c.authorizer = c.manager.auth.AuthenticateAccount(p.Username, p.Password)
-		if c.authorizer == nil {
-			c.sendConnack(mqtt.BadUsernameOrPassword, false)
-			return errors.New("username or password not permitted")
 		}
 	}
 
