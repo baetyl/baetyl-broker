@@ -83,8 +83,6 @@ func (c *ClientMQTT) onConnect(p *mqtt.Connect) error {
 		return errors.New("client ID invalid")
 	}
 	if !c.anonymous && c.manager.auth != nil {
-		// TODO: support tls bidirectional authentication, use CN as username
-
 		// username/password authentication
 		if p.Username == "" {
 			c.sendConnack(mqtt.BadUsernameOrPassword, false)
@@ -98,11 +96,18 @@ func (c *ClientMQTT) onConnect(p *mqtt.Connect) error {
 			}
 		} else if mqtt.IsBidirectionalAuthentication(c.connection) {
 			// if IsBidirectionalAuthentication, will use certificate authentication
-			c.authorizer = c.manager.auth.AuthenticateCert(p.Username)
-			if c.authorizer == nil {
-				c.log.Info("authorizer is nil")
-				c.sendConnack(mqtt.BadUsernameOrPassword, false)
-				return errors.New("username is not permitted over ssl/tls")
+			if tlsConn, ok := getTLSConn(c.connection); ok {
+				cn, err := getCommonName(tlsConn)
+				if err != nil {
+					// TODO: add BadClientCertificate error info in baetyl-go
+					c.sendConnack(mqtt.BadUsernameOrPassword, false)
+					return ErrGetCommonName
+				}
+				c.authorizer = c.manager.auth.AuthenticateCert(cn)
+				if c.authorizer == nil {
+					c.sendConnack(mqtt.BadUsernameOrPassword, false)
+					return errors.New("username is not permitted over ssl/tls")
+				}
 			}
 		} else {
 			c.sendConnack(mqtt.BadUsernameOrPassword, false)

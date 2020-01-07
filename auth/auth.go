@@ -1,9 +1,6 @@
 package auth
 
 import (
-	"crypto/x509"
-	"encoding/pem"
-	"io/ioutil"
 	"reflect"
 	"strings"
 
@@ -38,7 +35,7 @@ type Auth struct {
 }
 
 // NewAuth creates auth
-func NewAuth(principals []Principal, certPath string) *Auth {
+func NewAuth(principals []Principal) *Auth {
 	_certs := make(map[string]cert)
 	_accounts := make(map[string]account)
 	for _, principal := range principals {
@@ -49,7 +46,7 @@ func NewAuth(principals []Principal, certPath string) *Auth {
 			}
 		}
 		if principal.Password == "" {
-			_certs[getCommonName(certPath)] = cert{
+			_certs[principal.Username] = cert{
 				Authorizer: authorizer,
 			}
 		} else {
@@ -139,23 +136,4 @@ func getKeys(m map[string]struct{}) []string {
 		result = append(result, key.Interface().(string))
 	}
 	return result
-}
-
-// getCommonName gets common name of cert
-func getCommonName(path string) string {
-	var cn string
-	certPEMBlock, err := ioutil.ReadFile(path)
-	if err != nil {
-		return cn
-	}
-	certDERBlock, _ := pem.Decode(certPEMBlock)
-	if certDERBlock == nil {
-		return cn
-	}
-	x509Cert, err := x509.ParseCertificate(certDERBlock.Bytes)
-	if err != nil {
-		return cn
-	}
-	cn = x509Cert.Subject.CommonName
-	return cn
 }

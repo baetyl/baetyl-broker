@@ -3,6 +3,7 @@ module github.com/baetyl/baetyl-broker
 go 1.13
 
 require (
+	github.com/256dpi/gomqtt v0.13.0
 	github.com/baetyl/baetyl-go v0.0.6
 	github.com/creasty/defaults v1.3.0
 	github.com/docker/distribution v2.7.1+incompatible

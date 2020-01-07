@@ -2,11 +2,14 @@ package session
 
 import (
 	"context"
+	"crypto/tls"
 	"errors"
 	"io"
+	"net"
 	"sync"
 	"time"
 
+	"github.com/256dpi/gomqtt/transport"
 	"github.com/baetyl/baetyl-broker/auth"
 	"github.com/baetyl/baetyl-broker/exchange"
 	"github.com/baetyl/baetyl-broker/queue"
@@ -20,6 +23,7 @@ import (
 var (
 	ErrMessageInvalid    = errors.New("Only message with topic can be routed")
 	ErrConnectionExceeds = errors.New("The number of connections exceeds the max limit")
+	ErrGetCommonName     = errors.New("Can not get common name from cert")
 )
 
 type client interface {
@@ -344,4 +348,33 @@ func (m *Manager) removeRetain(topic string) error {
 		return err
 	}
 	return nil
+}
+
+// TODO: merge it into function IsBidirectionalAuthentication() of baetyl-go
+// getTLSConn gets TLSConn
+func getTLSConn(conn mqtt.Connection) (*tls.Conn, bool) {
+	var innerConn net.Conn
+	if netconn, ok := conn.(*transport.NetConn); ok {
+		innerConn = netconn.UnderlyingConn()
+	} else if wsconn, ok := conn.(*transport.WebSocketConn); ok {
+		innerConn = wsconn.UnderlyingConn().UnderlyingConn()
+	}
+	tlsConn, ok := innerConn.(*tls.Conn)
+	return tlsConn, ok
+}
+
+// TODO: move it to baetyl-go and add unit test
+// getCommonName gets commonName of cert
+func getCommonName(conn *tls.Conn) (string, error) {
+	var cn string
+	state := conn.ConnectionState()
+	if !state.HandshakeComplete {
+		return cn, ErrGetCommonName
+	}
+	length := len(state.PeerCertificates)
+	if length == 0 {
+		return cn, ErrGetCommonName
+	}
+	cn = state.PeerCertificates[len(state.PeerCertificates)-1].Subject.CommonName
+	return cn, nil
 }

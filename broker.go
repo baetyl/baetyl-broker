@@ -1,7 +1,6 @@
 package main
 
 import (
-	"fmt"
 	"github.com/baetyl/baetyl-broker/auth"
 	"github.com/baetyl/baetyl-broker/session"
 	"github.com/baetyl/baetyl-go/link"
@@ -21,8 +20,7 @@ func newBroker(cfg config) (*broker, error) {
 	b := &broker{
 		cfg: cfg,
 	}
-	fmt.Println("cert Path: ", cfg.Certificate.Cert)
-	b.manager, err = session.NewManager(cfg.Session, auth.NewAuth(cfg.Principals, cfg.Certificate.Cert))
+	b.manager, err = session.NewManager(cfg.Session, auth.NewAuth(cfg.Principals))
 	if err != nil {
 		return nil, err
 	}
