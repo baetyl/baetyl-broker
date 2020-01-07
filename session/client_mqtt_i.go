@@ -83,12 +83,12 @@ func (c *ClientMQTT) onConnect(p *mqtt.Connect) error {
 		return errors.New("client ID invalid")
 	}
 	if !c.anonymous && c.manager.auth != nil {
-		// username/password authentication
-		if p.Username == "" {
-			c.sendConnack(mqtt.BadUsernameOrPassword, false)
-			return errors.New("username not set")
-		}
 		if p.Password != "" {
+			// username/password authentication
+			if p.Username == "" {
+				c.sendConnack(mqtt.BadUsernameOrPassword, false)
+				return errors.New("username not set")
+			}
 			c.authorizer = c.manager.auth.AuthenticateAccount(p.Username, p.Password)
 			if c.authorizer == nil {
 				c.sendConnack(mqtt.BadUsernameOrPassword, false)
