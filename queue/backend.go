@@ -12,11 +12,14 @@ import (
 
 // Config queue config
 type Config struct {
-	Name          string
-	Driver        string
-	Location      string
-	ExpireTime    time.Duration
-	CleanInterval time.Duration
+	Name          string        `yaml:"name" json:"name"`
+	Driver        string        `yaml:"driver" json:"driver" default:"sqlite3"`
+	Location      string        `yaml:"location" json:"location" default:"var/lib/baetyl"`
+	BatchSize     int           `yaml:"batchSize" json:"batchSize" default:"10"`
+	ExpireTime    time.Duration `yaml:"expireTime" json:"expireTime" default:"168h"`
+	CleanInterval time.Duration `yaml:"cleanInterval" json:"cleanInterval" default:"1h"`
+	WriteTimeout  time.Duration `yaml:"writeTimeout" json:"writeTimeout" default:"100ms"`
+	DeleteTimeout time.Duration `yaml:"deleteTimeout" json:"deleteTimeout" default:"500ms"`
 }
 
 // Backend the backend database of queue

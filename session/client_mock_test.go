@@ -1,77 +1,76 @@
 package session
 
 import (
-	"io/ioutil"
+	"context"
 	"net"
 	"os"
 	"sync"
 	"testing"
 	"time"
 
-	"github.com/baetyl/baetyl-broker/auth"
+	"github.com/baetyl/baetyl-go/link"
 	"github.com/baetyl/baetyl-go/log"
 	"github.com/baetyl/baetyl-go/mqtt"
-	"github.com/creasty/defaults"
+	"github.com/baetyl/baetyl-go/utils"
 	"github.com/stretchr/testify/assert"
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/metadata"
 )
 
-type mockConfig struct {
-	Session    Config
-	Endpoints  []*mqtt.Endpoint
-	Principals []auth.Principal
-}
+var (
+	testConfDefault = ""
+	testConfSession = `
+session:
+  sysTopics:
+  - $link
+  - $baidu
+  maxConnections: 3
+  republishInterval: 200ms
+  persistence:
+  location: testdata
+principals:
+- username: u1
+  password: p1
+  permissions:
+  - action: sub
+    permit: [test, talks, talks1, talks2, '$baidu/iot', '$link/data', '$link/#', '#']
+  - action: pub
+    permit: [test, talks, '$baidu/iot', '$link/data']
+- username: u2
+  password: p2
+  permissions:
+  - action: pub
+    permit: [test, talks, talks1, talks2]
+- username: u3
+  password: p3
+  permissions:
+  - action: sub
+    permit: [test, talks]
+- username: u4
+  password: p4
+  permissions:
+  - action: sub
+    permit: [test, talks]
+`
+)
 
 type mockBroker struct {
-	t         *testing.T
-	cfg       mockConfig
-	manager   *Manager
-	transport *mqtt.Transport
+	t          *testing.T
+	cfg        Config
+	manager    *Manager
+	transport  *mqtt.Transport
+	linkserver *grpc.Server
 }
 
-func newMockBroker(t *testing.T) *mockBroker {
-	return newMockBrokerWith(t, 0)
-}
-
-func newMockBrokerWith(t *testing.T, maxConnections int) *mockBroker {
+func newMockBroker(t *testing.T, cfgStr string) *mockBroker {
 	log.Init(log.Config{Level: "debug", Format: "text"})
-	dir, _ := ioutil.TempDir("", "broker")
+	os.RemoveAll("testdata")
 
-	var err error
-	b := &mockBroker{t: t}
-	defaults.Set(&b.cfg.Session)
-	b.cfg.Session.PersistenceLocation = dir
-	b.cfg.Session.RepublishInterval = time.Millisecond * 200
-	b.cfg.Session.MaxConnections = maxConnections
-	b.cfg.Session.SysTopics = []string{"$link", "$baidu"}
-	b.cfg.Principals = []auth.Principal{{
-		Username: "u1",
-		Password: "p1",
-		Permissions: []auth.Permission{{
-			Action:  "sub",
-			Permits: []string{"test", "talks", "talks1", "talks2", "$baidu/iot", "$link/data", "$link/#", "#"},
-		}, {
-			Action:  "pub",
-			Permits: []string{"test", "talks", "$baidu/iot", "$link/data"},
-		}}}, {
-		Username: "u2",
-		Password: "p2",
-		Permissions: []auth.Permission{{
-			Action:  "pub",
-			Permits: []string{"test", "talks", "talks1", "talks2"},
-		}}}, {
-		Username: "u3",
-		Password: "p3",
-		Permissions: []auth.Permission{{
-			Action:  "sub",
-			Permits: []string{"test", "talks"},
-		}}}, {
-		Username: "u4",
-		Password: "p4",
-		Permissions: []auth.Permission{{
-			Action:  "sub",
-			Permits: []string{"test", "talks"},
-		}}}}
-	b.manager, err = NewManager(b.cfg.Session, auth.NewAuth(b.cfg.Principals))
+	var cfg Config
+	err := utils.UnmarshalYAML([]byte(cfgStr), &cfg)
+	assert.NoError(t, err)
+	b := &mockBroker{t: t, cfg: cfg}
+	b.manager, err = NewManager(cfg)
 	assert.NoError(t, err)
 	return b
 }
@@ -109,7 +108,7 @@ func (b *mockBroker) close() {
 	if b.manager != nil {
 		b.manager.Close()
 	}
-	os.RemoveAll(b.cfg.Session.PersistenceLocation)
+	os.RemoveAll(b.cfg.Persistence.Location)
 }
 
 type mockConn struct {
@@ -128,9 +127,6 @@ func newMockConn(t *testing.T) *mockConn {
 		s2c: make(chan mqtt.Packet, 10),
 		err: make(chan error, 10),
 	}
-}
-
-func (c *mockConn) SetMaxWriteDelay(t time.Duration) {
 }
 
 func (c *mockConn) Send(pkt mqtt.Packet, _ bool) error {
@@ -154,6 +150,12 @@ func (c *mockConn) Close() error {
 	c.err <- ErrSessionClientAlreadyClosed
 	return nil
 }
+
+func (c *mockConn) SetMaxWriteDelay(t time.Duration)     {}
+func (c *mockConn) SetReadLimit(limit int64)             {}
+func (c *mockConn) SetReadTimeout(timeout time.Duration) {}
+func (c *mockConn) LocalAddr() net.Addr                  { return nil }
+func (c *mockConn) RemoteAddr() net.Addr                 { return nil }
 
 func (c *mockConn) sendC2S(pkt mqtt.Packet) error {
 	select {
@@ -199,14 +201,84 @@ func (c *mockConn) assertClosed(expect bool) {
 	c.RUnlock()
 }
 
-func (c *mockConn) SetReadLimit(limit int64) {}
+type mockStream struct {
+	t      *testing.T
+	md     metadata.MD
+	c2s    chan *link.Message
+	s2c    chan *link.Message
+	err    chan error
+	closed bool
+	sync.RWMutex
+}
 
-func (c *mockConn) SetReadTimeout(timeout time.Duration) {}
+func newMockStream(t *testing.T) *mockStream {
+	return &mockStream{
+		t:   t,
+		md:  metadata.New(map[string]string{"linkid": "$link/t"}),
+		c2s: make(chan *link.Message, 10),
+		s2c: make(chan *link.Message, 10),
+		err: make(chan error, 10),
+	}
+}
 
-func (c *mockConn) LocalAddr() net.Addr {
+func (c *mockStream) Send(msg *link.Message) error {
+	c.s2c <- msg
 	return nil
 }
 
-func (c *mockConn) RemoteAddr() net.Addr {
-	return nil
+func (c *mockStream) Recv() (*link.Message, error) {
+	select {
+	case msg := <-c.c2s:
+		return msg, nil
+	case err := <-c.err:
+		return nil, err
+	}
+}
+
+func (c *mockStream) Context() context.Context {
+	return metadata.NewIncomingContext(context.Background(), c.md)
+}
+
+func (c *mockStream) SetHeader(metadata.MD) error  { return nil }
+func (c *mockStream) SendHeader(metadata.MD) error { return nil }
+func (c *mockStream) SetTrailer(metadata.MD)       {}
+func (c *mockStream) SendMsg(m interface{}) error  { return nil }
+func (c *mockStream) RecvMsg(m interface{}) error  { return nil }
+
+func (c *mockStream) sendC2S(msg *link.Message) error {
+	select {
+	case c.c2s <- msg:
+		return nil
+	case <-time.After(time.Second * 3):
+		assert.Fail(c.t, "send common timeout")
+		return nil
+	}
+}
+
+func (c *mockStream) receiveS2C() *link.Message {
+	select {
+	case msg := <-c.s2c:
+		return msg
+	case <-time.After(time.Second * 3):
+		assert.Fail(c.t, "Receive common timeout")
+		return nil
+	}
+}
+
+func (c *mockStream) assertS2CMessage(expect string) {
+	select {
+	case msg := <-c.s2c:
+		assert.NotNil(c.t, msg)
+		assert.Equal(c.t, expect, msg.String())
+	case <-time.After(time.Second * 3):
+		assert.Fail(c.t, "receive common timeout")
+	}
+}
+
+func (c *mockStream) assertS2CMessageTimeout() {
+	select {
+	case msg := <-c.s2c:
+		assert.Fail(c.t, "receive unexpected packet: %s", msg.String())
+	case <-time.After(time.Millisecond * 100):
+	}
 }

@@ -10,6 +10,7 @@ import (
 
 	"github.com/baetyl/baetyl-broker/common"
 	"github.com/baetyl/baetyl-go/link"
+	"github.com/baetyl/baetyl-go/utils"
 	"github.com/gogo/protobuf/proto"
 	_ "github.com/mattn/go-sqlite3"
 	"github.com/stretchr/testify/assert"
@@ -50,17 +51,16 @@ func TestPersistentQueue(t *testing.T) {
 	assert.NoError(t, err)
 	defer os.RemoveAll(dir)
 
-	be, err := NewBackend(Config{Name: "queue", Driver: "sqlite3", Location: dir})
+	var cfg Config
+	utils.SetDefaults(&cfg)
+	cfg.Name = t.Name()
+	cfg.Location = dir
+	be, err := NewBackend(cfg)
 	assert.NoError(t, err)
 	assert.NotNil(t, be)
 	defer be.Close()
 
-	conf := Config{
-		Name:          t.Name(),
-		ExpireTime:    time.Hour,
-		CleanInterval: time.Hour,
-	}
-	b := NewPersistence(conf, be, 100)
+	b := NewPersistence(cfg, be)
 	assert.NotNil(t, b)
 	defer b.Close()
 
@@ -119,17 +119,16 @@ func BenchmarkPersistentQueue(b *testing.B) {
 	assert.NoError(b, err)
 	defer os.RemoveAll(dir)
 
-	be, err := NewBackend(Config{Name: "queue", Driver: "sqlite3", Location: dir})
+	var cfg Config
+	utils.SetDefaults(&cfg)
+	cfg.Name = b.Name()
+	cfg.Location = dir
+	be, err := NewBackend(cfg)
 	assert.NoError(b, err)
 	assert.NotNil(b, be)
 	defer be.Close()
 
-	conf := Config{
-		Name:          b.Name(),
-		ExpireTime:    time.Hour,
-		CleanInterval: time.Hour,
-	}
-	q := NewPersistence(conf, be, 100)
+	q := NewPersistence(cfg, be)
 	assert.NotNil(b, q)
 	defer q.Close()
 
@@ -171,17 +170,16 @@ func BenchmarkPersistentQueueParallel(b *testing.B) {
 	assert.NoError(b, err)
 	defer os.RemoveAll(dir)
 
-	be, err := NewBackend(Config{Name: "queue", Driver: "sqlite3", Location: dir})
+	var cfg Config
+	utils.SetDefaults(&cfg)
+	cfg.Name = b.Name()
+	cfg.Location = dir
+	be, err := NewBackend(cfg)
 	assert.NoError(b, err)
 	assert.NotNil(b, be)
 	defer be.Close()
 
-	conf := Config{
-		Name:          b.Name(),
-		ExpireTime:    time.Hour,
-		CleanInterval: time.Hour,
-	}
-	q := NewPersistence(conf, be, 100)
+	q := NewPersistence(cfg, be)
 	assert.NotNil(b, q)
 	defer q.Close()
 

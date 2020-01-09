@@ -1,11 +1,10 @@
 package session
 
 import (
-	"errors"
 	"regexp"
+	"strings"
 	"sync"
 
-	"github.com/baetyl/baetyl-broker/auth"
 	"github.com/baetyl/baetyl-broker/common"
 	"github.com/baetyl/baetyl-go/link"
 	"github.com/baetyl/baetyl-go/log"
@@ -14,43 +13,34 @@ import (
 	"github.com/docker/distribution/uuid"
 )
 
-var (
-	// ErrSessionClientAlreadyClosed the session client is already closed
-	ErrSessionClientAlreadyClosed = errors.New("session client is already closed")
-	// ErrSessionClientAlreadyConnecting the session client is already connecting
-	ErrSessionClientAlreadyConnecting = errors.New("session client is already connecting")
-	// ErrSessionClientUnexpectedPacket the session client received unexpected packet
-	ErrSessionClientUnexpectedPacket = errors.New("session client received unexpected packet")
-)
-
 // ClientMQTT the client of MQTT
 type ClientMQTT struct {
 	id         string
 	manager    *Manager
 	session    *Session
-	publisher  *publisher
+	resender   *resender
+	counter    *mqtt.Counter
+	authorizer *Authorizer
 	connection mqtt.Connection
-	anonymous  bool
-	authorizer *auth.Authorizer
-	log        *log.Logger
-	utils.Tomb
+
+	log  *log.Logger
+	tomb utils.Tomb
 	sync.Mutex
 	sync.Once
 }
 
-// NewClientMQTT creates a new MQTT client
-func newClientMQTT(m *Manager, connection mqtt.Connection, anonymous bool) *ClientMQTT {
-	id := uuid.Generate().String()
+func (m *Manager) initClientMQTT(connection mqtt.Connection) {
+	id := strings.ReplaceAll(uuid.Generate().String(), "-", "")
 	c := &ClientMQTT{
 		id:         id,
 		manager:    m,
 		connection: connection,
-		anonymous:  anonymous,
-		publisher:  newPublisher(m.cfg.RepublishInterval, m.cfg.MaxInflightQOS1Messages),
-		log:        log.With(log.Any("id", id)),
+		counter:    mqtt.NewCounter(),
+		log:        log.With(log.Any("type", "mqtt"), log.Any("id", id)),
 	}
-	c.Go(c.receiving)
-	return c
+	c.resender = newResender(m.cfg.MaxInflightQOS1Messages, m.cfg.RepublishInterval, &c.tomb)
+	m.addClient(c)
+	c.tomb.Go(c.receiving)
 }
 
 func (c *ClientMQTT) getID() string {
@@ -59,7 +49,7 @@ func (c *ClientMQTT) getID() string {
 
 func (c *ClientMQTT) setSession(s *Session) {
 	c.session = s
-	c.log = c.log.With(log.Any("cid", s.ID))
+	c.log = c.log.With(log.Any("sid", s.ID))
 }
 
 func (c *ClientMQTT) getSession() *Session {
@@ -74,16 +64,17 @@ func (c *ClientMQTT) Close() error {
 }
 
 // closes client by itself
-func (c *ClientMQTT) die(err error) {
-	if !c.Alive() {
+func (c *ClientMQTT) die(msg string, err error) {
+	if !c.tomb.Alive() {
 		return
+	}
+	if err != nil {
+		c.log.Error(msg, log.Error(err))
 	}
 	go func() {
 		c.log.Info("client is closing by itself")
 		if err != nil {
 			c.sendWillMessage()
-		} else {
-			c.log.Error("client arises an error", log.Error(err))
 		}
 		c.manager.delClient(c)
 		c.close()
@@ -93,10 +84,10 @@ func (c *ClientMQTT) die(err error) {
 
 func (c *ClientMQTT) close() error {
 	c.Do(func() {
-		c.Kill(nil)
+		c.tomb.Kill(nil)
 		c.connection.Close()
 	})
-	return c.Wait()
+	return c.tomb.Wait()
 }
 
 func (c *ClientMQTT) authorize(action, topic string) bool {
