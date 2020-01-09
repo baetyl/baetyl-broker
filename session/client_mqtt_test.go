@@ -708,8 +708,6 @@ func TestSessionMqttRetain(t *testing.T) {
 
 	// client1 to connect
 	pktcon.ClientID = "pub"
-	pktcon.Username = "u2"
-	pktcon.Password = "p2"
 	pub := newMockConn(t)
 	b.manager.ClientMQTTHandler(pub)
 	pub.sendC2S(pktcon)
@@ -740,8 +738,6 @@ func TestSessionMqttRetain(t *testing.T) {
 
 	// client2 to connect
 	pktcon.ClientID = "sub1"
-	pktcon.Username = "u1"
-	pktcon.Password = "p1"
 	sub1 := newMockConn(t)
 	b.manager.ClientMQTTHandler(sub1)
 	sub1.sendC2S(pktcon)
@@ -761,7 +757,6 @@ func TestSessionMqttRetain(t *testing.T) {
 
 	fmt.Println("\n--> 2. client1 republish topic 'test' with retain is false --> client2 receive message of topic 'test' <--")
 
-	// client1 publish message("offline") to topic "test" with retain is false
 	pktpub.ID = 2
 	pktpub.Message.Topic = "test"
 	pktpub.Message.Payload = []byte("offline")
@@ -774,55 +769,64 @@ func TestSessionMqttRetain(t *testing.T) {
 	sub1.assertS2CPacket("<Publish ID=2 Message=<Message Topic=\"test\" QOS=1 Retain=false Payload=[111 102 102 108 105 110 101]> Dup=false>")
 	sub1.sendC2S(&mqtt.Puback{ID: 2})
 
-	fmt.Println("\n--> 3. client3 subscribe topic 'test' --> client3 Will receive message of topic 'test' <--")
+	fmt.Println("\n--> 3. client1 republish topic 'test' with retain is ture --> client2 receive message of topic 'test' <--")
+
+	// client1 publish message("offline") to topic "test" with retain is false
+	pktpub.ID = 3
+	pktpub.Message.Retain = true
+	pub.sendC2S(pktpub)
+	pub.assertS2CPacket("<Puback ID=3>")
+	pub.assertS2CPacketTimeout()
+
+	// client2 to receive message of topic test as normal message, because it is already subscribed
+	sub1.assertS2CPacket("<Publish ID=3 Message=<Message Topic=\"test\" QOS=1 Retain=false Payload=[111 102 102 108 105 110 101]> Dup=false>")
+	sub1.sendC2S(&mqtt.Puback{ID: 2})
+
+	fmt.Println("\n--> 4. client3 subscribe topic 'test' --> client3 Will receive message of topic 'test' <--")
 
 	// client3 to connect
 	pktcon.ClientID = "sub2"
-	pktcon.Username = "u3"
-	pktcon.Password = "p3"
 	sub2 := newMockConn(t)
 	b.manager.ClientMQTTHandler(sub2)
 	sub2.sendC2S(pktcon)
 	sub2.assertS2CPacket("<Connack SessionPresent=false ReturnCode=0>")
 
 	// client3 subscribe topic test. If retain message of topic test exists, client3 Will receive the message.
-	pktsub.ID = 2
+	pktsub.ID = 4
 	pktsub.Subscriptions = []mqtt.Subscription{{Topic: "test", QOS: 1}}
 	sub2.sendC2S(pktsub)
-	sub2.assertS2CPacket("<Suback ID=2 ReturnCodes=[1]>")
+	sub2.assertS2CPacket("<Suback ID=4 ReturnCodes=[1]>")
 	b.assertSession("sub2", "{\"ID\":\"sub2\",\"CleanSession\":false,\"Subscriptions\":{\"test\":1}}")
 
 	// client3 Will receive retain message("online")
-	sub2.assertS2CPacket("<Publish ID=1 Message=<Message Topic=\"test\" QOS=1 Retain=true Payload=[111 110 108 105 110 101]> Dup=false>")
+	sub2.assertS2CPacket("<Publish ID=1 Message=<Message Topic=\"test\" QOS=1 Retain=true Payload=[111 102 102 108 105 110 101]> Dup=false>")
 	sub2.sendC2S(&mqtt.Puback{ID: 1})
 	sub2.assertS2CPacketTimeout()
 
-	fmt.Println("\n--> 4. clear retain message of topic 'test' --> client4 subscribe topic 'test' --> client4 Will not receive message of topic 'test'<--")
+	fmt.Println("\n--> 5. clear retain message of topic 'test' --> client4 subscribe topic 'test' --> client4 Will not receive message of topic 'test'<--")
 
 	// clear retain message of topic test
-	pktpub.ID = 3
+	pktpub.ID = 5
 	pktpub.Message.Payload = nil
 	pktpub.Message.Retain = true
 
 	// client1 republish message with topic test of retain, and set the payload is nil
 	pub.sendC2S(pktpub)
-	pub.assertS2CPacket("<Puback ID=3>")
+	pub.assertS2CPacket("<Puback ID=5>")
 	pub.assertS2CPacketTimeout()
 
 	// client4 to connect
 	pktcon.ClientID = "sub3"
-	pktcon.Username = "u4"
-	pktcon.Password = "p4"
 	sub3 := newMockConn(t)
 	b.manager.ClientMQTTHandler(sub3)
 	sub3.sendC2S(pktcon)
 	sub3.assertS2CPacket("<Connack SessionPresent=false ReturnCode=0>")
 
 	// client4 subscribe topic test. If retain message of topic test exists, client4 Will receive the message
-	pktsub.ID = 3
+	pktsub.ID = 6
 	pktsub.Subscriptions = []mqtt.Subscription{{Topic: "test", QOS: 1}}
 	sub3.sendC2S(pktsub)
-	sub3.assertS2CPacket("<Suback ID=3 ReturnCodes=[1]>")
+	sub3.assertS2CPacket("<Suback ID=6 ReturnCodes=[1]>")
 	b.assertSession("sub3", "{\"ID\":\"sub3\",\"CleanSession\":false,\"Subscriptions\":{\"test\":1}}")
 
 	// the retain message only has the message of topic talks, so client4 Will not receive retain message of topic test

@@ -106,6 +106,8 @@ func (c *ClientMQTT) sendWillMessage() {
 			c.log.Error("failed to retain will message", log.Any("topic", msg.Context.Topic))
 		}
 	}
+	// change to normal message before exchange
+	msg.Context.Type = link.Msg
 	c.manager.exchange.Route(msg, c.callback)
 }
 

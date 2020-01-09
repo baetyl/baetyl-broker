@@ -2,6 +2,7 @@ package session
 
 import (
 	"github.com/baetyl/baetyl-broker/common"
+	"github.com/baetyl/baetyl-go/link"
 	"github.com/baetyl/baetyl-go/log"
 	"github.com/baetyl/baetyl-go/mqtt"
 )
@@ -20,8 +21,8 @@ func (c *ClientMQTT) receiving() error {
 	}
 	p, ok := pkt.(*mqtt.Connect)
 	if !ok {
-		c.die(ErrSessionClientUnexpectedPacket.Error(), ErrSessionClientUnexpectedPacket)
-		return ErrSessionClientUnexpectedPacket
+		c.die(ErrSessionClientPacketUnexpected.Error(), ErrSessionClientPacketUnexpected)
+		return ErrSessionClientPacketUnexpected
 	}
 	if err = c.onConnect(p); err != nil {
 		c.die("failed to hanle connect packet", err)
@@ -56,7 +57,7 @@ func (c *ClientMQTT) receiving() error {
 		case *mqtt.Connect:
 			err = ErrSessionClientAlreadyConnecting
 		default:
-			err = ErrSessionClientUnexpectedPacket
+			err = ErrSessionClientPacketUnexpected
 		}
 
 		if err != nil {
@@ -149,6 +150,8 @@ func (c *ClientMQTT) onPublish(p *mqtt.Publish) error {
 		if err != nil {
 			return err
 		}
+		// change to normal message before exchange
+		msg.Context.Type = link.Msg
 	}
 	cb := c.callback
 	if p.Message.QOS == 0 {
