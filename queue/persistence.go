@@ -22,15 +22,15 @@ type Persistence struct {
 	utils.Tomb
 }
 
-// NewPersistence creates a new in-memory queue
-func NewPersistence(cfg Config, backend *Backend, capacity int) Queue {
+// NewPersistence creates a new persistent queue
+func NewPersistence(cfg Config, backend *Backend) Queue {
 	q := &Persistence{
 		backend: backend,
 		cfg:     cfg,
-		input:   make(chan *common.Event, capacity),
-		output:  make(chan *common.Event, capacity),
-		edel:    make(chan uint64, capacity),
-		eget:    make(chan bool, 1),
+		input:   make(chan *common.Event, cfg.BatchSize),
+		output:  make(chan *common.Event, cfg.BatchSize),
+		edel:    make(chan uint64, cfg.BatchSize),
+		eget:    make(chan bool, 3),
 		log:     log.With(log.Any("queue", "persist"), log.Any("id", cfg.Name)),
 	}
 	// to read persistent message
@@ -71,8 +71,7 @@ func (q *Persistence) writing() error {
 	var buf []*common.Event
 	max := cap(q.input)
 	// ? Is it possible to remove the timer?
-	duration := time.Millisecond * 100
-	timer := time.NewTimer(duration)
+	timer := time.NewTimer(q.cfg.WriteTimeout)
 	defer timer.Stop()
 
 	for {
@@ -86,7 +85,7 @@ func (q *Persistence) writing() error {
 				buf = q.add(buf)
 			}
 			//  if receive timeout to add messages in buffer
-			timer.Reset(duration)
+			timer.Reset(q.cfg.WriteTimeout)
 		case <-timer.C:
 			q.log.Debug("queue writes message to backend when timeout")
 			buf = q.add(buf)
@@ -145,9 +144,8 @@ func (q *Persistence) deleting() error {
 	var buf []uint64
 	max := cap(q.edel)
 	// ? Is it possible to remove the timer?
-	duration := time.Millisecond * 500
 	cleanDuration := q.cfg.CleanInterval
-	timer := time.NewTimer(duration)
+	timer := time.NewTimer(q.cfg.DeleteTimeout)
 	cleanTimer := time.NewTicker(cleanDuration)
 	defer timer.Stop()
 	defer cleanTimer.Stop()
@@ -160,7 +158,7 @@ func (q *Persistence) deleting() error {
 			if len(buf) == max {
 				buf = q.delete(buf)
 			}
-			timer.Reset(duration)
+			timer.Reset(q.cfg.DeleteTimeout)
 		case <-timer.C:
 			q.log.Debug("queue deletes message from backend when timeout")
 			buf = q.delete(buf)

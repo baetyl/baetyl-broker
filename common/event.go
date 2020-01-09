@@ -81,17 +81,26 @@ func NewEvent(msg *link.Message, count int32, call func(uint64)) *Event {
 
 // NewMessage creates a new message by packet
 func NewMessage(pkt *mqtt.Publish) *link.Message {
-	var flags uint32
-	if pkt.Message.Retain {
-		flags = 1
-	}
-	return &link.Message{
+	m := &link.Message{
 		Context: link.Context{
 			ID:    uint64(pkt.ID),
 			QOS:   uint32(pkt.Message.QOS),
 			Topic: pkt.Message.Topic,
-			Flags: flags,
 		},
 		Content: pkt.Message.Payload,
 	}
+	if pkt.Message.Retain {
+		m.Context.Type = link.MsgRtn
+	}
+	return m
+}
+
+// Packet converts to mqtt packet
+func (e *Event) Packet() *mqtt.Publish {
+	pkt := mqtt.NewPublish()
+	pkt.Message.QOS = mqtt.QOS(e.Context.QOS)
+	pkt.Message.Topic = e.Context.Topic
+	pkt.Message.Payload = e.Content
+	pkt.Message.Retain = e.Retain()
+	return pkt
 }

@@ -1,12 +1,16 @@
-package auth
+package session
 
 import (
+	"fmt"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 )
 
 func TestAuth(t *testing.T) {
+	au := NewAuthenticator(nil)
+	assert.Nil(t, au)
+
 	p1 := []Principal{{
 		Username: "test",
 		Password: "hahaha",
@@ -15,7 +19,7 @@ func TestAuth(t *testing.T) {
 			{Action: "sub", Permits: []string{"+"}},
 		}},
 	}
-	au := NewAuth(p1)
+	au = NewAuthenticator(p1)
 
 	assert.Nil(t, au.AuthenticateAccount("", ""))
 	assert.Nil(t, au.AuthenticateAccount("test", ""))
@@ -61,7 +65,7 @@ func TestAuth(t *testing.T) {
 		}},
 	}
 
-	au = NewAuth(p2)
+	au = NewAuthenticator(p2)
 	authorizer = au.AuthenticateAccount("test", "hahaha")
 	assert.NotNil(t, authorizer)
 
@@ -126,7 +130,7 @@ func TestAuth(t *testing.T) {
 		}},
 	}
 
-	au = NewAuth(p3)
+	au = NewAuthenticator(p3)
 	authorizer = au.AuthenticateAccount("test", "hahaha")
 	assert.NotNil(t, authorizer)
 
@@ -193,7 +197,7 @@ func TestAuth(t *testing.T) {
 		}},
 	}
 
-	au = NewAuth(p4)
+	au = NewAuthenticator(p4)
 	authorizer = au.AuthenticateAccount("test", "hahaha")
 	assert.NotNil(t, authorizer)
 
@@ -238,7 +242,7 @@ func TestAuth(t *testing.T) {
 		}},
 	}
 
-	au = NewAuth(p5)
+	au = NewAuthenticator(p5)
 	authorizer = au.AuthenticateAccount("test", "hahaha")
 	assert.NotNil(t, authorizer)
 
@@ -353,14 +357,14 @@ func TestAuth(t *testing.T) {
 		}
 	}
 
-	au = NewAuth(principals)
+	au = NewAuthenticator(principals)
 	// config username & password authenticate
 	assert.NotNil(t, au.AuthenticateAccount("test", "hahaha"))
 	assert.Nil(t, au.AuthenticateAccount("test", "lalala"))
 	assert.NotNil(t, au.AuthenticateAccount("temp", "lalala"))
 	assert.Nil(t, au.AuthenticateAccount("temp", "hahaha"))
-	assert.NotNil(t, au.AuthenticateCert("1"))
-	assert.Nil(t, au.AuthenticateCert("2"))
+	assert.NotNil(t, au.AuthenticateCertificate("1"))
+	assert.Nil(t, au.AuthenticateCertificate("2"))
 
 	authorizer = au.AuthenticateAccount("test", "hahaha")
 	assert.NotNil(t, authorizer)
@@ -390,4 +394,71 @@ func getPubSubPermits(permissions []Permission) ([]string, []string) {
 		}
 	}
 	return pubPermits, subPermits
+}
+
+func TestPrincipalsValidate(t *testing.T) {
+	c := new(Config)
+	c.SysTopics = []string{"$baidu", "$link"}
+
+	// round 0-1: no principals
+	err := principalsValidate(nil, "")
+	assert.NoError(t, err)
+
+	// round 0-2: empty principals
+	err = principalsValidate([]Principal{}, "")
+	assert.NoError(t, err)
+
+	// round 1: regular principals config validate
+	principals := []Principal{{
+		Username: "test",
+		Password: "hahaha",
+		Permissions: []Permission{
+			Permission{Action: "pub", Permits: []string{"test", "benchmark", "#", "+", "test/+", "test/#"}},
+			Permission{Action: "sub", Permits: []string{"test", "benchmark", "#", "+", "test/+", "test/#"}},
+		}}, {
+		Username: "temp",
+		Password: "3f29e1b2b05f8371595dc761fed8e8b37544b38d56dfce81a551b46c82f2f56b",
+		Permissions: []Permission{
+			Permission{Action: "pub", Permits: []string{"test", "benchmark", "a/+/b", "+/a/+", "+/a/#"}},
+			Permission{Action: "sub", Permits: []string{"test", "benchmark", "a/+/b", "+/a/+", "+/a/#"}},
+		}}}
+	err = principalsValidate(principals, "")
+	assert.NoError(t, err)
+
+	// round 2: duplicate username validate
+	principals = principals[:len(principals)-1]
+	principals = append(principals, Principal{
+		Username: "test",
+		Password: "3f29e1b2b05f8371595dc761fed8e8b37544b38d56dfce81a551b46c82f2f56b",
+		Permissions: []Permission{
+			Permission{Action: "pub", Permits: []string{"test", "benchmark"}},
+		}})
+	err = principalsValidate(principals, "")
+	assert.NotNil(t, err)
+	assert.Equal(t, fmt.Sprintf("username (test) duplicate"), err.Error())
+
+	// round 3: invalid publish topic validate
+	principals = principals[:len(principals)-1]
+	principals = append(principals, Principal{
+		Username: "hello",
+		Password: "3f29e1b2b05f8371595dc761fed8e8b37544b38d56dfce81a551b46c82f2f56b",
+		Permissions: []Permission{
+			Permission{Action: "pub", Permits: []string{"test/a+/b", "benchmark"}},
+		}})
+	err = principalsValidate(principals, "")
+	assert.NotNil(t, err)
+	assert.Equal(t, fmt.Sprintf("pub topic(test/a+/b) invalid"), err.Error())
+
+	// round 4: invalid subscribe topic validate
+	principals = principals[:len(principals)-1]
+	principals = append(principals, Principal{
+		Username: "hello",
+		Password: "3f29e1b2b05f8371595dc761fed8e8b37544b38d56dfce81a551b46c82f2f56b",
+		Permissions: []Permission{
+			Permission{Action: "pub", Permits: []string{"test", "benchmark"}},
+			Permission{Action: "sub", Permits: []string{"test", "test/#/temp"}},
+		}})
+	err = principalsValidate(principals, "")
+	assert.NotNil(t, err)
+	assert.Equal(t, fmt.Sprintf("sub topic(test/#/temp) invalid"), err.Error())
 }

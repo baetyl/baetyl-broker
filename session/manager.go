@@ -2,15 +2,11 @@ package session
 
 import (
 	"context"
-	"crypto/tls"
+	"encoding/base64"
 	"errors"
 	"io"
-	"net"
 	"sync"
-	"time"
 
-	"github.com/256dpi/gomqtt/transport"
-	"github.com/baetyl/baetyl-broker/auth"
 	"github.com/baetyl/baetyl-broker/exchange"
 	"github.com/baetyl/baetyl-broker/queue"
 	"github.com/baetyl/baetyl-broker/retain"
@@ -21,9 +17,25 @@ import (
 
 // all errors
 var (
-	ErrMessageInvalid    = errors.New("Only message with topic can be routed")
-	ErrConnectionExceeds = errors.New("The number of connections exceeds the max limit")
-	ErrGetCommonName     = errors.New("Can not get common name from cert")
+	ErrConnectionExceeds                   = errors.New("number of connections exceeds the max limit")
+	ErrSessionClientAlreadyClosed          = errors.New("session client is already closed")
+	ErrSessionClientAlreadyConnecting      = errors.New("session client is already connecting")
+	ErrSessionClientPacketUnexpected       = errors.New("session client received unexpected packet")
+	ErrSessionClientPacketIDConflict       = errors.New("packet id conflict, to acknowledge old packet")
+	ErrSessionClientPacketNotFound         = errors.New("packet id is not found")
+	ErrSessionProtocolVersionInvalid       = errors.New("protocol version is invalid")
+	ErrSessionClientIDInvalid              = errors.New("client ID is invalid")
+	ErrSessionUsernameNotSet               = errors.New("username is not set")
+	ErrSessionPasswordNotSet               = errors.New("password is not set")
+	ErrSessionUsernameNotPermitted         = errors.New("username or password is not permitted")
+	ErrSessionMessageQosNotSupported       = errors.New("message QOS is not supported")
+	ErrSessionMessageTopicInvalid          = errors.New("message topic is invalid")
+	ErrSessionMessageTopicNotPermitted     = errors.New("message topic is not permitted")
+	ErrSessionMessageTypeInvalid           = errors.New("message type is invalid")
+	ErrSessionWillMessageQosNotSupported   = errors.New("will QoS is not supported")
+	ErrSessionWillMessageTopicInvalid      = errors.New("will topic is invalid")
+	ErrSessionWillMessageTopicNotPermitted = errors.New("will topic is not permitted")
+	ErrSessionLinkIDNotSet                 = errors.New("link id is not set")
 )
 
 type client interface {
@@ -33,36 +45,23 @@ type client interface {
 	io.Closer
 }
 
-// Config session cfg
-type Config struct {
-	PersistenceDriver       string        `yaml:"persistenceDriver" json:"persistenceDriver" default:"sqlite3"`
-	PersistenceLocation     string        `yaml:"persistenceLocation" json:"persistenceLocation" default:"var/lib/baetyl"`
-	MaxInflightQOS0Messages int           `yaml:"maxInflightQOS0Messages" json:"maxInflightQOS0Messages" default:"100" validate:"min=1"`
-	MaxInflightQOS1Messages int           `yaml:"maxInflightQOS1Messages" json:"maxInflightQOS1Messages" default:"20" validate:"min=1"`
-	RepublishInterval       time.Duration `yaml:"republishInterval" json:"republishInterval" default:"20s"`
-	CleanInterval           time.Duration `yaml:"cleanInterval" json:"cleanInterval" default:"1h"`
-	ExpireDay               int           `yaml:"expireDay" json:"expireDay" default:"7" validate:"min=1"`
-	MaxConnections          int           `yaml:"maxConnections" json:"maxConnections"`
-	SysTopics               []string      `yaml:"sysTopics" json:"sysTopics" default:"[\"$link\"]"`
-}
-
 // Manager the manager of sessions
 type Manager struct {
-	cfg       Config
-	auth      *auth.Auth
-	sessiondb *Backend
-	retaindb  *retain.Backend
-	exchange  *exchange.Exchange
-	checker   *mqtt.TopicChecker
-	sessions  map[string]*Session
-	clients   map[string]client            // TODO: limit the number of clients
-	bindings  map[string]map[string]client // map[sid]map[cid]client
-	log       *log.Logger
+	cfg           Config
+	sessiondb     *Backend
+	retaindb      *retain.Backend
+	exchange      *exchange.Exchange
+	checker       *mqtt.TopicChecker
+	authenticator *Authenticator
+	sessions      map[string]*Session
+	clients       map[string]client            // TODO: limit the number of clients
+	bindings      map[string]map[string]client // map[sid]map[cid]client
+	log           *log.Logger
 	sync.Mutex
 }
 
 // NewManager create a new session manager
-func NewManager(cfg Config, auth *auth.Auth) (*Manager, error) {
+func NewManager(cfg Config) (*Manager, error) {
 	sessiondb, err := NewBackend(cfg)
 	if err != nil {
 		return nil, err
@@ -79,16 +78,16 @@ func NewManager(cfg Config, auth *auth.Auth) (*Manager, error) {
 		return nil, err
 	}
 	manager := &Manager{
-		cfg:       cfg,
-		auth:      auth,
-		sessiondb: sessiondb,
-		retaindb:  retaindb,
-		checker:   mqtt.NewTopicChecker(cfg.SysTopics),
-		exchange:  exchange.NewExchange(cfg.SysTopics),
-		sessions:  map[string]*Session{},
-		clients:   map[string]client{},
-		bindings:  map[string]map[string]client{},
-		log:       log.With(log.Any("manager", "session")),
+		cfg:           cfg,
+		sessiondb:     sessiondb,
+		retaindb:      retaindb,
+		authenticator: NewAuthenticator(cfg.Principals),
+		checker:       mqtt.NewTopicChecker(cfg.SysTopics),
+		exchange:      exchange.NewExchange(cfg.SysTopics),
+		sessions:      map[string]*Session{},
+		clients:       map[string]client{},
+		bindings:      map[string]map[string]client{},
+		log:           log.With(log.Any("session", "manager")),
 	}
 	for _, i := range items {
 		si := i.(*Info)
@@ -132,42 +131,56 @@ func (m *Manager) Close() error {
 // * connection handlers
 
 // ClientMQTTHandler the connection handler to create a new MQTT client
-func (m *Manager) ClientMQTTHandler(connection mqtt.Connection, anonymous bool) {
-	m.Lock()
-	defer m.Unlock()
-
-	if m.cfg.MaxConnections > 0 && len(m.clients) >= m.cfg.MaxConnections {
-		m.log.Warn(ErrConnectionExceeds.Error(), log.Any("max", m.cfg.MaxConnections))
-		connection.Close()
+func (m *Manager) ClientMQTTHandler(conn mqtt.Connection) {
+	err := m.checkConnection()
+	if err != nil {
+		conn.Close()
 		return
 	}
-
-	c := newClientMQTT(m, connection, anonymous)
-	m.clients[c.getID()] = c
+	m.initClientMQTT(conn)
 }
 
 // Call handler of link
 func (m *Manager) Call(ctx context.Context, msg *link.Message) (*link.Message, error) {
-	if msg.Context.Topic == "" {
-		return nil, ErrMessageInvalid
+	// TODO: improvement, cache auth result
+	if msg.Context.QOS > 1 {
+		return nil, ErrSessionMessageQosNotSupported
 	}
-	m.exchange.Route(msg, nil)
-	return nil, nil
+	if !m.checker.CheckTopic(msg.Context.Topic, false) {
+		return nil, ErrSessionMessageTopicInvalid
+	}
+	if msg.Context.QOS == 0 {
+		m.exchange.Route(msg, nil)
+		return nil, nil
+	}
+	done := make(chan struct{})
+	m.exchange.Route(msg, func(_ uint64) {
+		close(done)
+	})
+	select {
+	case <-done:
+		return nil, nil
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	}
 }
 
 // Talk handler of link
 func (m *Manager) Talk(stream link.Link_TalkServer) error {
-	// m.Lock()
-	// defer m.Unlock()
-
-	// if m.cfg.MaxConnections > 0 && len(m.clients) >= m.cfg.MaxConnections {
-	// 	m.log.Warn(ErrConnectionExceeds.Error(), log.Any("max", m.cfg.MaxConnections))
-	// 	return ErrConnectionExceeds
-	// }
-
-	// c := newClientGRPC(m, stream)
-	// m.clients[c.getID()] = c
-	return errors.New("not implemented")
+	err := m.checkConnection()
+	if err != nil {
+		return err
+	}
+	c, err := m.initClientLink(stream)
+	if err != nil {
+		m.log.Error("failed to create link client", log.Error(err))
+		return err
+	}
+	err = c.sending()
+	if err != nil {
+		m.log.Debug("failed to send message", log.Error(err))
+	}
+	return c.Close()
 }
 
 // * init session for client
@@ -190,6 +203,8 @@ func (m *Manager) initSession(si *Info, c client, unique bool) (exists bool, err
 			if len(m.bindings[sid]) != 0 {
 				panic("all previous clients should be deleted")
 			}
+		} else {
+			m.log.Info("add new client to existing session", log.Any("session", sid), log.Any("cid", cid))
 		}
 	} else {
 		s, err = m.newSession(si)
@@ -199,7 +214,6 @@ func (m *Manager) initSession(si *Info, c client, unique bool) (exists bool, err
 		m.sessions[sid] = s
 	}
 
-	// TODO: if no topic subscribed, the session does not need to create queues
 	// binding client and session
 	if _, ok := m.bindings[sid]; !ok {
 		m.bindings[sid] = map[string]client{}
@@ -216,18 +230,20 @@ func (m *Manager) initSession(si *Info, c client, unique bool) (exists bool, err
 		m.sessiondb.Set(&s.Info)
 		s.log.Info("session is stored to backend")
 	}
+
+	// TODO: if no topic subscribed, the session does not need to create queues
+	for topic, qos := range s.Subscriptions {
+		s.subs.Set(topic, qos)
+		m.exchange.Bind(topic, s)
+	}
 	return
 }
 
 func (m *Manager) newSession(si *Info) (*Session, error) {
 	sid := si.ID
-	cfg := queue.Config{
-		Name:          sid,
-		Driver:        m.cfg.PersistenceDriver,
-		Location:      m.cfg.PersistenceLocation,
-		ExpireTime:    24 * time.Duration(m.cfg.ExpireDay) * time.Hour,
-		CleanInterval: m.cfg.CleanInterval,
-	}
+	cfg := m.cfg.Persistence
+	cfg.Name = base64.StdEncoding.EncodeToString([]byte(sid))
+	cfg.BatchSize = m.cfg.MaxInflightQOS1Messages
 	queuedb, err := m.sessiondb.NewQueueBackend(cfg)
 	if err != nil {
 		m.log.Error("failed to create session", log.Any("session", sid), log.Error(err))
@@ -238,7 +254,7 @@ func (m *Manager) newSession(si *Info) (*Session, error) {
 		Info: *si,
 		subs: mqtt.NewTrie(),
 		qos0: queue.NewTemporary(sid, m.cfg.MaxInflightQOS0Messages, true),
-		qos1: queue.NewPersistence(cfg, queuedb, m.cfg.MaxInflightQOS1Messages),
+		qos1: queue.NewPersistence(cfg, queuedb),
 		log:  m.log.With(log.Any("id", sid)),
 	}, nil
 }
@@ -288,7 +304,24 @@ func (m *Manager) unsubscribe(c client, topics []string) error {
 	return nil
 }
 
-//  * remove client and session
+func (m *Manager) checkConnection() error {
+	m.Lock()
+	num := len(m.clients)
+	m.Unlock()
+	if m.cfg.MaxConnections > 0 && num >= m.cfg.MaxConnections {
+		m.log.Error(ErrConnectionExceeds.Error(), log.Any("max", m.cfg.MaxConnections))
+		return ErrConnectionExceeds
+	}
+	return nil
+}
+
+//  * client operations
+
+func (m *Manager) addClient(c client) {
+	m.Lock()
+	m.clients[c.getID()] = c
+	m.Unlock()
+}
 
 // delClient deletes client and clean session if needs
 func (m *Manager) delClient(c client) {
@@ -316,6 +349,8 @@ func (m *Manager) delClient(c client) {
 		// TODO: to delete persistent queue data if CleanSession=true
 	}
 }
+
+// * session operations
 
 // SetRetain sets retain message
 func (m *Manager) setRetain(topic string, msg *link.Message) error {
@@ -348,33 +383,4 @@ func (m *Manager) removeRetain(topic string) error {
 		return err
 	}
 	return nil
-}
-
-// TODO: merge it into function IsBidirectionalAuthentication() of baetyl-go
-// getTLSConn gets TLSConn
-func getTLSConn(conn mqtt.Connection) (*tls.Conn, bool) {
-	var innerConn net.Conn
-	if netconn, ok := conn.(*transport.NetConn); ok {
-		innerConn = netconn.UnderlyingConn()
-	} else if wsconn, ok := conn.(*transport.WebSocketConn); ok {
-		innerConn = wsconn.UnderlyingConn().UnderlyingConn()
-	}
-	tlsConn, ok := innerConn.(*tls.Conn)
-	return tlsConn, ok
-}
-
-// TODO: move it to baetyl-go and add unit test
-// getCommonName gets commonName of cert
-func getCommonName(conn *tls.Conn) (string, error) {
-	var cn string
-	state := conn.ConnectionState()
-	if !state.HandshakeComplete {
-		return cn, ErrGetCommonName
-	}
-	length := len(state.PeerCertificates)
-	if length == 0 {
-		return cn, ErrGetCommonName
-	}
-	cn = state.PeerCertificates[len(state.PeerCertificates)-1].Subject.CommonName
-	return cn, nil
 }
