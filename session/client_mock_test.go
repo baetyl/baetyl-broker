@@ -111,6 +111,8 @@ func (b *mockBroker) close() {
 	os.RemoveAll(b.cfg.Persistence.Location)
 }
 
+// * mqtt mock
+
 type mockConn struct {
 	t      *testing.T
 	c2s    chan mqtt.Packet
@@ -200,6 +202,8 @@ func (c *mockConn) assertClosed(expect bool) {
 	assert.Equal(c.t, expect, c.closed)
 	c.RUnlock()
 }
+
+// * link mock
 
 type mockStream struct {
 	t      *testing.T

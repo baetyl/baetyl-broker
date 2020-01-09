@@ -14,6 +14,8 @@ import (
 	"google.golang.org/grpc/metadata"
 )
 
+// TODO: link session should be removed when it is expired because link client has no method to clean it's session
+
 // ClientLink the client of Link
 type ClientLink struct {
 	id         string
@@ -29,7 +31,7 @@ type ClientLink struct {
 
 func (m *Manager) initClientLink(stream link.Link_TalkServer) (*ClientLink, error) {
 	md, ok := metadata.FromIncomingContext(stream.Context())
-	m.log.Debug("to create link client with metatdata", log.Any("md", md))
+	m.log.Debug("to create link client with metatdata", log.Any("metadata", md))
 	if !ok || len(md.Get("linkid")) == 0 {
 		return nil, ErrSessionLinkIDNotSet
 	}

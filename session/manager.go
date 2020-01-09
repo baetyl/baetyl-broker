@@ -20,7 +20,7 @@ var (
 	ErrConnectionExceeds                   = errors.New("number of connections exceeds the max limit")
 	ErrSessionClientAlreadyClosed          = errors.New("session client is already closed")
 	ErrSessionClientAlreadyConnecting      = errors.New("session client is already connecting")
-	ErrSessionClientUnexpectedPacket       = errors.New("session client received unexpected packet")
+	ErrSessionClientPacketUnexpected       = errors.New("session client received unexpected packet")
 	ErrSessionClientPacketIDConflict       = errors.New("packet id conflict, to acknowledge old packet")
 	ErrSessionClientPacketNotFound         = errors.New("packet id is not found")
 	ErrSessionProtocolVersionInvalid       = errors.New("protocol version is invalid")
