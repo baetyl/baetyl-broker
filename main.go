@@ -55,17 +55,17 @@ func main() {
 	defer l.Sync()
 
 	// baetyl.Run(func(ctx baetyl.Context) error {
-	var cfg config
+	var cfg Config
 	if utils.FileExists(c) {
 		utils.LoadYAML(c, &cfg)
 	} else {
 		utils.SetDefaults(&cfg)
 	}
-	b, err := newBroker(cfg)
+	b, err := NewBroker(cfg)
 	if err != nil {
 		l.Fatal("failed to create broker", log.Error(err))
 	}
-	defer b.close()
+	defer b.Close()
 
 	sig := make(chan os.Signal, 1)
 	signal.Notify(sig, syscall.SIGTERM, syscall.SIGINT)

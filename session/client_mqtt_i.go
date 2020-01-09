@@ -1,9 +1,6 @@
 package session
 
 import (
-	"errors"
-
-	"github.com/baetyl/baetyl-broker/auth"
 	"github.com/baetyl/baetyl-broker/common"
 	"github.com/baetyl/baetyl-go/log"
 	"github.com/baetyl/baetyl-go/mqtt"
@@ -15,7 +12,7 @@ func (c *ClientMQTT) receiving() error {
 
 	pkt, err := c.connection.Receive()
 	if err != nil {
-		c.die(err)
+		c.die("failed to receive packet at first time", err)
 		return err
 	}
 	if ent := c.log.Check(log.DebugLevel, "client received a packet"); ent != nil {
@@ -23,18 +20,18 @@ func (c *ClientMQTT) receiving() error {
 	}
 	p, ok := pkt.(*mqtt.Connect)
 	if !ok {
-		c.die(ErrSessionClientUnexpectedPacket)
+		c.die(ErrSessionClientUnexpectedPacket.Error(), ErrSessionClientUnexpectedPacket)
 		return ErrSessionClientUnexpectedPacket
 	}
 	if err = c.onConnect(p); err != nil {
-		c.die(err)
+		c.die("failed to hanle connect packet", err)
 		return err
 	}
 
 	for {
 		pkt, err = c.connection.Receive()
 		if err != nil {
-			c.die(err)
+			c.die("failed to receive packet", err)
 			return err
 		}
 		if ent := c.log.Check(log.DebugLevel, "client received a packet"); ent != nil {
@@ -54,7 +51,7 @@ func (c *ClientMQTT) receiving() error {
 		case *mqtt.Pingresp:
 			err = nil // just ignore
 		case *mqtt.Disconnect:
-			c.die(nil)
+			c.die("", nil)
 			return nil
 		case *mqtt.Connect:
 			err = ErrSessionClientAlreadyConnecting
@@ -63,7 +60,7 @@ func (c *ClientMQTT) receiving() error {
 		}
 
 		if err != nil {
-			c.die(err)
+			c.die("failed to handle packet", err)
 			return err
 		}
 	}
@@ -76,41 +73,41 @@ func (c *ClientMQTT) onConnect(p *mqtt.Connect) error {
 	}
 	if p.Version != mqtt.Version31 && p.Version != mqtt.Version311 {
 		c.sendConnack(mqtt.InvalidProtocolVersion, false)
-		return errors.New("protocol version invalid")
+		return ErrSessionProtocolVersionInvalid
 	}
 	if !checkClientID(si.ID) {
 		c.sendConnack(mqtt.IdentifierRejected, false)
-		return errors.New("client ID invalid")
+		return ErrSessionClientIDInvalid
 	}
-	if !c.anonymous && c.manager.auth != nil {
+	if c.manager.authenticator != nil {
 		// TODO: support tls bidirectional authentication, use CN as username
 
 		// username/password authentication
 		if p.Username == "" {
 			c.sendConnack(mqtt.BadUsernameOrPassword, false)
-			return errors.New("username not set")
+			return ErrSessionUsernameNotSet
 		}
 		if p.Password == "" {
 			c.sendConnack(mqtt.BadUsernameOrPassword, false)
-			return errors.New("password not set")
+			return ErrSessionPasswordNotSet
 		}
-		c.authorizer = c.manager.auth.AuthenticateAccount(p.Username, p.Password)
+		c.authorizer = c.manager.authenticator.AuthenticateAccount(p.Username, p.Password)
 		if c.authorizer == nil {
 			c.sendConnack(mqtt.BadUsernameOrPassword, false)
-			return errors.New("username or password not permitted")
+			return ErrSessionUsernameNotPermitted
 		}
 	}
 
 	if p.Will != nil {
-		if !c.manager.checker.CheckTopic(p.Will.Topic, false) {
-			return errors.New("will topic invalid")
-		}
-		if !c.authorize(auth.Publish, p.Will.Topic) {
-			c.sendConnack(mqtt.NotAuthorized, false)
-			return errors.New("will topic not permitted")
-		}
 		if p.Will.QOS > 1 {
-			return errors.New("will QoS not supported")
+			return ErrSessionWillMessageQosNotSupported
+		}
+		if !c.manager.checker.CheckTopic(p.Will.Topic, false) {
+			return ErrSessionWillMessageTopicInvalid
+		}
+		if !c.authorize(Publish, p.Will.Topic) {
+			c.sendConnack(mqtt.NotAuthorized, false)
+			return ErrSessionWillMessageTopicNotPermitted
 		}
 		si.Will = common.NewMessage(&mqtt.Publish{Message: *p.Will})
 	}
@@ -123,7 +120,7 @@ func (c *ClientMQTT) onConnect(p *mqtt.Connect) error {
 	if err != nil {
 		return err
 	}
-	c.Go(c.republishing, c.publishing)
+	c.tomb.Go(c.republishing, c.publishing)
 
 	// TODO: Re-check subscriptions, if subscription not permit, log error and skip
 	err = c.sendConnack(mqtt.ConnectionAccepted, exists)
@@ -138,13 +135,13 @@ func (c *ClientMQTT) onConnect(p *mqtt.Connect) error {
 func (c *ClientMQTT) onPublish(p *mqtt.Publish) error {
 	// TODO: improvement, cache auth result
 	if p.Message.QOS > 1 {
-		return errors.New("publish QOS not supported")
+		return ErrSessionMessageQosNotSupported
 	}
 	if !c.manager.checker.CheckTopic(p.Message.Topic, false) {
-		return errors.New("publish topic invalid")
+		return ErrSessionMessageTopicInvalid
 	}
-	if !c.authorize(auth.Publish, p.Message.Topic) {
-		return errors.New("publish topic not permitted")
+	if !c.authorize(Publish, p.Message.Topic) {
+		return ErrSessionMessageTopicNotPermitted
 	}
 	msg := common.NewMessage(p)
 	if msg.Retain() {
@@ -162,7 +159,10 @@ func (c *ClientMQTT) onPublish(p *mqtt.Publish) error {
 }
 
 func (c *ClientMQTT) onPuback(p *mqtt.Puback) error {
-	c.acknowledge(p)
+	err := c.resender.delete(p.ID)
+	if err != nil {
+		c.log.Warn(err.Error(), log.Any("pid", int(p.ID)))
+	}
 	return nil
 }
 
@@ -210,7 +210,7 @@ func (c *ClientMQTT) genSuback(p *mqtt.Subscribe) (*mqtt.Suback, []mqtt.Subscrip
 		} else if sub.QOS > 1 {
 			c.log.Error("subscribe QOS not supported", log.Any("qos", int(sub.QOS)))
 			sa.ReturnCodes[i] = mqtt.QOSFailure
-		} else if !c.authorize(auth.Subscribe, sub.Topic) {
+		} else if !c.authorize(Subscribe, sub.Topic) {
 			c.log.Error("subscribe topic not permitted", log.Any("topic", sub.Topic))
 			sa.ReturnCodes[i] = mqtt.QOSFailure
 		} else {

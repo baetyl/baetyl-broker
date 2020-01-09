@@ -18,14 +18,14 @@ type Backend struct {
 
 // NewBackend create a new backend database for session
 func NewBackend(cfg Config) (*Backend, error) {
-	p := path.Join(cfg.PersistenceLocation, "session")
+	p := path.Join(cfg.Persistence.Location, "session")
 	err := os.MkdirAll(p, os.ModePerm)
 	if err != nil {
 		return nil, err
 	}
 	backend := &Backend{cfg: cfg}
 	db, err := database.New(database.Conf{
-		Driver: cfg.PersistenceDriver,
+		Driver: cfg.Persistence.Driver,
 		Source: path.Join(p, "session.db"),
 	}, backend)
 	if err != nil {
@@ -43,8 +43,8 @@ func (b *Backend) NewQueueBackend(cfg queue.Config) (*queue.Backend, error) {
 // NewRetainBackend create a new backend database for retain
 func (b *Backend) NewRetainBackend() (*retain.Backend, error) {
 	return retain.NewBackend(retain.Config{
-		Driver:   b.cfg.PersistenceDriver,
-		Location: b.cfg.PersistenceLocation,
+		Driver:   b.cfg.Persistence.Driver,
+		Location: path.Join(b.cfg.Persistence.Location),
 	})
 }
 
