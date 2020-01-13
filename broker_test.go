@@ -58,8 +58,6 @@ func TestSessionMqttConnectSSL(t *testing.T) {
 	dailer := mqtt.NewDialer(ctc, time.Duration(0))
 	pkt := mqtt.NewConnect()
 	pkt.ClientID = "ssl-1"
-	pkt.Username = ""
-	pkt.Password = ""
 	sslConn, err := dailer.Dial(getURL(b.transport.GetServers()[1], "ssl"))
 	assert.NoError(t, err)
 	defer sslConn.Close()
@@ -115,8 +113,6 @@ func TestSessionMqttConnectWebscoketSSL(t *testing.T) {
 	dailer := mqtt.NewDialer(ctc, time.Duration(0))
 	pkt := mqtt.NewConnect()
 	pkt.ClientID = "wss-1"
-	pkt.Username = ""
-	pkt.Password = ""
 	wssConn, err := dailer.Dial(getURL(b.transport.GetServers()[3], "wss") + "/mqtt")
 	assert.NoError(t, err)
 	defer wssConn.Close()
