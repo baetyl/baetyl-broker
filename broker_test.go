@@ -95,13 +95,13 @@ func TestBrokerMqttConnectErrorWrongAddress(t *testing.T) {
 	// for tcp connection
 	obs := newMockObserver(t)
 	cli, err := mqtt.NewClient(mqtt.ClientConfig{
-		Address: "tcp://127.0.0.1:0",
+		Address: "tcp://127.0.0.1:2333",
 	}, obs)
 	assert.NoError(t, err)
 	assert.NotNil(t, cli)
 	defer cli.Close()
 
-	obs.assertErrs(errors.New("dial tcp 127.0.0.1:0: connect: connection refused"))
+	obs.assertErrs(errors.New("dial tcp 127.0.0.1:2333: connect: connection refused"))
 }
 
 func TestBrokerMqttConnectErrorMissingClinetID(t *testing.T) {
