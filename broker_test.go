@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"testing"
 	"time"
@@ -14,117 +15,297 @@ const (
 	cfg = "./example/etc/baetyl/service.yml"
 )
 
-func TestSessionMqttConnectTCP(t *testing.T) {
+type mockObserver struct {
+	t    *testing.T
+	pkts chan mqtt.Packet
+	errs chan error
+}
+
+func newMockObserver(t *testing.T) *mockObserver {
+	return &mockObserver{
+		t:    t,
+		pkts: make(chan mqtt.Packet, 10),
+		errs: make(chan error, 10),
+	}
+}
+
+func (o *mockObserver) OnPublish(pkt *mqtt.Publish) error {
+	fmt.Println("--> OnPublish:", pkt)
+	o.pkts <- pkt
+	return nil
+}
+
+func (o *mockObserver) OnPuback(pkt *mqtt.Puback) error {
+	fmt.Println("--> OnPuback:", pkt)
+	o.pkts <- pkt
+	return nil
+}
+
+func (o *mockObserver) OnError(err error) {
+	fmt.Println("--> OnError:", err)
+	o.errs <- err
+}
+
+func (o *mockObserver) assertPkts(pkts ...mqtt.Packet) {
+	for _, pkt := range pkts {
+		select {
+		case <-time.After(6 * time.Minute):
+			panic("nothing received")
+		case p := <-o.pkts:
+			assert.Equal(o.t, pkt, p)
+		}
+	}
+}
+
+func (o *mockObserver) assertErrs(errs ...error) {
+	for _, err := range errs {
+		select {
+		case <-time.After(100 * time.Millisecond):
+			panic("nothing received")
+		case e := <-o.errs:
+			assert.Equal(o.t, err.Error(), e.Error())
+		}
+	}
+}
+
+func TestBrokerMqttConnectErrorMissingAddress(t *testing.T) {
 	var config Config
 	utils.LoadYAML(cfg, &config)
 	b, err := NewBroker(config)
 	assert.NoError(t, err)
 	defer b.Close()
-	time.Sleep(time.Millisecond * 100)
 
 	// for tcp connection
-	dailer := mqtt.NewDialer(nil, time.Duration(0))
-	pkt := mqtt.NewConnect()
-	pkt.ClientID = "tcp-1"
-	pkt.Username = "test"
-	pkt.Password = "hahaha"
-	tcpConn, err := dailer.Dial(getURL(b.transport.GetServers()[0], "tcp"))
+	obs := newMockObserver(t)
+	cli, err := mqtt.NewClient(mqtt.ClientConfig{}, obs)
 	assert.NoError(t, err)
-	defer tcpConn.Close()
-	err = tcpConn.Send(pkt, true)
-	assert.NoError(t, err)
-	pktRes, err := tcpConn.Receive()
-	assert.NoError(t, err)
-	pktString := pktRes.String()
-	assert.Equal(t, "<Connack SessionPresent=false ReturnCode=0>", pktString)
+	assert.NotNil(t, cli)
+	defer cli.Close()
+
+	obs.assertErrs(errors.New("parse : empty url"))
 }
 
-func TestSessionMqttConnectSSL(t *testing.T) {
+func TestBrokerMqttConnectErrorWrongPort(t *testing.T) {
 	var config Config
 	utils.LoadYAML(cfg, &config)
 	b, err := NewBroker(config)
 	assert.NoError(t, err)
 	defer b.Close()
-	time.Sleep(time.Millisecond * 100)
+
+	// for tcp connection
+	obs := newMockObserver(t)
+	cli, err := mqtt.NewClient(mqtt.ClientConfig{
+		Address: "tcp://0.0.0.0:0",
+	}, obs)
+	assert.NoError(t, err)
+	assert.NotNil(t, cli)
+	defer cli.Close()
+
+	obs.assertErrs(errors.New("dial tcp 0.0.0.0:0: connect: can't assign requested address"))
+}
+
+func TestBrokerMqttConnectErrorMissingClinetID(t *testing.T) {
+	var config Config
+	utils.LoadYAML(cfg, &config)
+	b, err := NewBroker(config)
+	assert.NoError(t, err)
+	defer b.Close()
+
+	// for tcp connection
+	obs := newMockObserver(t)
+	cli, err := mqtt.NewClient(mqtt.ClientConfig{
+		Address:      "tcp://0.0.0.0:1883",
+		Username:     "test",
+		Password:     "hahaha",
+		CleanSession: false,
+	}, obs)
+	assert.NoError(t, err)
+	assert.NotNil(t, cli)
+	defer cli.Close()
+
+	obs.assertErrs(errors.New("clean session must be 1 if client id is zero length"))
+}
+
+func TestBrokerMqttConnectErrorCertificate(t *testing.T) {
+	var config Config
+	utils.LoadYAML(cfg, &config)
+	b, err := NewBroker(config)
+	assert.NoError(t, err)
+	defer b.Close()
+
+	// for tcp connection
+	obs := newMockObserver(t)
+	cli, err := mqtt.NewClient(mqtt.ClientConfig{
+		Address:  "ssl://0.0.0.0:1884",
+		ClientID: "ssl-1",
+		Timeout:  time.Millisecond * 100,
+		// Certificate: utils.Certificate{
+		// 	CA:                 "./example/var/lib/baetyl/testcert/ca.pem",
+		// 	Cert:               "./example/var/lib/baetyl/testcert/client.pem",
+		// 	Key:                "./example/var/lib/baetyl/testcert/client.key",
+		// 	InsecureSkipVerify: true,
+		// },
+	}, obs)
+	assert.NoError(t, err)
+	assert.NotNil(t, cli)
+	defer cli.Close()
+
+	obs.assertErrs(errors.New("x509: cannot validate certificate for 0.0.0.0 because it doesn't contain any IP SANs"))
+}
+
+func TestBrokerMqttConnectErrorBadUsernameOrPassword1(t *testing.T) {
+	var config Config
+	utils.LoadYAML(cfg, &config)
+	b, err := NewBroker(config)
+	assert.NoError(t, err)
+	defer b.Close()
+
+	// for tcp connection
+	obs := newMockObserver(t)
+	cli, err := mqtt.NewClient(mqtt.ClientConfig{
+		Address:  "tcp://0.0.0.0:1883",
+		Username: "test",
+		// Password: "hahaha",
+		ClientID: "tcp-1",
+		Timeout:  time.Millisecond * 100,
+	}, obs)
+	assert.NoError(t, err)
+	assert.NotNil(t, cli)
+	defer cli.Close()
+
+	obs.assertErrs(errors.New("connection refused: bad user name or password"))
+}
+
+func TestBrokerMqttConnectErrorBadUsernameOrPassword2(t *testing.T) {
+	var config Config
+	utils.LoadYAML(cfg, &config)
+	b, err := NewBroker(config)
+	assert.NoError(t, err)
+	defer b.Close()
+
+	// for tcp connection
+	obs := newMockObserver(t)
+	cli, err := mqtt.NewClient(mqtt.ClientConfig{
+		Address: "tcp://0.0.0.0:1883",
+		// Username: "test",
+		Password: "hahaha",
+		ClientID: "tcp-1",
+		Timeout:  time.Millisecond * 100,
+	}, obs)
+	assert.NoError(t, err)
+	assert.NotNil(t, cli)
+	defer cli.Close()
+
+	obs.assertErrs(errors.New("password set without username"))
+}
+
+func TestBrokerMqttConnectErrorBadUsernameOrPassword3(t *testing.T) {
+	var config Config
+	utils.LoadYAML(cfg, &config)
+	b, err := NewBroker(config)
+	assert.NoError(t, err)
+	defer b.Close()
+
+	// for tcp connection
+	obs := newMockObserver(t)
+	cli, err := mqtt.NewClient(mqtt.ClientConfig{
+		Address:  "tcp://0.0.0.0:1883",
+		Username: "temp",
+		Password: "hahaha",
+		ClientID: "tcp-1",
+		Timeout:  time.Millisecond * 100,
+	}, obs)
+	assert.NoError(t, err)
+	assert.NotNil(t, cli)
+	defer cli.Close()
+
+	obs.assertErrs(errors.New("connection refused: bad user name or password"))
+}
+
+func TestBrokerMqttConnectTCPNormal(t *testing.T) {
+	var config Config
+	utils.LoadYAML(cfg, &config)
+	b, err := NewBroker(config)
+	assert.NoError(t, err)
+	defer b.Close()
+
+	// for tcp connection, normal
+	obs := newMockObserver(t)
+	cli, err := mqtt.NewClient(mqtt.ClientConfig{
+		Address:  "tcp://127.0.0.1:1883",
+		Username: "test",
+		Password: "hahaha",
+		ClientID: "tcp-1",
+	}, obs)
+	assert.NoError(t, err)
+	assert.NotNil(t, cli)
+	assert.NoError(t, cli.Close())
+}
+
+func TestBrokerMqttConnectSSLNormal(t *testing.T) {
+	var config Config
+	utils.LoadYAML(cfg, &config)
+	b, err := NewBroker(config)
+	assert.NoError(t, err)
+	defer b.Close()
 
 	// for ssl connection
-	ctc, err := utils.NewTLSConfigClient(utils.Certificate{
-		CA:                 "./example/testcert/ca.pem",
-		Cert:               "./example/testcert/client.pem",
-		Key:                "./example/testcert/client.key",
-		InsecureSkipVerify: true,
-	})
+	obs := newMockObserver(t)
+	cli, err := mqtt.NewClient(mqtt.ClientConfig{
+		Address:  "ssl://0.0.0.0:1884",
+		ClientID: "ssl-1",
+		Certificate: utils.Certificate{
+			CA:                 "./example/var/lib/baetyl/testcert/ca.pem",
+			Cert:               "./example/var/lib/baetyl/testcert/client.pem",
+			Key:                "./example/var/lib/baetyl/testcert/client.key",
+			InsecureSkipVerify: true,
+		},
+	}, obs)
 	assert.NoError(t, err)
-	dailer := mqtt.NewDialer(ctc, time.Duration(0))
-	pkt := mqtt.NewConnect()
-	pkt.ClientID = "ssl-1"
-	sslConn, err := dailer.Dial(getURL(b.transport.GetServers()[1], "ssl"))
-	assert.NoError(t, err)
-	defer sslConn.Close()
-	err = sslConn.Send(pkt, true)
-	assert.NoError(t, err)
-	pktRes, err := sslConn.Receive()
-	assert.NoError(t, err)
-	pktString := pktRes.String()
-	assert.Equal(t, "<Connack SessionPresent=false ReturnCode=0>", pktString)
+	assert.NotNil(t, cli)
+	assert.NoError(t, cli.Close())
 }
 
-func TestSessionMqttConnectWebsocket(t *testing.T) {
+func TestBrokerMqttConnectWebsocketNormal(t *testing.T) {
 	var config Config
 	utils.LoadYAML(cfg, &config)
 	b, err := NewBroker(config)
 	assert.NoError(t, err)
 	defer b.Close()
-	time.Sleep(time.Millisecond * 100)
 
 	// for websocket connection
-	dailer := mqtt.NewDialer(nil, time.Duration(0))
-	pkt := mqtt.NewConnect()
-	pkt.ClientID = "websocket-1"
-	pkt.Username = "test"
-	pkt.Password = "hahaha"
-	wsConn, err := dailer.Dial(getURL(b.transport.GetServers()[2], "ws") + "/mqtt")
+	obs := newMockObserver(t)
+	cli, err := mqtt.NewClient(mqtt.ClientConfig{
+		Address:  "ws://0.0.0.0:8883/mqtt",
+		Username: "test",
+		Password: "hahaha",
+		ClientID: "websocket-1",
+	}, obs)
 	assert.NoError(t, err)
-	defer wsConn.Close()
-	err = wsConn.Send(pkt, true)
-	assert.NoError(t, err)
-	pktRes, err := wsConn.Receive()
-	assert.NoError(t, err)
-	pktString := pktRes.String()
-	assert.Equal(t, "<Connack SessionPresent=false ReturnCode=0>", pktString)
+	assert.NotNil(t, cli)
+	assert.NoError(t, cli.Close())
 }
 
-func TestSessionMqttConnectWebscoketSSL(t *testing.T) {
+func TestBrokerMqttConnectWebscoketSSLNormal(t *testing.T) {
 	var config Config
 	utils.LoadYAML(cfg, &config)
 	b, err := NewBroker(config)
 	assert.NoError(t, err)
 	defer b.Close()
-	time.Sleep(time.Millisecond * 100)
 
 	// for wss(websocket + ssl) connection
-	ctc, err := utils.NewTLSConfigClient(utils.Certificate{
-		CA:                 "./example/testcert/ca.pem",
-		Cert:               "./example/testcert/client.pem",
-		Key:                "./example/testcert/client.key",
-		InsecureSkipVerify: true,
-	})
+	obs := newMockObserver(t)
+	cli, err := mqtt.NewClient(mqtt.ClientConfig{
+		Address:  "wss://0.0.0.0:8884/mqtt",
+		ClientID: "wss-1",
+		Certificate: utils.Certificate{
+			CA:                 "./example/var/lib/baetyl/testcert/ca.pem",
+			Cert:               "./example/var/lib/baetyl/testcert/client.pem",
+			Key:                "./example/var/lib/baetyl/testcert/client.key",
+			InsecureSkipVerify: true,
+		},
+	}, obs)
 	assert.NoError(t, err)
-	dailer := mqtt.NewDialer(ctc, time.Duration(0))
-	pkt := mqtt.NewConnect()
-	pkt.ClientID = "wss-1"
-	wssConn, err := dailer.Dial(getURL(b.transport.GetServers()[3], "wss") + "/mqtt")
-	assert.NoError(t, err)
-	defer wssConn.Close()
-	err = wssConn.Send(pkt, true)
-	pktRes, err := wssConn.Receive()
-	assert.NoError(t, err)
-	pktString := pktRes.String()
-	assert.Equal(t, "<Connack SessionPresent=false ReturnCode=0>", pktString)
-	assert.NoError(t, err)
-}
-
-// getURL gets URL from the given server and protocol
-func getURL(s mqtt.Server, protocol string) string {
-	return fmt.Sprintf("%s://%s", protocol, s.Addr().String())
+	assert.NotNil(t, cli)
+	assert.NoError(t, cli.Close())
 }

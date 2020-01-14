@@ -98,11 +98,11 @@ func (c *ClientMQTT) onConnect(p *mqtt.Connect) error {
 				c.authorizer = c.manager.authenticator.AuthenticateCertificate(cn)
 				if c.authorizer == nil {
 					c.sendConnack(mqtt.BadUsernameOrPassword, false)
-					return ErrSessionUsernameNotPermitted
+					return ErrSessionCommonNameNotPermitted
 				}
 			} else {
 				c.sendConnack(mqtt.BadUsernameOrPassword, false)
-				return ErrSessionPasswordNotSet
+				return ErrSessionCommonNameNotFound
 			}
 		}
 	}

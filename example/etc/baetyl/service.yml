@@ -1,12 +1,12 @@
 addresses:
-  - tcp://127.0.0.1:1883
-  - ssl://127.0.0.1:1884
-  - ws://127.0.0.1:8883/mqtt
-  - wss://127.0.0.1:8884/mqtt
+  - tcp://0.0.0.0:1883
+  - ssl://0.0.0.0:1884
+  - ws://0.0.0.0:8883/mqtt
+  - wss://0.0.0.0:8884/mqtt
 certificate:
-  ca: example/testcert/ca.pem
-  cert: example/testcert/server.pem
-  key: example/testcert/server.key
+  ca: example/var/lib/baetyl/testcert/ca.pem
+  cert: example/var/lib/baetyl/testcert/server.pem
+  key: example/var/lib/baetyl/testcert/server.key
 principals:
   - username: test
     password: hahaha

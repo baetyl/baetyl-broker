@@ -28,6 +28,8 @@ var (
 	ErrSessionUsernameNotSet               = errors.New("username is not set")
 	ErrSessionPasswordNotSet               = errors.New("password is not set")
 	ErrSessionUsernameNotPermitted         = errors.New("username or password is not permitted")
+	ErrSessionCommonNameNotFound           = errors.New("commonName not found")
+	ErrSessionCommonNameNotPermitted       = errors.New("commonName not permitted")
 	ErrSessionMessageQosNotSupported       = errors.New("message QOS is not supported")
 	ErrSessionMessageTopicInvalid          = errors.New("message topic is invalid")
 	ErrSessionMessageTopicNotPermitted     = errors.New("message topic is not permitted")
