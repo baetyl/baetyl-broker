@@ -7,8 +7,8 @@ github.com/BurntSushi/toml v0.3.1 h1:WXkYYl6Yr3qBf1K79EBnL4mak0OimBfB0XUf9Vl28OQ
 github.com/BurntSushi/toml v0.3.1/go.mod h1:xHWCNGjB5oqiDr8zfno3MHue2Ht5sIBksp03qcyfWMU=
 github.com/abiosoft/ishell v2.0.0+incompatible/go.mod h1:HQR9AqF2R3P4XXpMpI0NAzgHf/aS6+zVXRj14cVk9qg=
 github.com/abiosoft/readline v0.0.0-20180607040430-155bce2042db/go.mod h1:rB3B4rKii8V21ydCbIzH5hZiCQE7f5E9SzUb/ZZx530=
-github.com/baetyl/baetyl-go v0.1.1 h1:NoeCs6Jq4cEkhlVJyeFznzSZh0bi3VheGZZcj1WVW1o=
-github.com/baetyl/baetyl-go v0.1.1/go.mod h1:bGk+qk5pIiMJcADfbRw91CbcIgvUWdN/3gqp8yH5usw=
+github.com/baetyl/baetyl-go v0.1.4 h1:XCzYmN5/44ni3hz7CyMBe6QtjggZT81OgC3i5VT/BlQ=
+github.com/baetyl/baetyl-go v0.1.4/go.mod h1:bGk+qk5pIiMJcADfbRw91CbcIgvUWdN/3gqp8yH5usw=
 github.com/beorn7/perks v0.0.0-20180321164747-3a771d992973/go.mod h1:Dwedo/Wpr24TaqPxmxbtue+5NUziq4I4S80YR8gNf3Q=
 github.com/census-instrumentation/opencensus-proto v0.2.1/go.mod h1:f6KPmirojxKA12rnyqOA5BBL4O983OfeGPqjHWSTneU=
 github.com/chzyer/logex v1.1.10/go.mod h1:+Ywpsq7O8HXn0nuIou7OrIPyXbp3wmkHB+jjWRnGsAI=
@@ -72,6 +72,8 @@ github.com/mholt/archiver v3.1.1+incompatible h1:1dCVxuqs0dJseYEhi5pl7MYPH9zDa1w
 github.com/mholt/archiver v3.1.1+incompatible/go.mod h1:Dh2dOXnSdiLxRiPoVfIr/fI1TwETms9B8CTWfeh7ROU=
 github.com/nwaples/rardecode v1.0.0 h1:r7vGuS5akxOnR4JQSkko62RJ1ReCMXxQRPtxsiFMBOs=
 github.com/nwaples/rardecode v1.0.0/go.mod h1:5DzqNKiOdpKKBH87u8VlvAnPZMXcGRhxWkRpHbbfGS0=
+github.com/orcaman/concurrent-map v0.0.0-20190826125027-8c72a8bb44f6 h1:lNCW6THrCKBiJBpz8kbVGjC7MgdCGKwuvBgc7LoD6sw=
+github.com/orcaman/concurrent-map v0.0.0-20190826125027-8c72a8bb44f6/go.mod h1:Lu3tH6HLW3feq74c2GC+jIMS/K2CFcDWnWD9XkenwhI=
 github.com/pierrec/lz4 v2.3.0+incompatible h1:CZzRn4Ut9GbUkHlQ7jqBXeZQV41ZSKWFc302ZU6lUTk=
 github.com/pierrec/lz4 v2.3.0+incompatible/go.mod h1:pdkljMzZIN41W+lC3N2tnIh5sFi+IEE17M5jbnwPHcY=
 github.com/pkg/errors v0.8.1 h1:iURUrRGxPUNPdy5/HRSm+Yj6okJ6UtLINN0Q9M4+h3I=

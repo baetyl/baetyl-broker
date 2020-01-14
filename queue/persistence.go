@@ -48,6 +48,9 @@ func (q *Persistence) Chan() <-chan *common.Event {
 func (q *Persistence) Pop() (*common.Event, error) {
 	select {
 	case e := <-q.output:
+		if ent := q.log.Check(log.DebugLevel, "queue poped a message"); ent != nil {
+			ent.Write(log.Any("message", e.String()))
+		}
 		return e, nil
 	case <-q.Dying():
 		return nil, ErrQueueClosed
@@ -58,6 +61,9 @@ func (q *Persistence) Pop() (*common.Event, error) {
 func (q *Persistence) Push(e *common.Event) (err error) {
 	select {
 	case q.input <- e:
+		if ent := q.log.Check(log.DebugLevel, "queue pushed a message"); ent != nil {
+			ent.Write(log.Any("message", e.String()))
+		}
 		return nil
 	case <-q.Dying():
 		return ErrQueueClosed
@@ -228,7 +234,7 @@ func (q *Persistence) delete(buf []uint64) []uint64 {
 
 	err := q.backend.Del(buf)
 	if err != nil {
-		q.log.Error("failed to delete messages from backend database", log.Error(err))
+		q.log.Error("failed to delete messages from backend database", log.Any("count", len(buf)), log.Error(err))
 	}
 	return []uint64{}
 }

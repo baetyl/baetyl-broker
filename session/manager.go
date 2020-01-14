@@ -1,10 +1,8 @@
 package session
 
 import (
-	"context"
 	"encoding/base64"
 	"errors"
-	"io"
 	"sync"
 
 	"github.com/baetyl/baetyl-broker/exchange"
@@ -13,12 +11,14 @@ import (
 	"github.com/baetyl/baetyl-go/link"
 	"github.com/baetyl/baetyl-go/log"
 	"github.com/baetyl/baetyl-go/mqtt"
+	"github.com/baetyl/baetyl-go/utils"
+	cmap "github.com/orcaman/concurrent-map"
 )
 
 // all errors
 var (
+	ErrConnectionRefuse                    = errors.New("connection refuse, sessions are closing")
 	ErrConnectionExceeds                   = errors.New("number of connections exceeds the max limit")
-	ErrSessionClientAlreadyClosed          = errors.New("session client is already closed")
 	ErrSessionClientAlreadyConnecting      = errors.New("session client is already connecting")
 	ErrSessionClientPacketUnexpected       = errors.New("session client received unexpected packet")
 	ErrSessionClientPacketIDConflict       = errors.New("packet id conflict, to acknowledge old packet")
@@ -36,13 +36,14 @@ var (
 	ErrSessionWillMessageTopicInvalid      = errors.New("will topic is invalid")
 	ErrSessionWillMessageTopicNotPermitted = errors.New("will topic is not permitted")
 	ErrSessionLinkIDNotSet                 = errors.New("link id is not set")
+	ErrSessionAbnormal                     = errors.New("session is abnormal")
 )
 
 type client interface {
 	getID() string
 	getSession() *Session
 	setSession(*Session)
-	io.Closer
+	close() error
 }
 
 // Manager the manager of sessions
@@ -53,11 +54,11 @@ type Manager struct {
 	exchange      *exchange.Exchange
 	checker       *mqtt.TopicChecker
 	authenticator *Authenticator
-	sessions      map[string]*Session
-	clients       map[string]client            // TODO: limit the number of clients
-	bindings      map[string]map[string]client // map[sid]map[cid]client
+	sessions      cmap.ConcurrentMap // map[sid]session
+	clients       cmap.ConcurrentMap // map[cid]client
+	tomb          utils.Tomb
 	log           *log.Logger
-	sync.Mutex
+	mu            sync.Mutex
 }
 
 // NewManager create a new session manager
@@ -84,9 +85,8 @@ func NewManager(cfg Config) (*Manager, error) {
 		authenticator: NewAuthenticator(cfg.Principals),
 		checker:       mqtt.NewTopicChecker(cfg.SysTopics),
 		exchange:      exchange.NewExchange(cfg.SysTopics),
-		sessions:      map[string]*Session{},
-		clients:       map[string]client{},
-		bindings:      map[string]map[string]client{},
+		sessions:      cmap.New(),
+		clients:       cmap.New(),
 		log:           log.With(log.Any("session", "manager")),
 	}
 	for _, i := range items {
@@ -96,7 +96,7 @@ func NewManager(cfg Config) (*Manager, error) {
 			manager.Close()
 			return nil, err
 		}
-		manager.sessions[si.ID] = s
+		manager.sessions.Set(si.ID, s)
 		for topic, qos := range si.Subscriptions {
 			s.subs.Set(topic, qos)
 			manager.exchange.Bind(topic, s)
@@ -111,16 +111,13 @@ func NewManager(cfg Config) (*Manager, error) {
 func (m *Manager) Close() error {
 	m.log.Info("session manager is closing")
 	defer m.log.Info("session manager has closed")
+	m.tomb.Kill(nil)
 
-	m.Lock()
-	defer m.Unlock()
-
-	for _, c := range m.clients {
-		c.Close()
+	for item := range m.clients.IterBuffered() {
+		item.Val.(client).close()
 	}
-
-	for _, s := range m.sessions {
-		s.Close()
+	for item := range m.sessions.IterBuffered() {
+		item.Val.(*Session).close()
 	}
 
 	m.retaindb.Close()
@@ -128,99 +125,31 @@ func (m *Manager) Close() error {
 	return nil
 }
 
-// * connection handlers
-
-// ClientMQTTHandler the connection handler to create a new MQTT client
-func (m *Manager) ClientMQTTHandler(conn mqtt.Connection) {
-	err := m.checkConnection()
-	if err != nil {
-		conn.Close()
-		return
-	}
-	m.initClientMQTT(conn)
-}
-
-// Call handler of link
-func (m *Manager) Call(ctx context.Context, msg *link.Message) (*link.Message, error) {
-	// TODO: improvement, cache auth result
-	if msg.Context.QOS > 1 {
-		return nil, ErrSessionMessageQosNotSupported
-	}
-	if !m.checker.CheckTopic(msg.Context.Topic, false) {
-		return nil, ErrSessionMessageTopicInvalid
-	}
-	if msg.Context.QOS == 0 {
-		m.exchange.Route(msg, nil)
-		return nil, nil
-	}
-	done := make(chan struct{})
-	m.exchange.Route(msg, func(_ uint64) {
-		close(done)
-	})
-	select {
-	case <-done:
-		return nil, nil
-	case <-ctx.Done():
-		return nil, ctx.Err()
-	}
-}
-
-// Talk handler of link
-func (m *Manager) Talk(stream link.Link_TalkServer) error {
-	err := m.checkConnection()
-	if err != nil {
-		return err
-	}
-	c, err := m.initClientLink(stream)
-	if err != nil {
-		m.log.Error("failed to create link client", log.Error(err))
-		return err
-	}
-	err = c.sending()
-	if err != nil {
-		m.log.Debug("failed to send message", log.Error(err))
-	}
-	return c.Close()
-}
-
 // * init session for client
 
 // initSession init session for client, creates new session if not exists
-func (m *Manager) initSession(si *Info, c client, unique bool) (exists bool, err error) {
-	m.Lock()
-	defer m.Unlock()
-
-	var s *Session
-	sid, cid := si.ID, c.getID()
-	if s, exists = m.sessions[sid]; exists {
-		if unique {
-			// close previous clients with the same session id
-			for _, prev := range m.bindings[sid] {
-				prev.Close()
-				delete(m.bindings[sid], prev.getID())
-				delete(m.clients, prev.getID())
-			}
-			if len(m.bindings[sid]) != 0 {
-				panic("all previous clients should be deleted")
-			}
-		} else {
-			m.log.Info("add new client to existing session", log.Any("session", sid), log.Any("cid", cid))
-		}
-	} else {
-		s, err = m.newSession(si)
+func (m *Manager) initSession(si *Info, c client, exclusive bool) (exists bool, err error) {
+	// prepare session
+	sid := si.ID
+	var sv interface{}
+	if sv, exists = m.sessions.Get(sid); !exists {
+		sv, err = m.newSession(si)
 		if err != nil {
 			return
 		}
-		m.sessions[sid] = s
+		if exists = !m.sessions.SetIfAbsent(sid, sv); exists {
+			sv.(*Session).close()
+			var ok bool
+			if sv, ok = m.sessions.Get(sid); !ok {
+				return false, ErrSessionAbnormal
+			}
+		}
 	}
-
-	// binding client and session
-	if _, ok := m.bindings[sid]; !ok {
-		m.bindings[sid] = map[string]client{}
+	s := sv.(*Session)
+	ocs := s.addClient(c, exclusive)
+	for _, oc := range ocs {
+		oc.close() // close old clients
 	}
-	m.bindings[sid][cid] = c
-	// set session for client
-	c.setSession(s)
 	// update session
 	s.Info.CleanSession = si.CleanSession
 	if s.Info.CleanSession {
@@ -230,8 +159,8 @@ func (m *Manager) initSession(si *Info, c client, unique bool) (exists bool, err
 		m.sessiondb.Set(&s.Info)
 		s.log.Info("session is stored to backend")
 	}
-
 	// TODO: if no topic subscribed, the session does not need to create queues
+	// only used by link client
 	for topic, qos := range s.Subscriptions {
 		s.subs.Set(topic, qos)
 		m.exchange.Bind(topic, s)
@@ -253,6 +182,7 @@ func (m *Manager) newSession(si *Info) (*Session, error) {
 	return &Session{
 		Info: *si,
 		subs: mqtt.NewTrie(),
+		clis: map[string]client{},
 		qos0: queue.NewTemporary(sid, m.cfg.MaxInflightQOS0Messages, true),
 		qos1: queue.NewPersistence(cfg, queuedb),
 		log:  m.log.With(log.Any("id", sid)),
@@ -262,9 +192,10 @@ func (m *Manager) newSession(si *Info) (*Session, error) {
 // * subscription
 
 // Subscribe subscribes topics
+// only used by mqtt client
 func (m *Manager) subscribe(c client, subs []mqtt.Subscription) error {
-	m.Lock()
-	defer m.Unlock()
+	m.mu.Lock()
+	defer m.mu.Unlock()
 
 	s := c.getSession()
 	if s == nil {
@@ -286,8 +217,8 @@ func (m *Manager) subscribe(c client, subs []mqtt.Subscription) error {
 
 // Unsubscribe unsubscribes topics
 func (m *Manager) unsubscribe(c client, topics []string) error {
-	m.Lock()
-	defer m.Unlock()
+	m.mu.Lock()
+	defer m.mu.Unlock()
 
 	s := c.getSession()
 	if s == nil {
@@ -305,10 +236,11 @@ func (m *Manager) unsubscribe(c client, topics []string) error {
 }
 
 func (m *Manager) checkConnection() error {
-	m.Lock()
-	num := len(m.clients)
-	m.Unlock()
-	if m.cfg.MaxConnections > 0 && num >= m.cfg.MaxConnections {
+	if !m.tomb.Alive() {
+		m.log.Error(ErrConnectionRefuse.Error())
+		return ErrConnectionRefuse
+	}
+	if m.cfg.MaxConnections > 0 && m.clients.Count() >= m.cfg.MaxConnections {
 		m.log.Error(ErrConnectionExceeds.Error(), log.Any("max", m.cfg.MaxConnections))
 		return ErrConnectionExceeds
 	}
@@ -318,34 +250,29 @@ func (m *Manager) checkConnection() error {
 //  * client operations
 
 func (m *Manager) addClient(c client) {
-	m.Lock()
-	m.clients[c.getID()] = c
-	m.Unlock()
+	m.clients.Set(c.getID(), c)
 }
 
 // delClient deletes client and clean session if needs
 func (m *Manager) delClient(c client) {
-	m.Lock()
-	defer m.Unlock()
-
 	// remove client
 	cid := c.getID()
-	delete(m.clients, cid)
+	m.clients.Remove(cid)
 
 	// remove session if needs
 	s := c.getSession()
 	if s == nil {
 		return
 	}
-	sid := s.ID
-	delete(m.bindings[sid], cid)
-	// close session if not bound and CleanSession=true
-	if s.CleanSession && len(m.bindings[sid]) == 0 {
+
+	if s.delClient(c) {
+		// close session if not bound and CleanSession=true
+		sid := s.ID
 		m.sessiondb.Del(sid)
 		m.exchange.UnbindAll(s)
-		s.Close()
-		delete(m.sessions, sid)
-		delete(m.bindings, sid)
+		s.close()
+		m.sessions.Remove(sid)
+		m.log.Info("session is removed", log.Any("sid", sid))
 		// TODO: to delete persistent queue data if CleanSession=true
 	}
 }

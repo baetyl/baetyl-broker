@@ -25,21 +25,29 @@ type ClientMQTT struct {
 
 	log  *log.Logger
 	tomb utils.Tomb
-	sync.Mutex
+	mu   sync.Mutex
 	sync.Once
 }
 
-func (m *Manager) initClientMQTT(connection mqtt.Connection) {
+// * connection handlers
+
+// ClientMQTTHandler the connection handler to create a new MQTT client
+func (m *Manager) ClientMQTTHandler(conn mqtt.Connection) {
+	err := m.checkConnection()
+	if err != nil {
+		conn.Close()
+		return
+	}
 	id := strings.ReplaceAll(uuid.Generate().String(), "-", "")
 	c := &ClientMQTT{
 		id:         id,
 		manager:    m,
-		connection: connection,
+		connection: conn,
 		counter:    mqtt.NewCounter(),
 		log:        log.With(log.Any("type", "mqtt"), log.Any("id", id)),
 	}
-	c.resender = newResender(m.cfg.MaxInflightQOS1Messages, m.cfg.RepublishInterval, &c.tomb)
-	m.addClient(c)
+	c.resender = newResender(m.cfg.MaxInflightQOS1Messages, m.cfg.ResendInterval, &c.tomb)
+	c.manager.addClient(c)
 	c.tomb.Go(c.receiving)
 }
 
@@ -57,10 +65,15 @@ func (c *ClientMQTT) getSession() *Session {
 }
 
 // Close closes client by session
-func (c *ClientMQTT) Close() error {
-	c.log.Info("client is closing by session")
-	defer c.log.Info("client has closed by session")
-	return c.close()
+func (c *ClientMQTT) close() error {
+	c.Do(func() {
+		c.log.Info("client is closing")
+		defer c.log.Info("client has closed")
+		c.tomb.Kill(nil)
+		c.connection.Close()
+		c.manager.delClient(c)
+	})
+	return c.tomb.Wait()
 }
 
 // closes client by itself
@@ -68,26 +81,12 @@ func (c *ClientMQTT) die(msg string, err error) {
 	if !c.tomb.Alive() {
 		return
 	}
+	c.tomb.Kill(err)
 	if err != nil {
 		c.log.Error(msg, log.Error(err))
+		c.sendWillMessage()
 	}
-	go func() {
-		c.log.Info("client is closing by itself")
-		if err != nil {
-			c.sendWillMessage()
-		}
-		c.manager.delClient(c)
-		c.close()
-		c.log.Info("client has closed by itself")
-	}()
-}
-
-func (c *ClientMQTT) close() error {
-	c.Do(func() {
-		c.tomb.Kill(nil)
-		c.connection.Close()
-	})
-	return c.tomb.Wait()
+	go c.close()
 }
 
 func (c *ClientMQTT) authorize(action, topic string) bool {

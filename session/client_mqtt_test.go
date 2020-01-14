@@ -535,99 +535,121 @@ func TestSessionMqttSystemTopicIsolation(t *testing.T) {
 	b := newMockBroker(t, testConfSession)
 	defer b.close()
 
-	pktpub := &mqtt.Publish{}
+	// pubc connect to broker
+	pubc := newMockConn(t)
+	b.manager.ClientMQTTHandler(pubc)
+	pubc.sendC2S(&mqtt.Connect{ClientID: "pubc", Username: "u1", Password: "p1", Version: 4})
+	pubc.assertS2CPacket("<Connack SessionPresent=false ReturnCode=0>")
+
+	// subc connect to broker
+	subc := newMockConn(t)
+	b.manager.ClientMQTTHandler(subc)
+	subc.sendC2S(&mqtt.Connect{ClientID: "subc", Username: "u1", Password: "p1", Version: 4})
+	subc.assertS2CPacket("<Connack SessionPresent=false ReturnCode=0>")
+
+	// subc subscribe topic #
 	pktsub := &mqtt.Subscribe{}
-	pktunsub := &mqtt.Unsubscribe{}
-
-	// client connect to broker
-	c := newMockConn(t)
-	b.manager.ClientMQTTHandler(c)
-	c.sendC2S(&mqtt.Connect{ClientID: "client-1", Username: "u1", Password: "p1", Version: 4})
-	c.assertS2CPacket("<Connack SessionPresent=false ReturnCode=0>")
-
-	fmt.Println("\n--> 1. client subscribe topic '#' --> will receive normal topic message --> will not receive sysTopic message<--")
-
-	// client sub topic #
 	pktsub.ID = 1
 	pktsub.Subscriptions = []mqtt.Subscription{{Topic: "#", QOS: 0}}
-	c.sendC2S(pktsub)
-	c.assertS2CPacket("<Suback ID=1 ReturnCodes=[0]>")
+	subc.sendC2S(pktsub)
+	subc.assertS2CPacket("<Suback ID=1 ReturnCodes=[0]>")
+	b.assertSession("subc", "{\"ID\":\"subc\",\"CleanSession\":false,\"Subscriptions\":{\"#\":0}}")
 	b.assertExchangeCount(1)
 
-	// client publish message with topic test, will receive message
-	pktpub.ID = 1
-	pktpub.Message.Topic = "test"
-	pktpub.Message.QOS = 1
-	pktpub.Message.Payload = []byte("hi")
-	c.sendC2S(pktpub)
-	c.assertS2CPacket("<Puback ID=1>")
-	c.assertS2CPacket("<Publish ID=0 Message=<Message Topic=\"test\" QOS=0 Retain=false Payload=[104 105]> Dup=false>")
-	c.assertS2CPacketTimeout()
+	fmt.Println("\n--> pubc publish message with topic test, subc will receive message <--")
 
-	// client publish message with topic $link/data, will not receive message
+	pktpub := &mqtt.Publish{}
+	pktpub.ID = 1
+	pktpub.Message.QOS = 1
+	pktpub.Message.Topic = "test"
+	pktpub.Message.Payload = []byte("hi")
+	pubc.sendC2S(pktpub)
+	pubc.assertS2CPacket("<Puback ID=1>")
+	subc.assertS2CPacket("<Publish ID=0 Message=<Message Topic=\"test\" QOS=0 Retain=false Payload=[104 105]> Dup=false>")
+	subc.assertS2CPacketTimeout()
+
+	fmt.Println("\n--> pubc publish message with topic $link/data, subc will not receive message <--")
+
+	pktpub = &mqtt.Publish{}
 	pktpub.ID = 2
+	pktpub.Message.QOS = 1
 	pktpub.Message.Topic = "$link/data"
 	pktpub.Message.Payload = []byte("hello")
-	c.sendC2S(pktpub)
-	c.assertS2CPacket("<Puback ID=2>")
-	c.assertS2CPacketTimeout()
+	pubc.sendC2S(pktpub)
+	pubc.assertS2CPacket("<Puback ID=2>")
+	subc.assertS2CPacketTimeout()
 
-	fmt.Println("\n--> 2. client subscribe topic '$link/#' --> will receive the specified sysTopic message --> will not receive normal and other sysTopic message<--")
-
-	// client unsubscribe topic #
+	// subc unsubscribe topic #
+	pktunsub := &mqtt.Unsubscribe{}
 	pktunsub.ID = 1
 	pktunsub.Topics = []string{"#"}
-	c.sendC2S(pktunsub)
-	c.assertS2CPacket("<Unsuback ID=1>")
-	b.assertSession("client-1", "{\"ID\":\"client-1\",\"CleanSession\":false,\"Subscriptions\":{}}")
+	subc.sendC2S(pktunsub)
+	subc.assertS2CPacket("<Unsuback ID=1>")
+	b.assertSession("subc", "{\"ID\":\"subc\",\"CleanSession\":false,\"Subscriptions\":{}}")
 	b.assertExchangeCount(0)
 
-	// client subscribe topic $link/#
+	// subc subscribe topic $link/#
+	pktsub = &mqtt.Subscribe{}
 	pktsub.ID = 2
 	pktsub.Subscriptions = []mqtt.Subscription{{Topic: "$link/#", QOS: 0}}
-	c.sendC2S(pktsub)
-	c.assertS2CPacket("<Suback ID=2 ReturnCodes=[0]>")
+	subc.sendC2S(pktsub)
+	subc.assertS2CPacket("<Suback ID=2 ReturnCodes=[0]>")
+	b.assertSession("subc", "{\"ID\":\"subc\",\"CleanSession\":false,\"Subscriptions\":{\"$link/#\":0}}")
 	b.assertExchangeCount(1)
 
-	// client publish message with topic test, client will not receive message
+	fmt.Println("\n--> pubc publish message with topic test, subc will not receive message <--")
+
+	pktpub = &mqtt.Publish{}
 	pktpub.ID = 3
+	pktpub.Message.QOS = 1
 	pktpub.Message.Topic = "test"
 	pktpub.Message.Payload = []byte("test")
-	c.sendC2S(pktpub)
-	c.assertS2CPacket("<Puback ID=3>")
-	c.assertS2CPacketTimeout()
+	pubc.sendC2S(pktpub)
+	pubc.assertS2CPacket("<Puback ID=3>")
+	subc.assertS2CPacketTimeout()
 
-	// client publish message with topic $baidu/data, client connection will be closed
+	fmt.Println("\n--> pubc publish message with topic $baidu/data, subc will not receive message <--")
+
+	pktpub = &mqtt.Publish{}
 	pktpub.ID = 4
+	pktpub.Message.QOS = 1
 	pktpub.Message.Topic = "$baidu/iot"
 	pktpub.Message.Payload = []byte("iot test")
-	c.sendC2S(pktpub)
-	c.assertS2CPacket("<Puback ID=4>")
-	c.assertS2CPacketTimeout()
+	pubc.sendC2S(pktpub)
+	pubc.assertS2CPacket("<Puback ID=4>")
+	subc.assertS2CPacketTimeout()
 
-	// client publish message with topic $link/data, client will receive message
+	fmt.Println("\n--> pubc publish message with topic  $link/data, subc will receive message <--")
+
+	pktpub = &mqtt.Publish{}
 	pktpub.ID = 5
+	pktpub.Message.QOS = 1
 	pktpub.Message.Topic = "$link/data"
 	pktpub.Message.Payload = []byte("hello")
-	c.sendC2S(pktpub)
-	c.assertS2CPacket("<Puback ID=5>")
-	c.assertS2CPacket("<Publish ID=0 Message=<Message Topic=\"$link/data\" QOS=0 Retain=false Payload=[104 101 108 108 111]> Dup=false>")
-	c.assertS2CPacketTimeout()
+	pubc.sendC2S(pktpub)
+	pubc.assertS2CPacket("<Puback ID=5>")
+	subc.assertS2CPacket("<Publish ID=0 Message=<Message Topic=\"$link/data\" QOS=0 Retain=false Payload=[104 101 108 108 111]> Dup=false>")
+	subc.assertS2CPacketTimeout()
 
-	fmt.Println("\n--> 3. client subscribe or publish unspecified sysTopic --> client will not publish or subscribe successfully<--")
+	fmt.Println("\n--> pubc publish message with topic $SYS/data (not configured),  pubc will be closed<--")
 
-	// client publish unspecified sysTopic $SYS/data, client will not publish successfully
+	pktpub = &mqtt.Publish{}
 	pktpub.ID = 6
+	pktpub.Message.QOS = 1
 	pktpub.Message.Topic = "$SYS/data"
 	pktpub.Message.Payload = []byte("system data")
-	c.sendC2S(pktpub)
-	c.assertS2CPacketTimeout()
+	pubc.sendC2S(pktpub)
+	pubc.assertS2CPacketTimeout()
+	pubc.assertClosed(true)
 
 	// client subscribe unspecified sysTopic $SYS/data, client will not subscribe successfully
+	pktsub = &mqtt.Subscribe{}
 	pktsub.ID = 3
 	pktsub.Subscriptions = []mqtt.Subscription{{Topic: "$SYS/data", QOS: 0}}
-	c.sendC2S(pktsub)
-	c.assertS2CPacketTimeout()
+	subc.sendC2S(pktsub)
+	subc.assertS2CPacket("<Suback ID=3 ReturnCodes=[128]>")
+	b.assertSession("subc", "{\"ID\":\"subc\",\"CleanSession\":false,\"Subscriptions\":{\"$link/#\":0}}")
+	subc.assertClosed(false)
 }
 
 func TestSessionMqttWill(t *testing.T) {

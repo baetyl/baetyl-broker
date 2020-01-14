@@ -2,6 +2,8 @@ package session
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"net"
 	"os"
 	"sync"
@@ -25,7 +27,7 @@ session:
   - $link
   - $baidu
   maxConnections: 3
-  republishInterval: 200ms
+  resendInterval: 200ms
   persistence:
   location: testdata
 principals:
@@ -64,7 +66,7 @@ type mockBroker struct {
 
 func newMockBroker(t *testing.T, cfgStr string) *mockBroker {
 	log.Init(log.Config{Level: "debug", Format: "text"})
-	os.RemoveAll("testdata")
+	os.RemoveAll("var")
 
 	var cfg Config
 	err := utils.UnmarshalYAML([]byte(cfgStr), &cfg)
@@ -75,12 +77,28 @@ func newMockBroker(t *testing.T, cfgStr string) *mockBroker {
 	return b
 }
 
+func (b *mockBroker) waitClientReady(cnt int) {
+	for {
+		if b.manager.clients.Count() != cnt {
+			time.Sleep(time.Millisecond * 100)
+			continue
+		}
+		return
+	}
+}
+
+func (b *mockBroker) assertSessionCount(expect int) {
+	assert.Equal(b.t, expect, b.manager.sessions.Count())
+}
+
 func (b *mockBroker) assertClientCount(expect int) {
-	assert.Len(b.t, b.manager.clients, expect)
+	assert.Equal(b.t, expect, b.manager.clients.Count())
 }
 
 func (b *mockBroker) assertBindingCount(sid string, expect int) {
-	assert.Len(b.t, b.manager.bindings[sid], expect)
+	s, ok := b.manager.sessions.Get(sid)
+	assert.True(b.t, ok)
+	assert.Equal(b.t, expect, s.(*Session).clientCount())
 }
 
 func (b *mockBroker) assertSession(id string, expect string) {
@@ -132,7 +150,11 @@ func newMockConn(t *testing.T) *mockConn {
 }
 
 func (c *mockConn) Send(pkt mqtt.Packet, _ bool) error {
-	c.s2c <- pkt
+	select {
+	case c.s2c <- pkt:
+		// default:
+		// 	assert.FailNow(c.t, "s2c channel is full")
+	}
 	return nil
 }
 
@@ -149,7 +171,7 @@ func (c *mockConn) Close() error {
 	c.Lock()
 	c.closed = true
 	c.Unlock()
-	c.err <- ErrSessionClientAlreadyClosed
+	c.err <- errors.New("closed")
 	return nil
 }
 
@@ -163,7 +185,7 @@ func (c *mockConn) sendC2S(pkt mqtt.Packet) error {
 	select {
 	case c.c2s <- pkt:
 		return nil
-	case <-time.After(time.Second * 3):
+	case <-time.After(time.Minute):
 		assert.Fail(c.t, "send common timeout")
 		return nil
 	}
@@ -173,7 +195,7 @@ func (c *mockConn) receiveS2C() mqtt.Packet {
 	select {
 	case pkt := <-c.s2c:
 		return pkt
-	case <-time.After(time.Second * 3):
+	case <-time.After(time.Minute):
 		assert.Fail(c.t, "Receive common timeout")
 		return nil
 	}
@@ -184,7 +206,7 @@ func (c *mockConn) assertS2CPacket(expect string) {
 	case pkt := <-c.s2c:
 		assert.NotNil(c.t, pkt)
 		assert.Equal(c.t, expect, pkt.String())
-	case <-time.After(time.Second * 3):
+	case <-time.After(time.Minute):
 		assert.Fail(c.t, "receive common timeout")
 	}
 }
@@ -215,18 +237,22 @@ type mockStream struct {
 	sync.RWMutex
 }
 
-func newMockStream(t *testing.T) *mockStream {
+func newMockStream(t *testing.T, linkid string) *mockStream {
 	return &mockStream{
 		t:   t,
-		md:  metadata.New(map[string]string{"linkid": "$link/t"}),
-		c2s: make(chan *link.Message, 10),
-		s2c: make(chan *link.Message, 10),
-		err: make(chan error, 10),
+		md:  metadata.New(map[string]string{"linkid": linkid}),
+		c2s: make(chan *link.Message, 100),
+		s2c: make(chan *link.Message, 100),
+		err: make(chan error, 100),
 	}
 }
 
 func (c *mockStream) Send(msg *link.Message) error {
-	c.s2c <- msg
+	select {
+	case c.s2c <- msg:
+		// default:
+		// 	assert.FailNow(c.t, "s2c channel is full")
+	}
 	return nil
 }
 
@@ -253,7 +279,7 @@ func (c *mockStream) sendC2S(msg *link.Message) error {
 	select {
 	case c.c2s <- msg:
 		return nil
-	case <-time.After(time.Second * 3):
+	case <-time.After(time.Minute):
 		assert.Fail(c.t, "send common timeout")
 		return nil
 	}
@@ -263,7 +289,7 @@ func (c *mockStream) receiveS2C() *link.Message {
 	select {
 	case msg := <-c.s2c:
 		return msg
-	case <-time.After(time.Second * 3):
+	case <-time.After(time.Minute):
 		assert.Fail(c.t, "Receive common timeout")
 		return nil
 	}
@@ -274,7 +300,7 @@ func (c *mockStream) assertS2CMessage(expect string) {
 	case msg := <-c.s2c:
 		assert.NotNil(c.t, msg)
 		assert.Equal(c.t, expect, msg.String())
-	case <-time.After(time.Second * 3):
+	case <-time.After(time.Minute):
 		assert.Fail(c.t, "receive common timeout")
 	}
 }
@@ -284,5 +310,23 @@ func (c *mockStream) assertS2CMessageTimeout() {
 	case msg := <-c.s2c:
 		assert.Fail(c.t, "receive unexpected packet: %s", msg.String())
 	case <-time.After(time.Millisecond * 100):
+	}
+}
+
+func assertS2CMessageLB(subc1, subc2 *mockStream, expect string) *mockStream {
+	select {
+	case msg := <-subc1.s2c:
+		assert.NotNil(subc1.t, msg)
+		assert.Equal(subc1.t, expect, msg.String())
+		fmt.Println("--> subc1 receive message:", msg)
+		return subc1
+	case msg := <-subc2.s2c:
+		assert.NotNil(subc2.t, msg)
+		assert.Equal(subc2.t, expect, msg.String())
+		fmt.Println("--> subc2 receive message:", msg)
+		return subc2
+	case <-time.After(time.Minute):
+		assert.Fail(subc1.t, "receive common timeout")
+		return nil
 	}
 }
