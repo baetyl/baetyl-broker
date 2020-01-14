@@ -64,12 +64,15 @@ func (q *Temporary) put(e *common.Event) error {
 func (q *Temporary) putOrDrop(e *common.Event) error {
 	select {
 	case q.events <- e:
+		if ent := q.log.Check(log.DebugLevel, "queue pushed a message"); ent != nil {
+			ent.Write(log.Any("message", e.String()))
+		}
 		return nil
 	case <-q.quit:
 		return ErrQueueClosed
 	default:
-		if ent := q.log.Check(log.DebugLevel, "queue drops en event"); ent != nil {
-			ent.Write(log.Any("event", e.String()))
+		if ent := q.log.Check(log.DebugLevel, "queue dropped a message"); ent != nil {
+			ent.Write(log.Any("message", e.String()))
 		}
 		return nil
 	}

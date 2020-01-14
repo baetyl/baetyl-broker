@@ -80,8 +80,12 @@ func (b *Exchange) Route(msg *link.Message, cb func(uint64)) {
 		}
 		return
 	}
+	var err error
 	event := common.NewEvent(msg, int32(length), cb)
 	for _, s := range sss {
-		s.(common.Queue).Push(event)
+		err = s.(common.Queue).Push(event)
+		if err != nil {
+			b.log.Error("failed to push message into queue", log.Error(err))
+		}
 	}
 }
