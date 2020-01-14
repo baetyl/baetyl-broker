@@ -85,7 +85,7 @@ func TestBrokerMqttConnectErrorMissingAddress(t *testing.T) {
 	obs.assertErrs(errors.New("parse : empty url"))
 }
 
-func TestBrokerMqttConnectErrorWrongPort(t *testing.T) {
+func TestBrokerMqttConnectErrorWrongAddress(t *testing.T) {
 	var config Config
 	utils.LoadYAML(cfg, &config)
 	b, err := NewBroker(config)
@@ -95,13 +95,13 @@ func TestBrokerMqttConnectErrorWrongPort(t *testing.T) {
 	// for tcp connection
 	obs := newMockObserver(t)
 	cli, err := mqtt.NewClient(mqtt.ClientConfig{
-		Address: "tcp://0.0.0.0:0",
+		Address: "tcp://127.0.0.1:0",
 	}, obs)
 	assert.NoError(t, err)
 	assert.NotNil(t, cli)
 	defer cli.Close()
 
-	obs.assertErrs(errors.New("dial tcp 0.0.0.0:0: connect: can't assign requested address"))
+	obs.assertErrs(errors.New("dial tcp 127.0.0.1:0: connect: connection refused"))
 }
 
 func TestBrokerMqttConnectErrorMissingClinetID(t *testing.T) {
