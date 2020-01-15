@@ -673,46 +673,109 @@ func TestSessionMqttWill(t *testing.T) {
 	sub.assertS2CPacket("<Suback ID=1 ReturnCodes=[0]>")
 	b.assertSession("sub", "{\"ID\":\"sub\",\"CleanSession\":false,\"Subscriptions\":{\"test\":0}}")
 
-	// pub client connect with Will message
+	// pub client connect with Will message, retain is false
 	pktwill := mqtt.NewPublish()
 	pktwill.Message.Topic = "test"
-	pktwill.Message.Payload = []byte("just for test")
-	pktcon.ClientID = "pub"
+	pktwill.Message.Retain = false
+	pktwill.Message.Payload = []byte("will retain is false")
+	pktcon.ClientID = "pub-will-retain-false-1"
 	pktcon.Will = &pktwill.Message
-	pub := newMockConn(t)
-	b.manager.ClientMQTTHandler(pub)
-	pub.sendC2S(pktcon)
-	pub.assertS2CPacket("<Connack SessionPresent=false ReturnCode=0>")
+	pub1 := newMockConn(t)
+	b.manager.ClientMQTTHandler(pub1)
+	pub1.sendC2S(pktcon)
+	pub1.assertS2CPacket("<Connack SessionPresent=false ReturnCode=0>")
 
 	fmt.Println("--> 1. pub client disconnect normally <--")
 
 	// pub client disconnect normally
-	pub.sendC2S(&mqtt.Disconnect{})
-	pub.assertS2CPacketTimeout()
-	pub.assertClosed(true)
-	b.assertSession("pub", "{\"ID\":\"pub\",\"Will\":{\"Context\":{\"Topic\":\"test\"},\"Content\":\"anVzdCBmb3IgdGVzdA==\"},\"CleanSession\":false,\"Subscriptions\":null}")
+	pub1.sendC2S(&mqtt.Disconnect{})
+	pub1.assertS2CPacketTimeout()
+	pub1.assertClosed(true)
+	b.assertSession("pub-will-retain-false-1", "{\"ID\":\"pub-will-retain-false-1\",\"Will\":{\"Context\":{\"Topic\":\"test\"},\"Content\":\"d2lsbCByZXRhaW4gaXMgZmFsc2U=\"},\"CleanSession\":false,\"Subscriptions\":null}")
 
 	// sub client failed to receive message
 	b.assertExchangeCount(1)
 	sub.assertS2CPacketTimeout()
 	sub.assertClosed(false)
 
-	fmt.Println("--> pub client disconnect abnormally <--")
+	fmt.Println("--> 2. pub client disconnect abnormally <--")
 
 	// pub client reconnect again
-	pub = newMockConn(t)
-	b.manager.ClientMQTTHandler(pub)
-	pub.sendC2S(pktcon)
-	pub.assertS2CPacket("<Connack SessionPresent=true ReturnCode=0>")
-	b.assertSession("pub", "{\"ID\":\"pub\",\"Will\":{\"Context\":{\"Topic\":\"test\"},\"Content\":\"anVzdCBmb3IgdGVzdA==\"},\"CleanSession\":false,\"Subscriptions\":null}")
+	pub1 = newMockConn(t)
+	b.manager.ClientMQTTHandler(pub1)
+	pub1.sendC2S(pktcon)
+	pub1.assertS2CPacket("<Connack SessionPresent=true ReturnCode=0>")
+	b.assertSession("pub-will-retain-false-1", "{\"ID\":\"pub-will-retain-false-1\",\"Will\":{\"Context\":{\"Topic\":\"test\"},\"Content\":\"d2lsbCByZXRhaW4gaXMgZmFsc2U=\"},\"CleanSession\":false,\"Subscriptions\":null}")
 
 	// pub client disconnect abnormally
-	pub.Close()
-	pub.assertClosed(true)
-	b.assertSession("pub", "{\"ID\":\"pub\",\"Will\":{\"Context\":{\"Topic\":\"test\"},\"Content\":\"anVzdCBmb3IgdGVzdA==\"},\"CleanSession\":false,\"Subscriptions\":null}")
+	pub1.Close()
+	pub1.assertClosed(true)
+	b.assertSession("pub-will-retain-false-1", "{\"ID\":\"pub-will-retain-false-1\",\"Will\":{\"Context\":{\"Topic\":\"test\"},\"Content\":\"d2lsbCByZXRhaW4gaXMgZmFsc2U=\"},\"CleanSession\":false,\"Subscriptions\":null}")
 
 	// sub client received Will message
-	sub.assertS2CPacket("<Publish ID=0 Message=<Message Topic=\"test\" QOS=0 Retain=false Payload=[106 117 115 116 32 102 111 114 32 116 101 115 116]> Dup=false>")
+	sub.assertS2CPacket("<Publish ID=0 Message=<Message Topic=\"test\" QOS=0 Retain=false Payload=[119 105 108 108 32 114 101 116 97 105 110 32 105 115 32 102 97 108 115 101]> Dup=false>")
+
+	// pub client connect with will message, retain is true
+	pub2 := newMockConn(t)
+	b.manager.ClientMQTTHandler(pub2)
+	pktcon.ClientID = "pub-will-retain-true-1"
+	pktwill.Message.Payload = []byte("will retain is true")
+	pktwill.Message.Retain = true
+	pktcon.Will = &pktwill.Message
+	pub2.sendC2S(pktcon)
+	pub2.assertS2CPacket("<Connack SessionPresent=false ReturnCode=0>")
+
+	fmt.Println("--> 1. pub client disconnect normally <--")
+
+	// pub client disconnect normally
+	pub2.sendC2S(&mqtt.Disconnect{})
+	pub2.assertS2CPacketTimeout()
+	pub2.assertClosed(true)
+	b.assertSession("pub-will-retain-true-1", "{\"ID\":\"pub-will-retain-true-1\",\"Will\":{\"Context\":{\"Type\":1,\"Topic\":\"test\"},\"Content\":\"d2lsbCByZXRhaW4gaXMgdHJ1ZQ==\"},\"CleanSession\":false,\"Subscriptions\":null}")
+
+	// sub client failed to receive message
+	b.assertExchangeCount(1)
+	sub.assertS2CPacketTimeout()
+	sub.assertClosed(false)
+
+	fmt.Println("--> 2. pub client disconnect abnormally <--")
+
+	// pub client reconnect again
+	pub2 = newMockConn(t)
+	b.manager.ClientMQTTHandler(pub2)
+	pub2.sendC2S(pktcon)
+	pub2.assertS2CPacket("<Connack SessionPresent=true ReturnCode=0>")
+	b.assertSession("pub-will-retain-true-1", "{\"ID\":\"pub-will-retain-true-1\",\"Will\":{\"Context\":{\"Type\":1,\"Topic\":\"test\"},\"Content\":\"d2lsbCByZXRhaW4gaXMgdHJ1ZQ==\"},\"CleanSession\":false,\"Subscriptions\":null}")
+
+	// pub client disconnect abnormally
+	pub2.Close()
+	pub2.assertClosed(true)
+	b.assertSession("pub-will-retain-true-1", "{\"ID\":\"pub-will-retain-true-1\",\"Will\":{\"Context\":{\"Type\":1,\"Topic\":\"test\"},\"Content\":\"d2lsbCByZXRhaW4gaXMgdHJ1ZQ==\"},\"CleanSession\":false,\"Subscriptions\":null}")
+
+	// sub client received Will message
+	sub.assertS2CPacket("<Publish ID=0 Message=<Message Topic=\"test\" QOS=0 Retain=false Payload=[119 105 108 108 32 114 101 116 97 105 110 32 105 115 32 116 114 117 101]> Dup=false>")
+
+	// sub client disconnect normally
+	sub.sendC2S(&mqtt.Disconnect{})
+	sub.assertS2CPacketTimeout()
+	sub.assertClosed(true)
+	b.assertSession("sub", "{\"ID\":\"sub\",\"CleanSession\":false,\"Subscriptions\":{\"test\":0}}")
+
+	// sub client reconnect, will receive message("will retain is true")
+	sub = newMockConn(t)
+	b.manager.ClientMQTTHandler(sub)
+	pktcon.Will = nil
+	pktcon.ClientID = "sub"
+	sub.sendC2S(pktcon)
+	sub.assertS2CPacket("<Connack SessionPresent=true ReturnCode=0>")
+
+	// sub client subscribe topic test
+	sub.sendC2S(&mqtt.Subscribe{ID: 1, Subscriptions: []mqtt.Subscription{{Topic: "test", QOS: 0}}})
+	sub.assertS2CPacket("<Suback ID=1 ReturnCodes=[0]>")
+	b.assertSession("sub", "{\"ID\":\"sub\",\"CleanSession\":false,\"Subscriptions\":{\"test\":0}}")
+
+	// sub client receive message("will retain is true"), retain flag is true
+	sub.assertS2CPacket("<Publish ID=0 Message=<Message Topic=\"test\" QOS=0 Retain=true Payload=[119 105 108 108 32 114 101 116 97 105 110 32 105 115 32 116 114 117 101]> Dup=false>")
 }
 
 func TestSessionMqttRetain(t *testing.T) {

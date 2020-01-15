@@ -81,21 +81,29 @@ func (c *ClientMQTT) onConnect(p *mqtt.Connect) error {
 		return ErrSessionClientIDInvalid
 	}
 	if c.manager.authenticator != nil {
-		// TODO: support tls bidirectional authentication, use CN as username
-
-		// username/password authentication
-		if p.Username == "" {
-			c.sendConnack(mqtt.BadUsernameOrPassword, false)
-			return ErrSessionUsernameNotSet
-		}
-		if p.Password == "" {
-			c.sendConnack(mqtt.BadUsernameOrPassword, false)
-			return ErrSessionPasswordNotSet
-		}
-		c.authorizer = c.manager.authenticator.AuthenticateAccount(p.Username, p.Password)
-		if c.authorizer == nil {
-			c.sendConnack(mqtt.BadUsernameOrPassword, false)
-			return ErrSessionUsernameNotPermitted
+		if p.Password != "" {
+			// username/password authentication
+			if p.Username == "" {
+				c.sendConnack(mqtt.BadUsernameOrPassword, false)
+				return ErrSessionUsernameNotSet
+			}
+			c.authorizer = c.manager.authenticator.AuthenticateAccount(p.Username, p.Password)
+			if c.authorizer == nil {
+				c.sendConnack(mqtt.BadUsernameOrPassword, false)
+				return ErrSessionUsernameNotPermitted
+			}
+		} else {
+			if cn, ok := mqtt.GetTLSCommonName(c.connection); ok {
+				// if it is bidirectional authentication, will use certificate authentication
+				c.authorizer = c.manager.authenticator.AuthenticateCertificate(cn)
+				if c.authorizer == nil {
+					c.sendConnack(mqtt.BadUsernameOrPassword, false)
+					return ErrSessionCertificateCommonNameNotPermitted
+				}
+			} else {
+				c.sendConnack(mqtt.BadUsernameOrPassword, false)
+				return ErrSessionCertificateCommonNameNotFound
+			}
 		}
 	}
 

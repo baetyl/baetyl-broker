@@ -1,0 +1,25 @@
+addresses:
+  - tcp://0.0.0.0:1883
+  - ssl://0.0.0.0:1884
+  - ws://0.0.0.0:8883/mqtt
+  - wss://0.0.0.0:8884/mqtt
+certificate:
+  ca: example/var/lib/baetyl/testcert/ca.pem
+  cert: example/var/lib/baetyl/testcert/server.pem
+  key: example/var/lib/baetyl/testcert/server.key
+principals:
+  - username: test
+    password: hahaha
+    permissions:
+      - action: pub
+        permit: ["test", "#"]
+      - action: sub
+        permit: ["test", "#"]
+  - username: client.example.org
+    permissions:
+      - action: pub
+        permit: ["test", "#"]
+      - action: sub
+        permit: ["test", "#"]
+session:
+  sysTopics: ["$link", "$baidu"]

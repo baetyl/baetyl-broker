@@ -17,5 +17,5 @@
 
 # Mac
 baetyl-broker
-etc
-var
+var/**
+/**/var
