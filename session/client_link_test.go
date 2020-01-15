@@ -23,7 +23,7 @@ func TestSessionLinkException(t *testing.T) {
 	m := &link.Message{}
 	c.sendC2S(m)
 	err := <-errs
-	assert.EqualError(t, err, "message topic is invalid")
+	assert.EqualError(t, err, "publish topic is invalid")
 
 	// invalid topic
 	go func() {
@@ -32,7 +32,7 @@ func TestSessionLinkException(t *testing.T) {
 	m.Context.Topic = "$non-exist"
 	c.sendC2S(m)
 	err = <-errs
-	assert.EqualError(t, err, "message topic is invalid")
+	assert.EqualError(t, err, "publish topic is invalid")
 
 	// invalid message type
 	go func() {
@@ -143,7 +143,7 @@ func TestSessionLinkSendRecvBL(t *testing.T) {
 	// close subc1 by sending a invalid message
 	subc1.sendC2S(&link.Message{})
 	err := <-errs
-	assert.EqualError(t, err, "message topic is invalid")
+	assert.EqualError(t, err, "publish topic is invalid")
 	b.assertClientCount(2)
 	b.assertSessionCount(2)
 	b.assertBindingCount(publid, 1)

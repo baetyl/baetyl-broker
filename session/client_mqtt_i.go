@@ -131,8 +131,21 @@ func (c *ClientMQTT) onConnect(p *mqtt.Connect) error {
 	}
 	c.tomb.Go(c.republishing, c.publishing)
 
-	// TODO: Re-check subscriptions, if subscription not permit, log error and skip
-
+	// Re-check subscriptions, if subscription not permit, log error and skip
+	if subscriptions := c.getSession().Subscriptions; subscriptions != nil {
+		for topic, qos := range subscriptions {
+			if !c.manager.checker.CheckTopic(topic, true) {
+				c.log.Error(ErrSessionSubscribeTopicInvalid.Error(), log.Any("topic", topic))
+			}
+			if qos > 1 {
+				c.log.Error(ErrSessionMessageQosNotSupported.Error(), log.Any("qos", qos))
+				return ErrSessionMessageQosNotSupported
+			}
+			if !c.authorize(Subscribe, topic) {
+				c.log.Error(ErrSessionSubscribeTopicNotPermitted.Error(), log.Any("topic", topic))
+			}
+		}
+	}
 	err = c.sendConnack(mqtt.ConnectionAccepted, exists)
 	if err != nil {
 		return err
@@ -148,10 +161,10 @@ func (c *ClientMQTT) onPublish(p *mqtt.Publish) error {
 		return ErrSessionMessageQosNotSupported
 	}
 	if !c.manager.checker.CheckTopic(p.Message.Topic, false) {
-		return ErrSessionMessageTopicInvalid
+		return ErrSessionPublishTopicInvalid
 	}
 	if !c.authorize(Publish, p.Message.Topic) {
-		return ErrSessionMessageTopicNotPermitted
+		return ErrSessionPublishTopicNotPermitted
 	}
 	msg := common.NewMessage(p)
 	if msg.Retain() {
@@ -217,13 +230,13 @@ func (c *ClientMQTT) genSuback(p *mqtt.Subscribe) (*mqtt.Suback, []mqtt.Subscrip
 	subs := []mqtt.Subscription{}
 	for i, sub := range p.Subscriptions {
 		if !c.manager.checker.CheckTopic(sub.Topic, true) {
-			c.log.Error("subscribe topic invalid", log.Any("topic", sub.Topic))
+			c.log.Error(ErrSessionSubscribeTopicInvalid.Error(), log.Any("topic", sub.Topic))
 			sa.ReturnCodes[i] = mqtt.QOSFailure
 		} else if sub.QOS > 1 {
-			c.log.Error("subscribe QOS not supported", log.Any("qos", int(sub.QOS)))
+			c.log.Error(ErrSessionMessageQosNotSupported.Error(), log.Any("qos", int(sub.QOS)))
 			sa.ReturnCodes[i] = mqtt.QOSFailure
 		} else if !c.authorize(Subscribe, sub.Topic) {
-			c.log.Error("subscribe topic not permitted", log.Any("topic", sub.Topic))
+			c.log.Error(ErrSessionSubscribeTopicNotPermitted.Error(), log.Any("topic", sub.Topic))
 			sa.ReturnCodes[i] = mqtt.QOSFailure
 		} else {
 			sa.ReturnCodes[i] = sub.QOS

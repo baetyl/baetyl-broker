@@ -38,7 +38,7 @@ func (m *Manager) Call(ctx context.Context, msg *link.Message) (*link.Message, e
 		return nil, ErrSessionMessageQosNotSupported
 	}
 	if !m.checker.CheckTopic(msg.Context.Topic, false) {
-		return nil, ErrSessionMessageTopicInvalid
+		return nil, ErrSessionPublishTopicInvalid
 	}
 	if msg.Context.QOS == 0 {
 		m.exchange.Route(msg, nil)
@@ -251,10 +251,10 @@ func (c *ClientLink) onMsg(msg *link.Message, cb func(uint64)) error {
 		return ErrSessionMessageQosNotSupported
 	}
 	if !c.manager.checker.CheckTopic(msg.Context.Topic, false) {
-		return ErrSessionMessageTopicInvalid
+		return ErrSessionPublishTopicInvalid
 	}
 	if !c.authorize(Publish, msg.Context.Topic) {
-		return ErrSessionMessageTopicNotPermitted
+		return ErrSessionPublishTopicNotPermitted
 	}
 	if msg.Context.QOS == 0 {
 		cb = nil
