@@ -26,7 +26,7 @@ func (c *ClientMQTT) publishQOS1(e *common.Event) error {
 	case c.resender.c <- _iqel:
 		return nil
 	case <-c.tomb.Dying():
-		return ErrSessionClientAlreadyClosed
+		return nil
 	}
 }
 
@@ -70,9 +70,9 @@ func (c *ClientMQTT) sendConnack(code mqtt.ConnackCode, exists bool) error {
 }
 
 func (c *ClientMQTT) send(pkt mqtt.Packet, async bool) error {
-	c.Lock()
+	c.mu.Lock()
 	err := c.connection.Send(pkt, async)
-	c.Unlock()
+	c.mu.Unlock()
 	if err != nil {
 		c.die("failed to send packet", err)
 		return err

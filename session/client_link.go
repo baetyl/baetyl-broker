@@ -1,6 +1,7 @@
 package session
 
 import (
+	"context"
 	"fmt"
 	"strings"
 	"sync"
@@ -26,12 +27,53 @@ type ClientLink struct {
 	stream     link.Link_TalkServer
 	log        *log.Logger
 	tomb       utils.Tomb
-	sync.Mutex
+	mu         sync.Mutex
+	sync.Once
 }
 
-func (m *Manager) initClientLink(stream link.Link_TalkServer) (*ClientLink, error) {
+// Call handler of link
+func (m *Manager) Call(ctx context.Context, msg *link.Message) (*link.Message, error) {
+	// TODO: improvement, cache auth result
+	if msg.Context.QOS > 1 {
+		return nil, ErrSessionMessageQosNotSupported
+	}
+	if !m.checker.CheckTopic(msg.Context.Topic, false) {
+		return nil, ErrSessionMessageTopicInvalid
+	}
+	if msg.Context.QOS == 0 {
+		m.exchange.Route(msg, nil)
+		return nil, nil
+	}
+	done := make(chan struct{})
+	m.exchange.Route(msg, func(_ uint64) {
+		close(done)
+	})
+	select {
+	case <-done:
+		return nil, nil
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	}
+}
+
+// Talk handler of link
+func (m *Manager) Talk(stream link.Link_TalkServer) error {
+	defer m.log.Info("link client is closed")
+	err := m.checkConnection()
+	if err != nil {
+		return err
+	}
+	c, err := m.newClientLink(stream)
+	if err != nil {
+		m.log.Error("failed to create link client", log.Error(err))
+		return err
+	}
+	m.log.Debug("link client is created")
+	return c.tomb.Wait()
+}
+
+func (m *Manager) newClientLink(stream link.Link_TalkServer) (*ClientLink, error) {
 	md, ok := metadata.FromIncomingContext(stream.Context())
-	m.log.Debug("to create link client with metatdata", log.Any("metadata", md))
 	if !ok || len(md.Get("linkid")) == 0 {
 		return nil, ErrSessionLinkIDNotSet
 	}
@@ -39,6 +81,7 @@ func (m *Manager) initClientLink(stream link.Link_TalkServer) (*ClientLink, erro
 	if lid == "" {
 		return nil, ErrSessionLinkIDNotSet
 	}
+	lid = "$link/" + lid
 	id := strings.ReplaceAll(uuid.Generate().String(), "-", "")
 	c := &ClientLink{
 		id:      id,
@@ -46,17 +89,18 @@ func (m *Manager) initClientLink(stream link.Link_TalkServer) (*ClientLink, erro
 		stream:  stream,
 		log:     log.With(log.Any("type", "link"), log.Any("id", id)),
 	}
-	c.resender = newResender(m.cfg.MaxInflightQOS1Messages, m.cfg.RepublishInterval, &c.tomb)
-	m.addClient(c)
 	si := &Info{
 		ID:            lid,
+		CleanSession:  false,                       // always false for link client
 		Subscriptions: map[string]mqtt.QOS{lid: 1}, // always subscribe link's id, e.g. $link/<service_name>
 	}
 	_, err := m.initSession(si, c, false)
 	if err != nil {
 		return nil, err
 	}
-	c.tomb.Go(c.resending, c.receiving)
+	c.resender = newResender(m.cfg.MaxInflightQOS1Messages, m.cfg.ResendInterval, &c.tomb)
+	c.manager.addClient(c)
+	c.tomb.Go(c.sending, c.resending, c.receiving)
 	return c, nil
 }
 
@@ -74,10 +118,14 @@ func (c *ClientLink) getSession() *Session {
 }
 
 // Close closes client by session
-func (c *ClientLink) Close() error {
-	c.log.Info("client is closing by session")
-	defer c.log.Info("client has closed by session")
-	return c.close(nil)
+func (c *ClientLink) close() error {
+	c.Do(func() {
+		c.log.Info("client is closing")
+		defer c.log.Info("client has closed")
+		c.tomb.Kill(nil)
+		c.manager.delClient(c)
+	})
+	return c.tomb.Wait()
 }
 
 // closes client by itself
@@ -88,20 +136,8 @@ func (c *ClientLink) die(msg string, err error) {
 	if err != nil {
 		c.log.Error(msg, log.Error(err))
 	}
-	go func() {
-		c.log.Info("client is closing by itself")
-		if err != nil {
-			c.log.Error(msg, log.Error(err))
-		}
-		c.manager.delClient(c)
-		c.close(err)
-		c.log.Info("client has closed by itself")
-	}()
-}
-
-func (c *ClientLink) close(err error) error {
 	c.tomb.Kill(err)
-	return c.tomb.Wait()
+	go c.close()
 }
 
 func (c *ClientLink) authorize(action, topic string) bool {
@@ -109,9 +145,9 @@ func (c *ClientLink) authorize(action, topic string) bool {
 }
 
 func (c *ClientLink) send(msg *link.Message) error {
-	c.Lock()
+	c.mu.Lock()
 	err := c.stream.Send(msg)
-	c.Unlock()
+	c.mu.Unlock()
 	if err != nil {
 		c.die("failed to send message", err)
 		return err
@@ -135,10 +171,16 @@ func (c *ClientLink) sending() error {
 	for {
 		select {
 		case evt = <-qos0:
+			if ent := c.log.Check(log.DebugLevel, "queue popped a message as qos 0"); ent != nil {
+				ent.Write(log.Any("message", evt.String()))
+			}
 			if err = c.send(evt.Message); err != nil {
 				return err
 			}
 		case evt = <-qos1:
+			if ent := c.log.Check(log.DebugLevel, "queue popped a message as qos 1"); ent != nil {
+				ent.Write(log.Any("message", evt.String()))
+			}
 			_iqel := newIQEL(evt.Context.ID, 1, evt)
 			if err = c.resender.store(_iqel); err != nil {
 				c.log.Error(err.Error())
@@ -150,7 +192,7 @@ func (c *ClientLink) sending() error {
 			case c.resender.c <- _iqel:
 				return nil
 			case <-c.tomb.Dying():
-				return ErrSessionClientAlreadyClosed
+				return nil
 			}
 		case <-c.tomb.Dying():
 			return nil

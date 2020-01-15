@@ -132,6 +132,7 @@ func (c *ClientMQTT) onConnect(p *mqtt.Connect) error {
 	c.tomb.Go(c.republishing, c.publishing)
 
 	// TODO: Re-check subscriptions, if subscription not permit, log error and skip
+
 	err = c.sendConnack(mqtt.ConnectionAccepted, exists)
 	if err != nil {
 		return err

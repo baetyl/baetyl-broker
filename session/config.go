@@ -15,9 +15,9 @@ type Config struct {
 // SessionConfig session config without principals
 type SessionConfig struct {
 	MaxConnections          int           `yaml:"maxConnections,omitempty" json:"maxConnections,omitempty"`
-	MaxInflightQOS0Messages int           `yaml:"maxInflightQOS0Messages" json:"maxInflightQOS0Messages" default:"100" validate:"min=1"`
+	MaxInflightQOS0Messages int           `yaml:"maxInflightQOS0Messages" json:"maxInflightQOS0Messages" default:"1000" validate:"min=1"`
 	MaxInflightQOS1Messages int           `yaml:"maxInflightQOS1Messages" json:"maxInflightQOS1Messages" default:"20" validate:"min=1"`
-	RepublishInterval       time.Duration `yaml:"republishInterval" json:"republishInterval" default:"20s"`
+	ResendInterval          time.Duration `yaml:"resendInterval" json:"resendInterval" default:"20s"`
 	Persistence             queue.Config  `yaml:"persistence,omitempty" json:"persistence,omitempty"`
 	SysTopics               []string      `yaml:"sysTopics,omitempty" json:"sysTopics,omitempty" default:"[\"$link\"]"`
 }

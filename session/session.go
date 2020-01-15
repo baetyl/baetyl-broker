@@ -30,7 +30,9 @@ type Session struct {
 	qos0 queue.Queue // queue for qos0
 	qos1 queue.Queue // queue for qos1
 	subs *mqtt.Trie
+	clis map[string]client
 	log  *log.Logger
+	mu   sync.Mutex
 	sync.Once
 }
 
@@ -43,7 +45,7 @@ func (s *Session) Push(e *common.Event) error {
 	// TODO: improve
 	qs := s.subs.Match(e.Context.Topic)
 	if len(qs) == 0 {
-		panic("At least one object matched")
+		panic("At least one subscription matched")
 	}
 	for _, q := range qs {
 		if q.(mqtt.QOS) > 0 {
@@ -53,8 +55,37 @@ func (s *Session) Push(e *common.Event) error {
 	return s.qos0.Push(e)
 }
 
+func (s *Session) clientCount() int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return len(s.clis)
+}
+
+func (s *Session) addClient(c client, exclusive bool) map[string]client {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	var prev map[string]client
+	if exclusive {
+		prev = s.clis
+		s.clis = map[string]client{}
+	} else if len(s.clis) != 0 {
+		s.log.Info("add new client to existing session", log.Any("cid", c.getID()))
+	}
+	s.clis[c.getID()] = c
+	c.setSession(s)
+	return prev
+}
+
+// returns true if session should be cleaned
+func (s *Session) delClient(c client) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	delete(s.clis, c.getID())
+	return s.CleanSession && len(s.clis) == 0
+}
+
 // Close closes session
-func (s *Session) Close() error {
+func (s *Session) close() {
 	s.Do(func() {
 		s.log.Info("session is closing")
 		defer s.log.Info("session has closed")
@@ -67,5 +98,4 @@ func (s *Session) Close() error {
 			s.log.Warn("failed to close qos1 queue", log.Error(err))
 		}
 	})
-	return nil
 }
