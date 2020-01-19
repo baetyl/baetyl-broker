@@ -1,6 +1,7 @@
 package session
 
 import (
+	"fmt"
 	"sync"
 	"time"
 
@@ -49,14 +50,12 @@ type resender struct {
 	t *utils.Tomb
 }
 
-func newResender(c int, d time.Duration, t *utils.Tomb) *resender {
+func newResender(d time.Duration, t *utils.Tomb) *resender {
 	return &resender{
-		c: make(chan *iqel, c),
 		d: d,
 		t: t,
 	}
 }
-
 func (r *resender) next(i *iqel) time.Duration {
 	return r.d - time.Now().Sub(i.lst)
 }
@@ -79,21 +78,16 @@ func (r *resender) delete(id interface{}) error {
 	return nil
 }
 
-func (r *resender) resending(send func(*iqel) error) error {
+func (r *resender) resending(_iqel *iqel, send func(*iqel) error) error {
 	var err error
-	var _iqel *iqel
 	timer := time.NewTimer(r.d)
 	defer timer.Stop()
-	for {
-		select {
-		case _iqel = <-r.c:
-			for timer.Reset(r.next(_iqel)); _iqel.wait(timer.C, r.t.Dying()) == common.ErrAcknowledgeTimedOut; timer.Reset(r.d) {
-				if err = send(_iqel); err != nil {
-					return err
-				}
-			}
-		case <-r.t.Dying():
-			return nil
+	for timer.Reset(r.next(_iqel)); _iqel.wait(timer.C, r.t.Dying()) == common.ErrAcknowledgeTimedOut; timer.Reset(r.d) {
+		fmt.Println("+++++++++++++ 41 resending: ", _iqel)
+		if err = send(_iqel); err != nil {
+			fmt.Println("+++++++++++++ 42 resending: ", _iqel, "  err", err)
+			return err
 		}
 	}
+	return nil
 }

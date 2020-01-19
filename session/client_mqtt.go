@@ -22,10 +22,9 @@ type ClientMQTT struct {
 	counter    *mqtt.Counter
 	authorizer *Authorizer
 	connection mqtt.Connection
-
-	log  *log.Logger
-	tomb utils.Tomb
-	mu   sync.Mutex
+	log        *log.Logger
+	tomb       utils.Tomb
+	mu         sync.Mutex
 	sync.Once
 }
 
@@ -46,7 +45,7 @@ func (m *Manager) ClientMQTTHandler(conn mqtt.Connection) {
 		counter:    mqtt.NewCounter(),
 		log:        log.With(log.Any("type", "mqtt"), log.Any("id", id)),
 	}
-	c.resender = newResender(m.cfg.MaxInflightQOS1Messages, m.cfg.ResendInterval, &c.tomb)
+	c.resender = newResender(m.cfg.ResendInterval, &c.tomb)
 	c.manager.addClient(c)
 	c.tomb.Go(c.receiving)
 }
@@ -62,6 +61,10 @@ func (c *ClientMQTT) setSession(s *Session) {
 
 func (c *ClientMQTT) getSession() *Session {
 	return c.session
+}
+
+func (c *ClientMQTT) setResender(resender chan *iqel) {
+	c.resender.c = resender
 }
 
 // Close closes client by session

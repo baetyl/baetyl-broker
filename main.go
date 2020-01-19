@@ -50,10 +50,6 @@ func main() {
 		return
 	}
 
-	// l, _ := log.Init(log.Config{Level: "debug", Format: "text"})
-	l := log.With()
-	defer l.Sync()
-
 	// baetyl.Run(func(ctx baetyl.Context) error {
 	var cfg Config
 	if utils.FileExists(c) {
@@ -61,6 +57,11 @@ func main() {
 	} else {
 		utils.SetDefaults(&cfg)
 	}
+	l, err := log.Init(cfg.Logger)
+	if err != nil {
+		panic(err)
+	}
+	defer l.Sync()
 	b, err := NewBroker(cfg)
 	if err != nil {
 		l.Fatal("failed to create broker", log.Error(err))

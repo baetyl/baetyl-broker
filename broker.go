@@ -16,6 +16,7 @@ type Config struct {
 	Certificate utils.Certificate `yaml:"certificate" json:"certificate"`
 	Session     session.Config    `yaml:",inline" json:",inline"`
 	Link        link.ServerConfig `yaml:"link" json:"link"`
+	Logger      log.Config        `yaml:"logger" json:"logger"`
 }
 
 // Broker message broker

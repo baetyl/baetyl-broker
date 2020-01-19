@@ -6,7 +6,8 @@ GIT_TAG:=$(shell git tag --contains HEAD)
 GIT_REV:=git-$(shell git rev-parse --short HEAD)
 VERSION:=$(if $(GIT_TAG),$(GIT_TAG),$(GIT_REV))
 
-GO_FLAGS?=-ldflags '-X "github.com/baetyl/baetyl-go/utils.REVISION=$(GIT_REV)" -X "github.com/baetyl/baetyl-go/utils.VERSION=$(VERSION)" -linkmode external -w -extldflags "-static"'
+GO_FLAGS?=-ldflags '-X "github.com/baetyl/baetyl-go/utils.REVISION=$(GIT_REV)" -X "github.com/baetyl/baetyl-go/utils.VERSION=$(VERSION)"'
+GO_FLAGS_STATIC?=-ldflags '-X "github.com/baetyl/baetyl-go/utils.REVISION=$(GIT_REV)" -X "github.com/baetyl/baetyl-go/utils.VERSION=$(VERSION)" -linkmode external -w -extldflags "-static"'
 GO_TEST_FLAGS?=-race
 GO_TEST_PKGS?=$(shell go list ./...)
 ifndef PLATFORMS
@@ -28,12 +29,12 @@ XPLATFORMS:=$(shell echo $(filter-out darwin/amd64,$(PLATFORMS)) | sed 's: :,:g'
 .PHONY: all
 all: $(SRC_FILES)
 	@echo "BUILD $(MODULE)"
-	@env CGO_ENABLED=1 go build -o $(MODULE) .
+	@env CGO_ENABLED=1 go build -o $(MODULE) $(GO_FLAGS) .
 
 .PHONY: build-static
 build-static: $(SRC_FILES)
 	@echo "BUILD $(MODULE)"
-	@env GO111MODULE=on GOPROXY=https://goproxy.cn CGO_ENABLED=1 go build -o $(MODULE) $(GO_FLAGS) .
+	@env GO111MODULE=on GOPROXY=https://goproxy.cn CGO_ENABLED=1 go build -o $(MODULE) $(GO_FLAGS_STATIC) .
 
 .PHONY: image
 image: 

@@ -129,15 +129,17 @@ func (c *ClientMQTT) onConnect(p *mqtt.Connect) error {
 	if err != nil {
 		return err
 	}
-	c.tomb.Go(c.republishing, c.publishing)
-
 	// TODO: Re-check subscriptions, if subscription not permit, log error and skip
 
 	err = c.sendConnack(mqtt.ConnectionAccepted, exists)
 	if err != nil {
 		return err
 	}
-
+	c.resender = &resender{
+		d: c.manager.cfg.ResendInterval,
+		c: c.session.resender,
+		t: &c.tomb,
+	}
 	c.log.Info("client is connected")
 	return nil
 }
@@ -214,7 +216,7 @@ func (c *ClientMQTT) genSuback(p *mqtt.Subscribe) (*mqtt.Suback, []mqtt.Subscrip
 		ID:          p.ID,
 		ReturnCodes: make([]mqtt.QOS, len(p.Subscriptions)),
 	}
-	subs := []mqtt.Subscription{}
+	var subs []mqtt.Subscription
 	for i, sub := range p.Subscriptions {
 		if !c.manager.checker.CheckTopic(sub.Topic, true) {
 			c.log.Error("subscribe topic invalid", log.Any("topic", sub.Topic))

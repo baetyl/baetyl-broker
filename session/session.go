@@ -9,6 +9,8 @@ import (
 	"github.com/baetyl/baetyl-go/link"
 	"github.com/baetyl/baetyl-go/log"
 	"github.com/baetyl/baetyl-go/mqtt"
+	"github.com/baetyl/baetyl-go/utils"
+	cmap "github.com/orcaman/concurrent-map"
 )
 
 // Info session information
@@ -27,12 +29,15 @@ func (i *Info) String() string {
 // Session session of a client
 type Session struct {
 	Info
-	qos0 queue.Queue // queue for qos0
-	qos1 queue.Queue // queue for qos1
-	subs *mqtt.Trie
-	clis map[string]client
-	log  *log.Logger
-	mu   sync.Mutex
+	qos0     queue.Queue // queue for qos0
+	qos1     queue.Queue // queue for qos1
+	subs     *mqtt.Trie
+	clis     cmap.ConcurrentMap
+	resender chan *iqel
+	evt      *common.Event
+	tomb     utils.Tomb
+	log      *log.Logger
+	mu       sync.Mutex
 	sync.Once
 }
 
@@ -61,18 +66,22 @@ func (s *Session) clientCount() int {
 	return len(s.clis)
 }
 
-func (s *Session) addClient(c client, exclusive bool) map[string]client {
+func (s *Session) addClient(c client, exclusive bool) cmap.ConcurrentMap {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	var prev map[string]client
+	var prev cmap.ConcurrentMap
 	if exclusive {
 		prev = s.clis
-		s.clis = map[string]client{}
+		s.clis = cmap.New()
 	} else if len(s.clis) != 0 {
 		s.log.Info("add new client to existing session", log.Any("cid", c.getID()))
 	}
-	s.clis[c.getID()] = c
 	c.setSession(s)
+	c.setResender(s.resender)
+	s.clis.Set(c.getID(), c)
+	//if s.clis.Count() == 1 {
+	//	s.tomb.Go(s.sending, s.resending)
+	//}
 	return prev
 }
 
@@ -80,8 +89,8 @@ func (s *Session) addClient(c client, exclusive bool) map[string]client {
 func (s *Session) delClient(c client) bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	delete(s.clis, c.getID())
-	return s.CleanSession && len(s.clis) == 0
+	s.clis.Remove(c.getID())
+	return s.CleanSession && s.clis.Count() == 0
 }
 
 // Close closes session
@@ -98,4 +107,62 @@ func (s *Session) close() {
 			s.log.Warn("failed to close qos1 queue", log.Error(err))
 		}
 	})
+}
+
+func (s *Session) sending() error {
+	s.log.Info("session starts to send messages")
+	defer s.log.Info("session has stopped sending messages")
+
+	qos0 := s.qos0.Chan()
+	qos1 := s.qos1.Chan()
+	for {
+		if s.clis.Count() == 0 {
+			return nil
+		}
+		for c := range s.clis.IterBuffered() {
+			client := c.Val.(client)
+			if s.evt != nil {
+				if err := client.sending(s.evt); err != nil {
+					continue
+				}
+			}
+			select {
+			case s.evt = <-qos0:
+			case s.evt = <-qos1:
+			case <-s.tomb.Dying():
+				return nil
+			}
+		}
+	}
+}
+
+func (s *Session) resending() error {
+	s.log.Info("session starts to sending messages")
+	defer s.log.Info("session has stopped resending messages")
+	return nil
+	//var _iqel *iqel
+	//for {
+	//	for c := range s.clis.IterBuffered() {
+	//		client := c.Val.(client)
+	//		fmt.Println("+++++++++++++ 1 resending: ", client, " ses:", client.getSession().ID, " count:", s.clis.Count())
+	//		if _iqel != nil {
+	//			fmt.Println("+++++++++++++ 2 resending: ", client, " ses:", client.getSession().ID, " count:", s.clis.Count())
+	//			if err := client.resending(_iqel); err == nil {
+	//				fmt.Println("+++++++++++++ 3 resending: ", client, err, " ses:", client.getSession().ID, " count:", s.clis.Count())
+	//				continue
+	//			}
+	//		}
+	//		select {
+	//		case _iqel = <-s.resender:
+	//			fmt.Println("+++++++++++++ 4 resending: ", client, _iqel, " ses:", client.getSession().ID, " count:", s.clis.Count())
+	//			if err := client.resending(_iqel); err == nil {
+	//				fmt.Println("+++++++++++++ 5 resending: ", client, _iqel, " ses:", client.getSession().ID, " count:", s.clis.Count())
+	//				_iqel = nil
+	//			}
+	//		case <-s.tomb.Dying():
+	//			fmt.Println("+++++++++++++ 6 resending: ", client, _iqel, " ses:", client.getSession().ID, " count:", s.clis.Count())
+	//			return nil
+	//		}
+	//	}
+	//}
 }

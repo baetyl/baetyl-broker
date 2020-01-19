@@ -18,45 +18,40 @@ func (c *ClientMQTT) publishQOS1(e *common.Event) error {
 	if err != nil {
 		c.log.Error(err.Error())
 	}
+	//fmt.Println("---- 1 msg:", _iqel, " msg:", _iqel.evt)
 	err = c.send(_iqel.packet(false), true)
+	//fmt.Println("---- 2 msg:", _iqel, " msg:", _iqel.evt)
 	if err != nil {
+		//fmt.Println("---- 3 msg:", _iqel, " msg:", _iqel.evt, " err:", err)
 		return err
 	}
 	select {
 	case c.resender.c <- _iqel:
+		//fmt.Println("---- 4 msg:", _iqel, " msg:", _iqel.evt)
 		return nil
 	case <-c.tomb.Dying():
 		return nil
 	}
 }
 
-func (c *ClientMQTT) publishing() (err error) {
-	c.log.Info("client starts to publish messages")
-	defer c.log.Info("client has stopped publishing messages")
-
-	var e *common.Event
-	qos0 := c.session.qos0.Chan()
-	qos1 := c.session.qos1.Chan()
-	for {
-		select {
-		case e = <-qos0:
-			if err := c.publishQOS0(e); err != nil {
-				return err
-			}
-		case e = <-qos1:
-			if err := c.publishQOS1(e); err != nil {
-				return err
-			}
-		case <-c.tomb.Dying():
-			return nil
+func (c *ClientMQTT) sending(evt *common.Event) error {
+	switch evt.Context.QOS {
+	case 0:
+		if err := c.publishQOS0(evt); err != nil {
+			return err
+		}
+	case 1:
+		if err := c.publishQOS1(evt); err != nil {
+			return err
 		}
 	}
+	return nil
 }
 
-func (c *ClientMQTT) republishing() error {
-	c.log.Info("client starts to republish messages", log.Any("interval", c.resender.d))
-	defer c.log.Info("client has stopped republishing messages")
-	return c.resender.resending(func(i *iqel) error {
+func (c *ClientMQTT) resending(i *iqel) error {
+	//c.log.Info("client starts to republish messages", log.Any("interval", c.resender.d))
+	//defer c.log.Info("client has stopped republishing messages")
+	return c.resender.resending(i, func(i *iqel) error {
 		return c.send(i.packet(true), true)
 	})
 }
