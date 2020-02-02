@@ -17,34 +17,36 @@ import (
 
 // all errors
 var (
-	ErrConnectionRefuse                    	    = errors.New("connection refuse, sessions are closing")
-	ErrConnectionExceeds                   	    = errors.New("number of connections exceeds the max limit")
-	ErrSessionClientAlreadyConnecting      	    = errors.New("session client is already connecting")
-	ErrSessionClientPacketUnexpected       	    = errors.New("session client received unexpected packet")
-	ErrSessionClientPacketIDConflict       	    = errors.New("packet id conflict, to acknowledge old packet")
-	ErrSessionClientPacketNotFound         	    = errors.New("packet id is not found")
-	ErrSessionProtocolVersionInvalid       	    = errors.New("protocol version is invalid")
-	ErrSessionClientIDInvalid              	    = errors.New("client ID is invalid")
-	ErrSessionUsernameNotSet               	    = errors.New("username is not set")
-	ErrSessionPasswordNotSet               	    = errors.New("password is not set")
-	ErrSessionUsernameNotPermitted         	    = errors.New("username or password is not permitted")
+	ErrConnectionRefuse                         = errors.New("connection refuse, sessions are closing")
+	ErrConnectionExceeds                        = errors.New("number of connections exceeds the max limit")
+	ErrSessionClientAlreadyConnecting           = errors.New("session client is already connecting")
+	ErrSessionClientPacketUnexpected            = errors.New("session client received unexpected packet")
+	ErrSessionClientPacketIDConflict            = errors.New("packet id conflict, to acknowledge old packet")
+	ErrSessionClientPacketNotFound              = errors.New("packet id is not found")
+	ErrSessionProtocolVersionInvalid            = errors.New("protocol version is invalid")
+	ErrSessionClientIDInvalid                   = errors.New("client ID is invalid")
+	ErrSessionUsernameNotSet                    = errors.New("username is not set")
+	ErrSessionPasswordNotSet                    = errors.New("password is not set")
+	ErrSessionUsernameNotPermitted              = errors.New("username or password is not permitted")
 	ErrSessionCertificateCommonNameNotFound     = errors.New("certificate common name is not found")
 	ErrSessionCertificateCommonNameNotPermitted = errors.New("certificate common name is not permitted")
-	ErrSessionMessageQosNotSupported       	    = errors.New("message QOS is not supported")
-	ErrSessionMessageTopicInvalid          	    = errors.New("message topic is invalid")
-	ErrSessionMessageTopicNotPermitted     	    = errors.New("message topic is not permitted")
-	ErrSessionMessageTypeInvalid           	    = errors.New("message type is invalid")
-	ErrSessionWillMessageQosNotSupported   	    = errors.New("will QoS is not supported")
-	ErrSessionWillMessageTopicInvalid      	    = errors.New("will topic is invalid")
-	ErrSessionWillMessageTopicNotPermitted 	    = errors.New("will topic is not permitted")
-	ErrSessionLinkIDNotSet                 	    = errors.New("link id is not set")
-	ErrSessionAbnormal                     	    = errors.New("session is abnormal")
+	ErrSessionMessageQosNotSupported            = errors.New("message QOS is not supported")
+	ErrSessionMessageTopicInvalid               = errors.New("message topic is invalid")
+	ErrSessionMessageTopicNotPermitted          = errors.New("message topic is not permitted")
+	ErrSessionMessageTypeInvalid                = errors.New("message type is invalid")
+	ErrSessionWillMessageQosNotSupported        = errors.New("will QoS is not supported")
+	ErrSessionWillMessageTopicInvalid           = errors.New("will topic is invalid")
+	ErrSessionWillMessageTopicNotPermitted      = errors.New("will topic is not permitted")
+	ErrSessionLinkIDNotSet                      = errors.New("link id is not set")
+	ErrSessionAbnormal                          = errors.New("session is abnormal")
 )
 
 type client interface {
 	getID() string
 	getSession() *Session
 	setSession(*Session)
+	sending(*iqel) error
+	resending(*iqel) error
 	close() error
 }
 
@@ -130,7 +132,7 @@ func (m *Manager) Close() error {
 // * init session for client
 
 // initSession init session for client, creates new session if not exists
-func (m *Manager) initSession(si *Info, c client, exclusive bool) (exists bool, err error) {
+func (m *Manager) initSession(si *Info, c client) (s *Session, exists bool, err error) {
 	// prepare session
 	sid := si.ID
 	var sv interface{}
@@ -143,17 +145,15 @@ func (m *Manager) initSession(si *Info, c client, exclusive bool) (exists bool, 
 			sv.(*Session).close()
 			var ok bool
 			if sv, ok = m.sessions.Get(sid); !ok {
-				return false, ErrSessionAbnormal
+				return nil, false, ErrSessionAbnormal
 			}
 		}
 	}
-	s := sv.(*Session)
-	ocs := s.addClient(c, exclusive)
-	for _, oc := range ocs {
-		oc.close() // close old clients
-	}
+	s = sv.(*Session)
 	// update session
+	m.mu.Lock()
 	s.Info.CleanSession = si.CleanSession
+	m.mu.Unlock()
 	if s.Info.CleanSession {
 		m.sessiondb.Del(sid)
 		s.log.Info("session is removed from backend")
@@ -181,14 +181,20 @@ func (m *Manager) newSession(si *Info) (*Session, error) {
 		return nil, err
 	}
 	defer m.log.Info("session is created", log.Any("session", sid))
-	return &Session{
-		Info: *si,
-		subs: mqtt.NewTrie(),
-		clis: map[string]client{},
-		qos0: queue.NewTemporary(sid, m.cfg.MaxInflightQOS0Messages, true),
-		qos1: queue.NewPersistence(cfg, queuedb),
-		log:  m.log.With(log.Any("id", sid)),
-	}, nil
+	s := &Session{
+		Info:       *si,
+		subs:       mqtt.NewTrie(),
+		clis:       cmap.New(),
+		counter:    mqtt.NewCounter(),
+		sendingC:   make(chan struct{}, 1),
+		resendingC: make(chan struct{}, 1),
+		qos0:       queue.NewTemporary(sid, m.cfg.MaxInflightQOS0Messages, true),
+		qos1:       queue.NewPersistence(cfg, queuedb),
+		log:        m.log.With(log.Any("id", sid)),
+	}
+	s.resender = newResender(m.cfg.MaxInflightQOS1Messages, m.cfg.ResendInterval, &s.tomb)
+	s.tomb.Go(s.sending, s.resending)
+	return s, nil
 }
 
 // * subscription
@@ -267,7 +273,10 @@ func (m *Manager) delClient(c client) {
 		return
 	}
 
-	if s.delClient(c) {
+	m.mu.Lock()
+	clean := s.delClient(c)
+	m.mu.Unlock()
+	if clean {
 		// close session if not bound and CleanSession=true
 		sid := s.ID
 		m.sessiondb.Del(sid)

@@ -56,7 +56,6 @@ func TestSessionLinkException(t *testing.T) {
 }
 
 func TestSessionLinkSendRecvBL(t *testing.T) {
-	t.Skip("TODO: bugfix")
 	b := newMockBroker(t, testConfDefault)
 	b.manager.cfg.ResendInterval = time.Millisecond * 1000
 	defer b.close()
@@ -68,22 +67,27 @@ func TestSessionLinkSendRecvBL(t *testing.T) {
 	pubc := newMockStream(t, "pubc")
 	go func() {
 		errs <- b.manager.Talk(pubc)
+		pubc.Close()
 	}()
 	// subc1 connect with the same link id
 	subc1 := newMockStream(t, "subc")
 	go func() {
 		errs <- b.manager.Talk(subc1)
+		subc1.Close()
 	}()
 	// subc2 connect with the same link id
 	subc2 := newMockStream(t, "subc")
 	go func() {
 		errs <- b.manager.Talk(subc2)
+		subc2.Close()
 	}()
 
 	b.waitClientReady(3)
 	b.assertClientCount(3)
 	b.assertSessionCount(2)
+	b.waitBindingReady(publid, 1)
 	b.assertBindingCount(publid, 1)
+	b.waitBindingReady(sublid, 2)
 	b.assertBindingCount(sublid, 2)
 	b.assertExchangeCount(2)
 
@@ -96,32 +100,31 @@ func TestSessionLinkSendRecvBL(t *testing.T) {
 	b.assertSession(publid, "{\"ID\":\"$link/pubc\",\"CleanSession\":false,\"Subscriptions\":{\"$link/pubc\":1}}")
 	b.assertSession(sublid, "{\"ID\":\"$link/subc\",\"CleanSession\":false,\"Subscriptions\":{\"$link/subc\":1}}")
 
-	// // pubc send more messages with qos 0 to subc
-	// m = &link.Message{}
-	// m.Context.Topic = sublid
-	// m.Content = []byte("222")
-
-	// count := 100
-	// go func() {
-	// 	for index := 0; index < count; index++ {
-	// 		pubc.sendC2S(m)
-	// 	}
-	// }()
-	// go func() {
-	// 	for index := 0; index < count; index++ {
-	// 		pubc.sendC2S(m)
-	// 	}
-	// }()
-	// go func() {
-	// 	for index := 0; index < count; index++ {
-	// 		pubc.sendC2S(m)
-	// 	}
-	// }()
-	// for index := 0; index < count*3; index++ {
-	// 	assertS2CMessageLB(subc1, subc2, "Context:<Topic:\"$link/subc\" > Content:\"222\" ")
-	// }
-	// subc1.assertS2CMessageTimeout()
-	// subc2.assertS2CMessageTimeout()
+	// pubc send more messages with qos 0 to subc
+	m = &link.Message{}
+	m.Context.Topic = sublid
+	m.Content = []byte("222")
+	count := 100
+	go func() {
+		for index := 0; index < count; index++ {
+			pubc.sendC2S(m)
+		}
+	}()
+	go func() {
+		for index := 0; index < count; index++ {
+			pubc.sendC2S(m)
+		}
+	}()
+	go func() {
+		for index := 0; index < count; index++ {
+			pubc.sendC2S(m)
+		}
+	}()
+	for index := 0; index < count*3; index++ {
+		assertS2CMessageLB(subc1, subc2, "Context:<Topic:\"$link/subc\" > Content:\"222\" ")
+	}
+	subc1.assertS2CMessageTimeout()
+	subc2.assertS2CMessageTimeout()
 
 	// pubc send a message with qos 1 to subc
 	m = &link.Message{}
@@ -131,7 +134,6 @@ func TestSessionLinkSendRecvBL(t *testing.T) {
 	m.Content = []byte("333")
 	pubc.sendC2S(m)
 	pubc.assertS2CMessage("Context:<ID:1 Type:Ack > ")
-	assertS2CMessageLB(subc1, subc2, "Context:<ID:1 QOS:1 Topic:\"$link/subc\" > Content:\"333\" ")
 	subc := assertS2CMessageLB(subc1, subc2, "Context:<ID:1 QOS:1 Topic:\"$link/subc\" > Content:\"333\" ")
 	ack := &link.Message{}
 	ack.Context.ID = 1
@@ -144,13 +146,15 @@ func TestSessionLinkSendRecvBL(t *testing.T) {
 	subc1.sendC2S(&link.Message{})
 	err := <-errs
 	assert.EqualError(t, err, "message topic is invalid")
+	b.waitClientReady(2)
 	b.assertClientCount(2)
 	b.assertSessionCount(2)
+	b.waitBindingReady(publid, 1)
 	b.assertBindingCount(publid, 1)
+	b.waitBindingReady(sublid, 1)
 	b.assertBindingCount(sublid, 1)
 	b.assertExchangeCount(2)
 
-	// pubc send more messages with qos 0 to subc
 	m = &link.Message{}
 	m.Context.Topic = sublid
 	m.Content = []byte(">444<")
@@ -158,42 +162,75 @@ func TestSessionLinkSendRecvBL(t *testing.T) {
 	subc2.assertS2CMessage("Context:<Topic:\"$link/subc\" > Content:\">444<\" ")
 	subc1.assertS2CMessageTimeout()
 
-	// // pubc send more messages with qos 0 to subc
-	// m = &link.Message{}
-	// m.Context.ID = 2
-	// m.Context.QOS = 1
-	// m.Context.Topic = sublid
-	// m.Content = []byte(">444<")
-	// pubc.sendC2S(m)
-	// pubc.assertS2CMessage("Context:<ID:2 Type:Ack > ")
-	// subc2.assertS2CMessage("Context:<ID:2 QOS:1 Topic:\"$link/subc\" > Content:\">444<\" ")
-	// // ack = &link.Message{}
-	// // ack.Context.ID = 2
-	// // ack.Context.Type = link.Ack
-	// // subc2.sendC2S(ack)
-	// subc1.assertS2CMessageTimeout()
+	m = &link.Message{}
+	m.Context.ID = 2
+	m.Context.QOS = 1
+	m.Context.Topic = sublid
+	m.Content = []byte(">555<")
+	pubc.sendC2S(m)
+	pubc.assertS2CMessage("Context:<ID:2 Type:Ack > ")
+	subc2.assertS2CMessage("Context:<ID:2 QOS:1 Topic:\"$link/subc\" > Content:\">555<\" ")
+	ack = &link.Message{}
+	ack.Context.ID = 2
+	ack.Context.Type = link.Ack
+	subc2.sendC2S(ack)
+	subc1.assertS2CMessageTimeout()
 
-	// // close subc2 by sending a invalid message
-	// subc2.sendC2S(&link.Message{})
-	// err = <-errs
-	// assert.EqualError(t, err, "message topic is invalid")
-	// b.assertClientCount(1)
-	// b.assertSessionCount(2)
-	// b.assertBindingCount(publid, 1)
-	// b.assertBindingCount(sublid, 0)
-	// b.assertExchangeCount(2)
+	//close subc2 by sending a invalid message
+	subc2.sendC2S(&link.Message{})
+	err = <-errs
+	assert.EqualError(t, err, "message topic is invalid")
+	b.waitClientReady(1)
+	b.assertClientCount(1)
+	b.assertSessionCount(2)
+	b.waitBindingReady(publid, 1)
+	b.assertBindingCount(publid, 1)
+	b.waitBindingReady(sublid, 0)
+	b.assertBindingCount(sublid, 0)
+	b.assertExchangeCount(2)
 
-	// m = &link.Message{}
-	// m.Context.Topic = sublid
-	// m.Content = []byte("555")
-	// pubc.sendC2S(m)
-	// subc1.assertS2CMessageTimeout()
-	// subc2.assertS2CMessageTimeout()
+	m = &link.Message{}
+	m.Context.ID = 3
+	m.Context.QOS = 1
+	m.Context.Topic = sublid
+	m.Content = []byte(">666<")
+	pubc.sendC2S(m)
+	pubc.assertS2CMessage("Context:<ID:3 Type:Ack > ")
+	subc1.assertS2CMessageTimeout()
+	subc2.assertS2CMessageTimeout()
 
-	// // reconnect subc1 will receive the offline message
-	// subc1 = newMockStream(t, "subc")
-	// go func() {
-	// 	errs <- b.manager.Talk(subc1)
-	// }()
-	// subc1.assertS2CMessage("Context:<Topic:\"$link/subc\" > Content:\"555\" ")
+	subc3 := newMockStream(t, "subc")
+	go func() {
+		errs <- b.manager.Talk(subc3)
+		subc3.Close()
+	}()
+	subc3.assertS2CMessage("Context:<ID:3 QOS:1 Topic:\"$link/subc\" > Content:\">666<\" ")
+	ack = &link.Message{}
+	ack.Context.ID = 3
+	ack.Context.Type = link.Ack
+	subc3.sendC2S(ack)
+
+	subc3.sendC2S(&link.Message{})
+	err = <-errs
+	assert.EqualError(t, err, "message topic is invalid")
+	b.waitClientReady(1)
+	b.assertClientCount(1)
+	b.assertSessionCount(2)
+	b.waitBindingReady(publid, 1)
+	b.assertBindingCount(publid, 1)
+	b.waitBindingReady(sublid, 0)
+	b.assertBindingCount(sublid, 0)
+	b.assertExchangeCount(2)
+
+	pubc.sendC2S(&link.Message{})
+	err = <-errs
+	assert.EqualError(t, err, "message topic is invalid")
+	b.waitClientReady(0)
+	b.assertClientCount(0)
+	b.assertSessionCount(2)
+	b.waitBindingReady(publid, 0)
+	b.assertBindingCount(publid, 0)
+	b.waitBindingReady(sublid, 0)
+	b.assertBindingCount(sublid, 0)
+	b.assertExchangeCount(2)
 }

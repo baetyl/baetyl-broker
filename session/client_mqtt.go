@@ -18,14 +18,11 @@ type ClientMQTT struct {
 	id         string
 	manager    *Manager
 	session    *Session
-	resender   *resender
-	counter    *mqtt.Counter
 	authorizer *Authorizer
 	connection mqtt.Connection
-
-	log  *log.Logger
-	tomb utils.Tomb
-	mu   sync.Mutex
+	log        *log.Logger
+	tomb       utils.Tomb
+	mu         sync.Mutex
 	sync.Once
 }
 
@@ -43,10 +40,8 @@ func (m *Manager) ClientMQTTHandler(conn mqtt.Connection) {
 		id:         id,
 		manager:    m,
 		connection: conn,
-		counter:    mqtt.NewCounter(),
 		log:        log.With(log.Any("type", "mqtt"), log.Any("id", id)),
 	}
-	c.resender = newResender(m.cfg.MaxInflightQOS1Messages, m.cfg.ResendInterval, &c.tomb)
 	c.manager.addClient(c)
 	c.tomb.Go(c.receiving)
 }

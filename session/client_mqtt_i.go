@@ -125,19 +125,18 @@ func (c *ClientMQTT) onConnect(p *mqtt.Connect) error {
 		si.CleanSession = true
 	}
 
-	exists, err := c.manager.initSession(&si, c, true)
+	s, exists, err := c.manager.initSession(&si, c)
 	if err != nil {
 		return err
 	}
-	c.tomb.Go(c.republishing, c.publishing)
-
 	// TODO: Re-check subscriptions, if subscription not permit, log error and skip
-
 	err = c.sendConnack(mqtt.ConnectionAccepted, exists)
 	if err != nil {
 		return err
 	}
-
+	for oc := range s.addClient(c, true) {
+		oc.Val.(client).close() // close old clients
+	}
 	c.log.Info("client is connected")
 	return nil
 }
@@ -171,7 +170,7 @@ func (c *ClientMQTT) onPublish(p *mqtt.Publish) error {
 }
 
 func (c *ClientMQTT) onPuback(p *mqtt.Puback) error {
-	err := c.resender.delete(p.ID)
+	err := c.session.resender.delete(uint16(p.ID))
 	if err != nil {
 		c.log.Warn(err.Error(), log.Any("pid", int(p.ID)))
 	}
@@ -214,7 +213,7 @@ func (c *ClientMQTT) genSuback(p *mqtt.Subscribe) (*mqtt.Suback, []mqtt.Subscrip
 		ID:          p.ID,
 		ReturnCodes: make([]mqtt.QOS, len(p.Subscriptions)),
 	}
-	subs := []mqtt.Subscription{}
+	var subs []mqtt.Subscription
 	for i, sub := range p.Subscriptions {
 		if !c.manager.checker.CheckTopic(sub.Topic, true) {
 			c.log.Error("subscribe topic invalid", log.Any("topic", sub.Topic))
