@@ -1015,13 +1015,6 @@ func TestDefaultMaxMessagePayload(t *testing.T) {
 	pubWillOverFlow.assertClosed(true)
 }
 
-func TestMQTTMaxMessagePayload(t *testing.T) {
-	b, err := newMockBroker(t, testInvalidConfSession)
-	assert.Nil(t, b)
-	assert.NotNil(t, err)
-	assert.Equal(t, "SessionConfig.MaxMessagePayload: greater than max", err.Error()) // for mqtt protocol, the valid configured max message payloadSize is (256MB -1), that is 268435455 (Bytes)
-}
-
 func TestMQTTCustomizeMaxMessagePayload(t *testing.T) {
 	b, err := newMockBroker(t, testConfDefault)
 	assert.NoError(t, err)

@@ -20,11 +20,7 @@ import (
 )
 
 var (
-	testConfDefault        = ""
-	testInvalidConfSession = `
-session:
-  maxMessagePayload: 256m
-`
+	testConfDefault = ""
 	testConfSession = `
 session:
   sysTopics:
