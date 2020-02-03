@@ -12,9 +12,7 @@ import (
 )
 
 func TestSessionMqttConnect(t *testing.T) {
-	b, err := newMockBroker(t, testConfDefault)
-	assert.NoError(t, err)
-	assert.NotNil(t, b)
+	b := newMockBroker(t, testConfDefault)
 	defer b.close()
 
 	// connect
@@ -57,9 +55,7 @@ func TestSessionMqttConnect(t *testing.T) {
 }
 
 func TestSessionMqttConnectSameClientID(t *testing.T) {
-	b, err := newMockBroker(t, testConfDefault)
-	assert.NoError(t, err)
-	assert.NotNil(t, b)
+	b := newMockBroker(t, testConfDefault)
 	defer b.close()
 
 	// client to publish
@@ -113,9 +109,7 @@ func TestSessionMqttConnectSameClientID(t *testing.T) {
 }
 
 func TestSessionMqttConnectException(t *testing.T) {
-	b, err := newMockBroker(t, testConfSession)
-	assert.NoError(t, err)
-	assert.NotNil(t, b)
+	b := newMockBroker(t, testConfSession)
 	defer b.close()
 
 	// connect again with wrong version
@@ -167,9 +161,7 @@ func TestSessionMqttConnectException(t *testing.T) {
 }
 
 func TestSessionMqttMaxConnections(t *testing.T) {
-	b, err := newMockBroker(t, testConfSession)
-	assert.NoError(t, err)
-	assert.NotNil(t, b)
+	b := newMockBroker(t, testConfSession)
 	defer b.close()
 
 	c1 := newMockConn(t)
@@ -205,9 +197,7 @@ func TestSessionMqttMaxConnections(t *testing.T) {
 }
 
 func TestSessionMqttSubscribe(t *testing.T) {
-	b, err := newMockBroker(t, testConfDefault)
-	assert.NoError(t, err)
-	assert.NotNil(t, b)
+	b := newMockBroker(t, testConfDefault)
 	defer b.close()
 
 	c := newMockConn(t)
@@ -285,9 +275,7 @@ func TestSessionMqttSubscribe(t *testing.T) {
 }
 
 func TestSessionMqttPublish(t *testing.T) {
-	b, err := newMockBroker(t, testConfSession)
-	assert.NoError(t, err)
-	assert.NotNil(t, b)
+	b := newMockBroker(t, testConfSession)
 	defer b.close()
 
 	c := newMockConn(t)
@@ -365,9 +353,7 @@ func TestSessionMqttPublish(t *testing.T) {
 }
 
 func TestSessionMqttCleanSession(t *testing.T) {
-	b, err := newMockBroker(t, testConfDefault)
-	assert.NoError(t, err)
-	assert.NotNil(t, b)
+	b := newMockBroker(t, testConfDefault)
 	defer b.close()
 
 	pub := newMockConn(t)
@@ -492,9 +478,7 @@ func TestSessionMqttCleanSession(t *testing.T) {
 }
 
 func TestSessionMqttPubSubQOS(t *testing.T) {
-	b, err := newMockBroker(t, testConfSession)
-	assert.NoError(t, err)
-	assert.NotNil(t, b)
+	b := newMockBroker(t, testConfSession)
 	defer b.close()
 
 	pub := newMockConn(t)
@@ -555,9 +539,7 @@ func TestSessionMqttPubSubQOS(t *testing.T) {
 }
 
 func TestSessionMqttSystemTopicIsolation(t *testing.T) {
-	b, err := newMockBroker(t, testConfSession)
-	assert.NoError(t, err)
-	assert.NotNil(t, b)
+	b := newMockBroker(t, testConfSession)
 	defer b.close()
 
 	// pubc connect to broker
@@ -678,9 +660,7 @@ func TestSessionMqttSystemTopicIsolation(t *testing.T) {
 }
 
 func TestSessionMqttWill(t *testing.T) {
-	b, err := newMockBroker(t, testConfDefault)
-	assert.NoError(t, err)
-	assert.NotNil(t, b)
+	b := newMockBroker(t, testConfDefault)
 	defer b.close()
 
 	// connect packet
@@ -806,9 +786,7 @@ func TestSessionMqttWill(t *testing.T) {
 }
 
 func TestSessionMqttRetain(t *testing.T) {
-	b, err := newMockBroker(t, testConfDefault)
-	assert.NoError(t, err)
-	assert.NotNil(t, b)
+	b := newMockBroker(t, testConfDefault)
 	defer b.close()
 
 	pktcon := &mqtt.Connect{}
@@ -953,9 +931,7 @@ func TestSessionMqttRetain(t *testing.T) {
 }
 
 func TestDefaultMaxMessagePayload(t *testing.T) {
-	b, err := newMockBroker(t, testConfDefault)
-	assert.NoError(t, err)
-	assert.NotNil(t, b)
+	b := newMockBroker(t, testConfDefault)
 	defer b.close()
 
 	// connect packet
@@ -1016,9 +992,7 @@ func TestDefaultMaxMessagePayload(t *testing.T) {
 }
 
 func TestMQTTCustomizeMaxMessagePayload(t *testing.T) {
-	b, err := newMockBroker(t, testConfDefault)
-	assert.NoError(t, err)
-	assert.NotNil(t, b)
+	b := newMockBroker(t, testConfDefault)
 	b.manager.cfg.MaxMessagePayload = utils.Size(256) // set the max message payload
 	defer b.close()
 

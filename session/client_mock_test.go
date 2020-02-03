@@ -64,22 +64,17 @@ type mockBroker struct {
 	linkserver *grpc.Server
 }
 
-func newMockBroker(t *testing.T, cfgStr string) (*mockBroker, error) {
+func newMockBroker(t *testing.T, cfgStr string) *mockBroker {
 	log.Init(log.Config{Level: "debug", Format: "text"})
 	os.RemoveAll("var")
 
 	var cfg Config
 	err := utils.UnmarshalYAML([]byte(cfgStr), &cfg)
-	if err != nil {
-		return nil, err
-	}
 	assert.NoError(t, err)
 	b := &mockBroker{t: t, cfg: cfg}
 	b.manager, err = NewManager(cfg)
-	if err != nil {
-		return nil, err
-	}
-	return b, nil
+	assert.NoError(t, err)
+	return b
 }
 
 func (b *mockBroker) waitClientReady(cnt int) {
