@@ -11,13 +11,13 @@ import (
 )
 
 type iqel struct {
-	id  interface{}
+	id  uint16
 	qos mqtt.QOS
 	evt *common.Event
 	lst time.Time // last send time
 }
 
-func newIQEL(id interface{}, qos mqtt.QOS, evt *common.Event) *iqel {
+func newIQEL(id uint16, qos mqtt.QOS, evt *common.Event) *iqel {
 	return &iqel{
 		id:  id,
 		qos: qos,
@@ -36,7 +36,7 @@ func (i *iqel) message() *link.Message {
 
 func (i *iqel) packet(dup bool) *mqtt.Publish {
 	pkt := i.evt.Packet()
-	pkt.ID = i.id.(mqtt.ID)
+	pkt.ID = mqtt.ID(i.id)
 	pkt.Dup = dup
 	pkt.Message.QOS = i.qos
 	return pkt
@@ -69,7 +69,7 @@ func (r *resender) store(i *iqel) error {
 	return nil
 }
 
-func (r *resender) delete(id interface{}) error {
+func (r *resender) delete(id uint16) error {
 	m, ok := r.m.Load(id)
 	if !ok {
 		return ErrSessionClientPacketNotFound
@@ -77,23 +77,4 @@ func (r *resender) delete(id interface{}) error {
 	r.m.Delete(id)
 	m.(*iqel).evt.Done()
 	return nil
-}
-
-func (r *resender) resending(send func(*iqel) error) error {
-	var err error
-	var _iqel *iqel
-	timer := time.NewTimer(r.d)
-	defer timer.Stop()
-	for {
-		select {
-		case _iqel = <-r.c:
-			for timer.Reset(r.next(_iqel)); _iqel.wait(timer.C, r.t.Dying()) == common.ErrAcknowledgeTimedOut; timer.Reset(r.d) {
-				if err = send(_iqel); err != nil {
-					return err
-				}
-			}
-		case <-r.t.Dying():
-			return nil
-		}
-	}
 }

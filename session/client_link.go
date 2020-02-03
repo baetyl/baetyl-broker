@@ -6,7 +6,6 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/baetyl/baetyl-broker/common"
 	"github.com/baetyl/baetyl-go/link"
 	"github.com/baetyl/baetyl-go/log"
 	"github.com/baetyl/baetyl-go/mqtt"
@@ -22,7 +21,6 @@ type ClientLink struct {
 	id         string
 	manager    *Manager
 	session    *Session
-	resender   *resender
 	authorizer *Authorizer
 	stream     link.Link_TalkServer
 	log        *log.Logger
@@ -94,13 +92,14 @@ func (m *Manager) newClientLink(stream link.Link_TalkServer) (*ClientLink, error
 		CleanSession:  false,                       // always false for link client
 		Subscriptions: map[string]mqtt.QOS{lid: 1}, // always subscribe link's id, e.g. $link/<service_name>
 	}
-	_, err := m.initSession(si, c, false)
+	s, _, err := m.initSession(si, c)
 	if err != nil {
 		return nil, err
 	}
-	c.resender = newResender(m.cfg.MaxInflightQOS1Messages, m.cfg.ResendInterval, &c.tomb)
+
 	c.manager.addClient(c)
-	c.tomb.Go(c.sending, c.resending, c.receiving)
+	s.addClient(c, false)
+	c.tomb.Go(c.receiving)
 	return c, nil
 }
 
@@ -160,52 +159,12 @@ func (c *ClientLink) send(msg *link.Message) error {
 	return nil
 }
 
-func (c *ClientLink) sending() error {
-	c.log.Info("client starts to send messages")
-	defer c.log.Info("client has stopped sending messages")
-
-	var err error
-	var evt *common.Event
-	qos0 := c.session.qos0.Chan()
-	qos1 := c.session.qos1.Chan()
-	for {
-		select {
-		case evt = <-qos0:
-			if ent := c.log.Check(log.DebugLevel, "queue popped a message as qos 0"); ent != nil {
-				ent.Write(log.Any("message", evt.String()))
-			}
-			if err = c.send(evt.Message); err != nil {
-				return err
-			}
-		case evt = <-qos1:
-			if ent := c.log.Check(log.DebugLevel, "queue popped a message as qos 1"); ent != nil {
-				ent.Write(log.Any("message", evt.String()))
-			}
-			_iqel := newIQEL(evt.Context.ID, 1, evt)
-			if err = c.resender.store(_iqel); err != nil {
-				c.log.Error(err.Error())
-			}
-			if err = c.send(_iqel.message()); err != nil {
-				return err
-			}
-			select {
-			case c.resender.c <- _iqel:
-				return nil
-			case <-c.tomb.Dying():
-				return nil
-			}
-		case <-c.tomb.Dying():
-			return nil
-		}
-	}
+func (c *ClientLink) sending(i *iqel) (err error) {
+	return c.send(i.message())
 }
 
-func (c *ClientLink) resending() error {
-	c.log.Info("client starts to resend messages", log.Any("interval", c.resender.d))
-	defer c.log.Info("client has stopped resending messages")
-	return c.resender.resending(func(i *iqel) error {
-		return c.send(i.message())
-	})
+func (c *ClientLink) resending(i *iqel) error {
+	return c.send(i.message())
 }
 
 func (c *ClientLink) receiving() error {
@@ -241,7 +200,10 @@ func (c *ClientLink) receiving() error {
 }
 
 func (c *ClientLink) onAck(msg *link.Message) error {
-	c.resender.delete(msg.Context.ID)
+	err := c.session.resender.delete(uint16(msg.Context.ID))
+	if err != nil {
+		c.log.Warn(err.Error(), log.Any("pid", int(msg.Context.ID)))
+	}
 	return nil
 }
 

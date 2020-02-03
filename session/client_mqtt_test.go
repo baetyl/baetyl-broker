@@ -63,6 +63,7 @@ func TestSessionMqttConnectSameClientID(t *testing.T) {
 	pub.sendC2S(&mqtt.Connect{ClientID: "pub", Version: 3})
 	pub.assertS2CPacket("<Connack SessionPresent=false ReturnCode=0>")
 	b.assertClientCount(1)
+	b.waitBindingReady("pub", 1)
 	b.assertBindingCount("pub", 1)
 	b.assertExchangeCount(0)
 
@@ -75,6 +76,7 @@ func TestSessionMqttConnectSameClientID(t *testing.T) {
 	c1.assertS2CPacket("<Suback ID=1 ReturnCodes=[0]>")
 	b.assertSession(t.Name(), "{\"ID\":\""+t.Name()+"\",\"CleanSession\":false,\"Subscriptions\":{\"test\":0}}")
 	b.assertClientCount(2)
+	b.waitBindingReady(t.Name(), 1)
 	b.assertBindingCount(t.Name(), 1)
 	b.assertExchangeCount(1)
 
@@ -93,6 +95,7 @@ func TestSessionMqttConnectSameClientID(t *testing.T) {
 	c2.assertS2CPacket("<Suback ID=1 ReturnCodes=[0]>")
 	b.assertSession(t.Name(), "{\"ID\":\""+t.Name()+"\",\"CleanSession\":false,\"Subscriptions\":{\"test\":0}}")
 	b.assertClientCount(2)
+	b.waitBindingReady(t.Name(), 1)
 	b.assertBindingCount(t.Name(), 1)
 	b.assertExchangeCount(1)
 
@@ -254,6 +257,7 @@ func TestSessionMqttSubscribe(t *testing.T) {
 	c.assertS2CPacketTimeout()
 	c.assertClosed(true)
 	b.assertExchangeCount(3)
+	b.waitBindingReady(t.Name(), 0)
 	b.assertBindingCount(t.Name(), 0)
 
 	// again
@@ -262,6 +266,7 @@ func TestSessionMqttSubscribe(t *testing.T) {
 	c.sendC2S(&mqtt.Connect{ClientID: t.Name(), Version: 3})
 	c.assertS2CPacket("<Connack SessionPresent=true ReturnCode=0>")
 	b.assertExchangeCount(3)
+	b.waitBindingReady(t.Name(), 1)
 	b.assertBindingCount(t.Name(), 1)
 
 	c.sendC2S(&mqtt.Subscribe{ID: 1, Subscriptions: []mqtt.Subscription{{Topic: "temp", QOS: 1}}})
@@ -316,6 +321,7 @@ func TestSessionMqttPublish(t *testing.T) {
 	c.assertS2CPacket("<Puback ID=3>")
 	c.assertS2CPacket("<Publish ID=2 Message=<Message Topic=\"$baidu/iot\" QOS=1 Retain=false Payload=[98 97 105 100 117 32 105 111 116 32 116 101 115 116]> Dup=false>")
 	c.assertS2CPacket("<Publish ID=2 Message=<Message Topic=\"$baidu/iot\" QOS=1 Retain=false Payload=[98 97 105 100 117 32 105 111 116 32 116 101 115 116]> Dup=true>")
+	c.sendC2S(&mqtt.Puback{ID: 2})
 	c.assertS2CPacketTimeout()
 
 	// publish $link/data topic qos 0

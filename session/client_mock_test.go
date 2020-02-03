@@ -87,6 +87,17 @@ func (b *mockBroker) waitClientReady(cnt int) {
 	}
 }
 
+func (b *mockBroker) waitBindingReady(sid string, cnt int) {
+	for {
+		s, ok := b.manager.sessions.Get(sid)
+		if !ok || s.(*Session).clientCount() != cnt {
+			time.Sleep(time.Millisecond * 100)
+			continue
+		}
+		return
+	}
+}
+
 func (b *mockBroker) assertSessionCount(expect int) {
 	assert.Equal(b.t, expect, b.manager.sessions.Count())
 }
@@ -214,7 +225,7 @@ func (c *mockConn) assertS2CPacket(expect string) {
 func (c *mockConn) assertS2CPacketTimeout() {
 	select {
 	case pkt := <-c.s2c:
-		assert.Fail(c.t, "receive unexpected packet: %s", pkt.String())
+		assert.Fail(c.t, "receive unexpected packet:", pkt.String())
 	case <-time.After(time.Millisecond * 100):
 	}
 }
@@ -248,6 +259,9 @@ func newMockStream(t *testing.T, linkid string) *mockStream {
 }
 
 func (c *mockStream) Send(msg *link.Message) error {
+	if c.isClosed() {
+		return errors.New("stream has closed")
+	}
 	select {
 	case c.s2c <- msg:
 		// default:
@@ -257,6 +271,9 @@ func (c *mockStream) Send(msg *link.Message) error {
 }
 
 func (c *mockStream) Recv() (*link.Message, error) {
+	if c.isClosed() {
+		return nil, errors.New("stream has closed")
+	}
 	select {
 	case msg := <-c.c2s:
 		return msg, nil
@@ -274,6 +291,18 @@ func (c *mockStream) SendHeader(metadata.MD) error { return nil }
 func (c *mockStream) SetTrailer(metadata.MD)       {}
 func (c *mockStream) SendMsg(m interface{}) error  { return nil }
 func (c *mockStream) RecvMsg(m interface{}) error  { return nil }
+
+func (c *mockStream) Close() {
+	c.Lock()
+	defer c.Unlock()
+	c.closed = true
+}
+
+func (c *mockStream) isClosed() bool {
+	c.RLock()
+	defer c.RUnlock()
+	return c.closed
+}
 
 func (c *mockStream) sendC2S(msg *link.Message) error {
 	select {
@@ -308,7 +337,7 @@ func (c *mockStream) assertS2CMessage(expect string) {
 func (c *mockStream) assertS2CMessageTimeout() {
 	select {
 	case msg := <-c.s2c:
-		assert.Fail(c.t, "receive unexpected packet: %s", msg.String())
+		assert.Fail(c.t, "receive unexpected packet", msg.String())
 	case <-time.After(time.Millisecond * 100):
 	}
 }
