@@ -108,6 +108,9 @@ func (c *ClientMQTT) onConnect(p *mqtt.Connect) error {
 	}
 
 	if p.Will != nil {
+		if int64(len(p.Will.Payload)) > int64(c.manager.cfg.MaxMessagePayload) {
+			return ErrSessionMaxWillMessagePayloadExceeds
+		}
 		if p.Will.QOS > 1 {
 			return ErrSessionWillMessageQosNotSupported
 		}
@@ -143,6 +146,9 @@ func (c *ClientMQTT) onConnect(p *mqtt.Connect) error {
 
 func (c *ClientMQTT) onPublish(p *mqtt.Publish) error {
 	// TODO: improvement, cache auth result
+	if int64(len(p.Message.Payload)) > int64(c.manager.cfg.MaxMessagePayload) {
+		return ErrSessionMaxMessagePayloadExceeds
+	}
 	if p.Message.QOS > 1 {
 		return ErrSessionMessageQosNotSupported
 	}

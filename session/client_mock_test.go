@@ -20,7 +20,11 @@ import (
 )
 
 var (
-	testConfDefault = ""
+	testConfDefault        = ""
+	testInvalidConfSession = `
+session:
+  maxMessagePayload: 256m
+`
 	testConfSession = `
 session:
   sysTopics:
@@ -64,17 +68,22 @@ type mockBroker struct {
 	linkserver *grpc.Server
 }
 
-func newMockBroker(t *testing.T, cfgStr string) *mockBroker {
+func newMockBroker(t *testing.T, cfgStr string) (*mockBroker, error) {
 	log.Init(log.Config{Level: "debug", Format: "text"})
 	os.RemoveAll("var")
 
 	var cfg Config
 	err := utils.UnmarshalYAML([]byte(cfgStr), &cfg)
+	if err != nil {
+		return nil, err
+	}
 	assert.NoError(t, err)
 	b := &mockBroker{t: t, cfg: cfg}
 	b.manager, err = NewManager(cfg)
-	assert.NoError(t, err)
-	return b
+	if err != nil {
+		return nil, err
+	}
+	return b, nil
 }
 
 func (b *mockBroker) waitClientReady(cnt int) {

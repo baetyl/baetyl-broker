@@ -10,7 +10,9 @@ import (
 )
 
 func TestSessionLinkException(t *testing.T) {
-	b := newMockBroker(t, testConfDefault)
+	b, err := newMockBroker(t, testConfDefault)
+	assert.NoError(t, err)
+	assert.NotNil(t, b)
 	defer b.close()
 
 	errs := make(chan error, 10)
@@ -22,7 +24,7 @@ func TestSessionLinkException(t *testing.T) {
 	}()
 	m := &link.Message{}
 	c.sendC2S(m)
-	err := <-errs
+	err = <-errs
 	assert.EqualError(t, err, "message topic is invalid")
 
 	// invalid topic
@@ -56,7 +58,9 @@ func TestSessionLinkException(t *testing.T) {
 }
 
 func TestSessionLinkSendRecvBL(t *testing.T) {
-	b := newMockBroker(t, testConfDefault)
+	b, err := newMockBroker(t, testConfDefault)
+	assert.NoError(t, err)
+	assert.NotNil(t, b)
 	b.manager.cfg.ResendInterval = time.Millisecond * 1000
 	defer b.close()
 
@@ -144,7 +148,7 @@ func TestSessionLinkSendRecvBL(t *testing.T) {
 
 	// close subc1 by sending a invalid message
 	subc1.sendC2S(&link.Message{})
-	err := <-errs
+	err = <-errs
 	assert.EqualError(t, err, "message topic is invalid")
 	b.waitClientReady(2)
 	b.assertClientCount(2)
