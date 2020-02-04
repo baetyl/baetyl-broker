@@ -157,8 +157,8 @@ func (m *Manager) initSession(si *Info, c client) (s *Session, exists bool, err 
 		for topic, qos := range subscriptions {
 			if !m.checker.CheckTopic(topic, true) {
 				m.log.Error(ErrSessionMessageTopicInvalid.Error(), log.Any("topic", topic))
-				delete(s.Subscriptions, topic) // delete invalid topic
-				m.exchange.Unbind(topic, s)    // unbind exchange route
+				delete(s.Subscriptions, topic)
+				m.exchange.Unbind(topic, s)
 			}
 			if qos > 1 {
 				m.log.Error(ErrSessionMessageQosNotSupported.Error(), log.Any("qos", qos))
@@ -166,15 +166,15 @@ func (m *Manager) initSession(si *Info, c client) (s *Session, exists bool, err 
 			if cli, ok := c.(*ClientMQTT); ok {
 				if !cli.authorize(Subscribe, topic) {
 					m.log.Error(ErrSessionMessageTopicNotPermitted.Error(), log.Any("topic", topic))
-					delete(s.Subscriptions, topic) // delete invalid topic
-					m.exchange.Unbind(topic, s)    // unbind exchange route
+					delete(s.Subscriptions, topic)
+					m.exchange.Unbind(topic, s)
 				}
 			}
 			if cli, ok := c.(*ClientLink); ok {
 				if !cli.authorize(Subscribe, topic) {
 					m.log.Error(ErrSessionMessageTopicNotPermitted.Error(), log.Any("topic", topic))
-					delete(s.Subscriptions, topic) // delete invalid topic
-					m.exchange.Unbind(topic, s)    // unbind exchange route
+					delete(s.Subscriptions, topic)
+					m.exchange.Unbind(topic, s)
 				}
 			}
 		}
