@@ -49,6 +49,7 @@ type client interface {
 	setSession(*Session)
 	sending(*iqel) error
 	resending(*iqel) error
+	authorize(action string, topic string) bool
 	close() error
 }
 
@@ -104,17 +105,16 @@ func NewManager(cfg Config) (*Manager, error) {
 		}
 		manager.sessions.Set(si.ID, s)
 		for topic, qos := range si.Subscriptions {
-			// Re-check subscriptions, if topic invalid, log error, unbind and skip
+			// Re-check subscriptions, if topic invalid, log error, delete and skip
 			if !manager.checker.CheckTopic(topic, true) {
 				manager.log.Error(ErrSessionMessageTopicInvalid.Error(), log.Any("topic", topic))
 				delete(si.Subscriptions, topic)
-				manager.exchange.Unbind(topic, s)
-			} else if qos > 1 {
-				manager.log.Error(ErrSessionMessageQosNotSupported.Error(), log.Any("qos", qos))
-			} else {
-				s.subs.Set(topic, qos)
-				manager.exchange.Bind(topic, s)
 			}
+			if qos > 1 {
+				manager.log.Error(ErrSessionMessageQosNotSupported.Error(), log.Any("qos", qos))
+			}
+			s.subs.Set(topic, qos)
+			manager.exchange.Bind(topic, s)
 			// TODO: it is unnecessary to subscribe messages with qos 0 for the session without any client
 		}
 	}
@@ -163,20 +163,10 @@ func (m *Manager) initSession(si *Info, c client) (s *Session, exists bool, err 
 	s = sv.(*Session)
 	if subs := s.Subscriptions; subs != nil { // subs is not nil, represents s is the restored session
 		for topic := range subs {
-			// Re-check subscriptions, if topic not permit, log error, unbind and skip
-			if cli, ok := c.(*ClientMQTT); ok {
-				if !cli.authorize(Subscribe, topic) {
-					m.log.Error(ErrSessionMessageTopicNotPermitted.Error(), log.Any("topic", topic))
-					delete(s.Subscriptions, topic)
-					m.exchange.Unbind(topic, s)
-				}
-			}
-			if cli, ok := c.(*ClientLink); ok {
-				if !cli.authorize(Subscribe, topic) {
-					m.log.Error(ErrSessionMessageTopicNotPermitted.Error(), log.Any("topic", topic))
-					delete(s.Subscriptions, topic)
-					m.exchange.Unbind(topic, s)
-				}
+			// Re-check subscriptions, if topic not permit, log error, delete and skip
+			if !c.authorize(Subscribe, topic) {
+				m.log.Error(ErrSessionMessageTopicNotPermitted.Error(), log.Any("topic", topic))
+				delete(s.Subscriptions, topic)
 			}
 		}
 	}
