@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/baetyl/baetyl-go/mqtt"
+	"github.com/baetyl/baetyl-go/utils"
 	_ "github.com/mattn/go-sqlite3"
 	"github.com/stretchr/testify/assert"
 )
@@ -926,6 +927,129 @@ func TestSessionMqttRetain(t *testing.T) {
 	assert.Equal(t, "talks", msgs[0].Context.Topic)
 	assert.Equal(t, uint32(1), msgs[0].Context.QOS)
 	assert.Equal(t, []byte("hi"), msgs[0].Content)
+}
+
+func TestDefaultMaxMessagePayload(t *testing.T) {
+	b := newMockBroker(t, testConfDefault)
+	defer b.close()
+
+	// connect packet
+	pktcon := &mqtt.Connect{}
+	pktcon.Version = 3
+	pktcon.Will = nil
+
+	// publish packet
+	pktpub := &mqtt.Publish{}
+
+	// pub client connect without Will message
+	pktcon.ClientID = "pub"
+	pub := newMockConn(t)
+	b.manager.ClientMQTTHandler(pub)
+	pub.sendC2S(pktcon)
+	pub.assertS2CPacket("<Connack SessionPresent=false ReturnCode=0>")
+
+	pktpub.ID = 0
+	pktpub.Message.QOS = 1
+	pktpub.Message.Topic = "test"
+	pktpub.Message.Retain = false
+
+	// pub client publish message with payload length is 32768(32KB, the default max message payload)
+	pktpub.Message.Payload = []byte(genRandomString(32768))
+	pub.sendC2S(pktpub)
+	pub.assertS2CPacket("<Puback ID=0>")
+
+	// pub client publish message with payload length is larger than 32768(32KB, the default max message payload)
+	pktpub.ID = 1
+	pktpub.Message.Payload = []byte(genRandomString(32769)) // exceeds the max limit
+	pub.sendC2S(pktpub)
+	pub.assertS2CPacketTimeout()
+	pub.assertClosed(true)
+
+	// pub client connect with Will message
+	pktwill := mqtt.NewPublish()
+	pktwill.Message.Topic = "test"
+	pktwill.Message.Retain = false
+	pktcon.ClientID = "pub-with-will"
+
+	// will message payload is 32768(32KB, the default max message payload)
+	pktwill.Message.Payload = []byte(genRandomString(32768))
+	pktcon.Will = &pktwill.Message
+	pubWill := newMockConn(t)
+	b.manager.ClientMQTTHandler(pubWill)
+	pubWill.sendC2S(pktcon)
+	pubWill.assertS2CPacket("<Connack SessionPresent=false ReturnCode=0>")
+
+	// will message payload is larger than 32768(32KB, the default max message payload)
+	pktwill.Message.Payload = []byte(genRandomString(32769)) // exceeds the max limit
+	pktcon.ClientID = "pub-with-will-overflow"
+	pktcon.Will = &pktwill.Message
+	pubWillOverFlow := newMockConn(t)
+	b.manager.ClientMQTTHandler(pubWillOverFlow)
+	pubWillOverFlow.sendC2S(pktcon)
+	pubWillOverFlow.assertS2CPacketTimeout()
+	pubWillOverFlow.assertClosed(true)
+}
+
+func TestMQTTCustomizeMaxMessagePayload(t *testing.T) {
+	b := newMockBroker(t, testConfDefault)
+	b.manager.cfg.MaxMessagePayload = utils.Size(256) // set the max message payload
+	defer b.close()
+
+	// connect packet
+	pktcon := &mqtt.Connect{}
+	pktcon.Version = 3
+	pktcon.Will = nil
+
+	// publish packet
+	pktpub := &mqtt.Publish{}
+
+	// pub client connect without Will message
+	pktcon.ClientID = "pub"
+	pub := newMockConn(t)
+	b.manager.ClientMQTTHandler(pub)
+	pub.sendC2S(pktcon)
+	pub.assertS2CPacket("<Connack SessionPresent=false ReturnCode=0>")
+
+	pktpub.ID = 0
+	pktpub.Message.QOS = 1
+	pktpub.Message.Topic = "test"
+	pktpub.Message.Retain = false
+
+	// pub client publish message with payload length is 256(the configured max message payload)
+	pktpub.Message.Payload = []byte(genRandomString(256))
+	pub.sendC2S(pktpub)
+	pub.assertS2CPacket("<Puback ID=0>")
+
+	// pub client publish message with payload length is larger than 256(the configured max message payload)
+	pktpub.ID = 1
+	pktpub.Message.Payload = []byte(genRandomString(257)) // exceeds the max limit
+	pub.sendC2S(pktpub)
+	pub.assertS2CPacketTimeout()
+	pub.assertClosed(true)
+
+	// pub client connect with Will message
+	pktwill := mqtt.NewPublish()
+	pktwill.Message.Topic = "test"
+	pktwill.Message.Retain = false
+	pktcon.ClientID = "pub-with-will"
+
+	// will message payload is 256(the configured max message payload)
+	pktwill.Message.Payload = []byte(genRandomString(256))
+	pktcon.Will = &pktwill.Message
+	pubWill := newMockConn(t)
+	b.manager.ClientMQTTHandler(pubWill)
+	pubWill.sendC2S(pktcon)
+	pubWill.assertS2CPacket("<Connack SessionPresent=false ReturnCode=0>")
+
+	// will message payload is larger than 256(the configured max message payload)
+	pktwill.Message.Payload = []byte(genRandomString(257)) // exceeds the max limit
+	pktcon.ClientID = "pub-with-will-overflow"
+	pktcon.Will = &pktwill.Message
+	pubWillOverFlow := newMockConn(t)
+	b.manager.ClientMQTTHandler(pubWillOverFlow)
+	pubWillOverFlow.sendC2S(pktcon)
+	pubWillOverFlow.assertS2CPacketTimeout()
+	pubWillOverFlow.assertClosed(true)
 }
 
 func TestSessionMqttCheckClientID(t *testing.T) {

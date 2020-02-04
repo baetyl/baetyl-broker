@@ -35,11 +35,11 @@ type buf struct {
 // Session session of a client
 type Session struct {
 	Info
+	buf      *buf
 	qos0     queue.Queue // queue for qos0
 	qos1     queue.Queue // queue for qos1
 	subs     *mqtt.Trie
 	clis     cmap.ConcurrentMap
-	buf      *buf
 	counter  *mqtt.Counter
 	resender *resender
 	tomb     *utils.Tomb
