@@ -26,6 +26,7 @@ type ClientLink struct {
 	log        *log.Logger
 	tomb       utils.Tomb
 	mu         sync.Mutex
+	err        error
 	sync.Once
 }
 
@@ -67,7 +68,10 @@ func (m *Manager) Talk(stream link.Link_TalkServer) error {
 		return err
 	}
 	m.log.Debug("link client is created")
-	return c.tomb.Wait()
+	select {
+	case <-c.tomb.Dying():
+		return c.err
+	}
 }
 
 func (m *Manager) newClientLink(stream link.Link_TalkServer) (*ClientLink, error) {
@@ -99,7 +103,7 @@ func (m *Manager) newClientLink(stream link.Link_TalkServer) (*ClientLink, error
 
 	c.manager.addClient(c)
 	s.addClient(c, false)
-	c.tomb.Go(c.receiving)
+	go c.receiving()
 	return c, nil
 }
 
@@ -108,23 +112,30 @@ func (c *ClientLink) getID() string {
 }
 
 func (c *ClientLink) setSession(s *Session) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
 	c.session = s
 	c.log = c.log.With(log.Any("sid", s.ID))
 }
 
 func (c *ClientLink) getSession() *Session {
+	c.mu.Lock()
+	defer c.mu.Unlock()
 	return c.session
 }
 
 // Close closes client by session
-func (c *ClientLink) close() error {
+func (c *ClientLink) close() {
 	c.Do(func() {
-		c.log.Info("client is closing")
-		defer c.log.Info("client has closed")
+		c.mu.Lock()
+		log := c.log
+		c.mu.Unlock()
+		log.Info("client is closing")
+		defer log.Info("client has closed")
 		c.tomb.Kill(nil)
+		c.tomb.Wait()
 		c.manager.delClient(c)
 	})
-	return c.tomb.Wait()
 }
 
 // closes client by itself
@@ -135,7 +146,7 @@ func (c *ClientLink) die(msg string, err error) {
 	if err != nil {
 		c.log.Error(msg, log.Error(err))
 	}
-	c.tomb.Kill(err)
+	c.err = err
 	go c.close()
 }
 

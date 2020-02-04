@@ -233,4 +233,11 @@ func TestSessionLinkSendRecvBL(t *testing.T) {
 	b.waitBindingReady(sublid, 0)
 	b.assertBindingCount(sublid, 0)
 	b.assertExchangeCount(2)
+
+	// subc4 test ClientLink.close() can exit
+	subc4 := newMockStream(t, "subc")
+	go func() {
+		errs <- b.manager.Talk(subc4)
+		subc4.Close()
+	}()
 }

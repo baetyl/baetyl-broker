@@ -7,7 +7,6 @@ import (
 	"github.com/baetyl/baetyl-broker/common"
 	"github.com/baetyl/baetyl-go/link"
 	"github.com/baetyl/baetyl-go/mqtt"
-	"github.com/baetyl/baetyl-go/utils"
 )
 
 type iqel struct {
@@ -46,14 +45,12 @@ type resender struct {
 	d time.Duration
 	c chan *iqel
 	m sync.Map
-	t *utils.Tomb
 }
 
-func newResender(c int, d time.Duration, t *utils.Tomb) *resender {
+func newResender(c int, d time.Duration) *resender {
 	return &resender{
 		c: make(chan *iqel, c),
 		d: d,
-		t: t,
 	}
 }
 

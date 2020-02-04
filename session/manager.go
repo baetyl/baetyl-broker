@@ -47,7 +47,7 @@ type client interface {
 	setSession(*Session)
 	sending(*iqel) error
 	resending(*iqel) error
-	close() error
+	close()
 }
 
 // Manager the manager of sessions
@@ -151,9 +151,9 @@ func (m *Manager) initSession(si *Info, c client) (s *Session, exists bool, err 
 	}
 	s = sv.(*Session)
 	// update session
-	m.mu.Lock()
+	s.mu.Lock()
 	s.Info.CleanSession = si.CleanSession
-	m.mu.Unlock()
+	s.mu.Unlock()
 	if s.Info.CleanSession {
 		m.sessiondb.Del(sid)
 		s.log.Info("session is removed from backend")
@@ -182,18 +182,16 @@ func (m *Manager) newSession(si *Info) (*Session, error) {
 	}
 	defer m.log.Info("session is created", log.Any("session", sid))
 	s := &Session{
-		Info:       *si,
-		subs:       mqtt.NewTrie(),
-		clis:       cmap.New(),
-		counter:    mqtt.NewCounter(),
-		sendingC:   make(chan struct{}, 1),
-		resendingC: make(chan struct{}, 1),
-		qos0:       queue.NewTemporary(sid, m.cfg.MaxInflightQOS0Messages, true),
-		qos1:       queue.NewPersistence(cfg, queuedb),
-		log:        m.log.With(log.Any("id", sid)),
+		Info:    *si,
+		subs:    mqtt.NewTrie(),
+		clis:    cmap.New(),
+		counter: mqtt.NewCounter(),
+		qos0:    queue.NewTemporary(sid, m.cfg.MaxInflightQOS0Messages, true),
+		qos1:    queue.NewPersistence(cfg, queuedb),
+		log:     m.log.With(log.Any("id", sid)),
+		buf:     new(buf),
 	}
-	s.resender = newResender(m.cfg.MaxInflightQOS1Messages, m.cfg.ResendInterval, &s.tomb)
-	s.tomb.Go(s.sending, s.resending)
+	s.resender = newResender(m.cfg.MaxInflightQOS1Messages, m.cfg.ResendInterval)
 	return s, nil
 }
 
@@ -273,9 +271,7 @@ func (m *Manager) delClient(c client) {
 		return
 	}
 
-	m.mu.Lock()
 	clean := s.delClient(c)
-	m.mu.Unlock()
 	if clean {
 		// close session if not bound and CleanSession=true
 		sid := s.ID

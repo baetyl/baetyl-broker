@@ -27,19 +27,24 @@ func (i *Info) String() string {
 	return string(d)
 }
 
+type buf struct {
+	s  *iqel
+	rs *iqel
+}
+
 // Session session of a client
 type Session struct {
 	Info
-	qos0       queue.Queue // queue for qos0
-	qos1       queue.Queue // queue for qos1
-	subs       *mqtt.Trie
-	clis       cmap.ConcurrentMap
-	resender   *resender
-	sendingC   chan struct{}
-	resendingC chan struct{}
-	counter    *mqtt.Counter
-	tomb       utils.Tomb
-	log        *log.Logger
+	qos0     queue.Queue // queue for qos0
+	qos1     queue.Queue // queue for qos1
+	subs     *mqtt.Trie
+	clis     cmap.ConcurrentMap
+	buf      *buf
+	counter  *mqtt.Counter
+	resender *resender
+	tomb     *utils.Tomb
+	log      *log.Logger
+	mu       sync.Mutex
 	sync.Once
 }
 
@@ -67,6 +72,8 @@ func (s *Session) clientCount() int {
 }
 
 func (s *Session) addClient(c client, exclusive bool) <-chan cmap.Tuple {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	var prev <-chan cmap.Tuple
 	if exclusive {
 		prev = s.clis.IterBuffered()
@@ -76,19 +83,21 @@ func (s *Session) addClient(c client, exclusive bool) <-chan cmap.Tuple {
 	}
 	c.setSession(s)
 	s.clis.Set(c.getID(), c)
-	select {
-	case s.sendingC <- struct{}{}:
-	default:
-	}
-	select {
-	case s.resendingC <- struct{}{}:
-	default:
+	if s.clis.Count() == 1 {
+		s.tomb = new(utils.Tomb)
+		s.tomb.Go(s.sending, s.resending)
 	}
 	return prev
 }
 
 // returns true if session should be cleaned
 func (s *Session) delClient(c client) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.clis.Count() == 1 {
+		s.tomb.Kill(nil)
+		s.tomb.Wait()
+	}
 	s.clis.Remove(c.getID())
 	return s.CleanSession && s.clis.Count() == 0
 }
@@ -98,7 +107,6 @@ func (s *Session) close() {
 	s.Do(func() {
 		s.log.Info("session is closing")
 		defer s.log.Info("session has closed")
-		s.tomb.Kill(nil)
 		err := s.qos0.Close()
 		if err != nil {
 			s.log.Warn("failed to close qos0 queue", log.Error(err))
@@ -108,7 +116,10 @@ func (s *Session) close() {
 			s.log.Warn("failed to close qos1 queue", log.Error(err))
 		}
 	})
-	s.tomb.Wait()
+	if s.tomb != nil {
+		s.tomb.Kill(nil)
+		s.tomb.Wait()
+	}
 }
 
 func (s *Session) sending() error {
@@ -118,19 +129,17 @@ func (s *Session) sending() error {
 	qos0 := s.qos0.Chan()
 	qos1 := s.qos1.Chan()
 	resender := s.resender
-	var iqel *iqel
+	iqel := s.buf.s
 	for {
-		if s.clis.Count() == 0 {
-			select {
-			case <-s.sendingC:
-			case <-s.tomb.Dying():
-				return nil
-			}
-		}
 		for c := range s.clis.IterBuffered() {
 			client := c.Val.(client)
 			if iqel != nil {
 				if err := client.sending(iqel); err != nil {
+					select {
+					case <-s.tomb.Dying():
+						return nil
+					default:
+					}
 					continue
 				}
 				if iqel.qos == 1 {
@@ -140,6 +149,7 @@ func (s *Session) sending() error {
 						return nil
 					}
 				}
+				iqel = nil
 			}
 			select {
 			case evt := <-qos0:
@@ -166,18 +176,11 @@ func (s *Session) resending() error {
 	s.log.Info("session starts to resend messages", log.Any("interval", s.resender.d))
 	defer s.log.Info("session has stopped resending messages")
 
-	var iqel *iqel
+	iqel := s.buf.rs
 	timer := time.NewTimer(s.resender.d)
 	r := s.resender
 	defer timer.Stop()
 	for {
-		if s.clis.Count() == 0 {
-			select {
-			case <-s.resendingC:
-			case <-s.tomb.Dying():
-				return nil
-			}
-		}
 	I:
 		for c := range s.clis.IterBuffered() {
 			client := c.Val.(client)
@@ -186,11 +189,23 @@ func (s *Session) resending() error {
 				case <-timer.C:
 				default:
 				}
-				for timer.Reset(r.next(iqel)); iqel.wait(timer.C, r.t.Dying()) == common.ErrAcknowledgeTimedOut; timer.Reset(r.d) {
+				for timer.Reset(r.next(iqel)); ; timer.Reset(r.d) {
+					err := iqel.wait(timer.C, s.tomb.Dying())
+					if err == nil {
+						break
+					} else if err == common.ErrAcknowledgeCanceled {
+						return nil
+					}
 					if err := client.resending(iqel); err != nil {
+						select {
+						case <-s.tomb.Dying():
+							return nil
+						default:
+						}
 						continue I
 					}
 				}
+				iqel = nil
 			}
 			select {
 			case iqel = <-r.c:

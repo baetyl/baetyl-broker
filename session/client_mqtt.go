@@ -51,24 +51,31 @@ func (c *ClientMQTT) getID() string {
 }
 
 func (c *ClientMQTT) setSession(s *Session) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
 	c.session = s
 	c.log = c.log.With(log.Any("sid", s.ID))
 }
 
 func (c *ClientMQTT) getSession() *Session {
+	c.mu.Lock()
+	defer c.mu.Unlock()
 	return c.session
 }
 
 // Close closes client by session
-func (c *ClientMQTT) close() error {
+func (c *ClientMQTT) close() {
 	c.Do(func() {
-		c.log.Info("client is closing")
-		defer c.log.Info("client has closed")
+		c.mu.Lock()
+		log := c.log
+		c.mu.Unlock()
+		log.Info("client is closing")
+		defer log.Info("client has closed")
 		c.tomb.Kill(nil)
 		c.connection.Close()
 		c.manager.delClient(c)
+		c.tomb.Wait()
 	})
-	return c.tomb.Wait()
 }
 
 // closes client by itself
@@ -76,7 +83,6 @@ func (c *ClientMQTT) die(msg string, err error) {
 	if !c.tomb.Alive() {
 		return
 	}
-	c.tomb.Kill(err)
 	if err != nil {
 		c.log.Error(msg, log.Error(err))
 		c.sendWillMessage()

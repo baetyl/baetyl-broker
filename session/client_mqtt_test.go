@@ -320,7 +320,6 @@ func TestSessionMqttPublish(t *testing.T) {
 	c.sendC2S(pktpub)
 	c.assertS2CPacket("<Puback ID=3>")
 	c.assertS2CPacket("<Publish ID=2 Message=<Message Topic=\"$baidu/iot\" QOS=1 Retain=false Payload=[98 97 105 100 117 32 105 111 116 32 116 101 115 116]> Dup=false>")
-	c.assertS2CPacket("<Publish ID=2 Message=<Message Topic=\"$baidu/iot\" QOS=1 Retain=false Payload=[98 97 105 100 117 32 105 111 116 32 116 101 115 116]> Dup=true>")
 	c.sendC2S(&mqtt.Puback{ID: 2})
 	c.assertS2CPacketTimeout()
 

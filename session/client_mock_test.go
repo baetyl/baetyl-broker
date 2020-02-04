@@ -239,22 +239,24 @@ func (c *mockConn) assertClosed(expect bool) {
 // * link mock
 
 type mockStream struct {
-	t      *testing.T
-	md     metadata.MD
-	c2s    chan *link.Message
-	s2c    chan *link.Message
-	err    chan error
-	closed bool
+	t        *testing.T
+	md       metadata.MD
+	c2s      chan *link.Message
+	s2c      chan *link.Message
+	err      chan error
+	closed   bool
+	canceled chan struct{}
 	sync.RWMutex
 }
 
 func newMockStream(t *testing.T, linkid string) *mockStream {
 	return &mockStream{
-		t:   t,
-		md:  metadata.New(map[string]string{"linkid": linkid}),
-		c2s: make(chan *link.Message, 100),
-		s2c: make(chan *link.Message, 100),
-		err: make(chan error, 100),
+		t:        t,
+		md:       metadata.New(map[string]string{"linkid": linkid}),
+		c2s:      make(chan *link.Message, 100),
+		s2c:      make(chan *link.Message, 100),
+		err:      make(chan error, 100),
+		canceled: make(chan struct{}, 1),
 	}
 }
 
@@ -266,6 +268,8 @@ func (c *mockStream) Send(msg *link.Message) error {
 	case c.s2c <- msg:
 		// default:
 		// 	assert.FailNow(c.t, "s2c channel is full")
+	case <-c.canceled:
+		return errors.New("stream send canceled")
 	}
 	return nil
 }
@@ -279,6 +283,8 @@ func (c *mockStream) Recv() (*link.Message, error) {
 		return msg, nil
 	case err := <-c.err:
 		return nil, err
+	case <-c.canceled:
+		return nil, errors.New("stream recv canceled")
 	}
 }
 
@@ -296,6 +302,7 @@ func (c *mockStream) Close() {
 	c.Lock()
 	defer c.Unlock()
 	c.closed = true
+	c.canceled <- struct{}{}
 }
 
 func (c *mockStream) isClosed() bool {
