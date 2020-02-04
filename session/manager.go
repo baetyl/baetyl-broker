@@ -49,7 +49,7 @@ type client interface {
 	setSession(*Session)
 	sending(*iqel) error
 	resending(*iqel) error
-	authorize(action string, topic string) bool
+	authorize(string, string) bool
 	close() error
 }
 
