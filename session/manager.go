@@ -104,8 +104,17 @@ func NewManager(cfg Config) (*Manager, error) {
 		}
 		manager.sessions.Set(si.ID, s)
 		for topic, qos := range si.Subscriptions {
-			s.subs.Set(topic, qos)
-			manager.exchange.Bind(topic, s)
+			// Re-check subscriptions, if topic invalid, log error, unbind and skip
+			if !manager.checker.CheckTopic(topic, true) {
+				manager.log.Error(ErrSessionMessageTopicInvalid.Error(), log.Any("topic", topic))
+				delete(si.Subscriptions, topic)
+				manager.exchange.Unbind(topic, s)
+			} else if qos > 1 {
+				manager.log.Error(ErrSessionMessageQosNotSupported.Error(), log.Any("qos", qos))
+			} else {
+				s.subs.Set(topic, qos)
+				manager.exchange.Bind(topic, s)
+			}
 			// TODO: it is unnecessary to subscribe messages with qos 0 for the session without any client
 		}
 	}
@@ -152,17 +161,9 @@ func (m *Manager) initSession(si *Info, c client) (s *Session, exists bool, err 
 		}
 	}
 	s = sv.(*Session)
-	// Re-check subscriptions, if subscription not permit, log error and skip
-	if subscriptions := s.Subscriptions; subscriptions != nil {
-		for topic, qos := range subscriptions {
-			if !m.checker.CheckTopic(topic, true) {
-				m.log.Error(ErrSessionMessageTopicInvalid.Error(), log.Any("topic", topic))
-				delete(s.Subscriptions, topic)
-				m.exchange.Unbind(topic, s)
-			}
-			if qos > 1 {
-				m.log.Error(ErrSessionMessageQosNotSupported.Error(), log.Any("qos", qos))
-			}
+	if subs := s.Subscriptions; subs != nil { // subs is not nil, represents s is the restored session
+		for topic := range subs {
+			// Re-check subscriptions, if topic not permit, log error, unbind and skip
 			if cli, ok := c.(*ClientMQTT); ok {
 				if !cli.authorize(Subscribe, topic) {
 					m.log.Error(ErrSessionMessageTopicNotPermitted.Error(), log.Any("topic", topic))
