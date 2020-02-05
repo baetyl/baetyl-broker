@@ -163,14 +163,12 @@ func (m *Manager) initSession(si *Info, c client) (s *Session, exists bool, err 
 		}
 	}
 	s = sv.(*Session)
-	if subs := s.Subscriptions; len(subs) > 0 { // if subs's length is greater than zero(0), it represents s(Session) is a restored session
-		for topic := range subs {
-			// Re-check subscriptions, if topic not permit, log error, delete and skip
-			if !c.authorize(Subscribe, topic) {
-				m.log.Warn(ErrSessionMessageTopicNotPermitted.Error(), log.Any("topic", topic))
-				delete(s.Subscriptions, topic)
-				m.exchange.Unbind(topic, s)
-			}
+	for topic := range s.Subscriptions {
+		// Re-check subscriptions, if topic not permit, log error, delete and skip
+		if !c.authorize(Subscribe, topic) {
+			m.log.Warn(ErrSessionMessageTopicNotPermitted.Error(), log.Any("topic", topic))
+			delete(s.Subscriptions, topic)
+			m.exchange.Unbind(topic, s)
 		}
 	}
 	// update session
