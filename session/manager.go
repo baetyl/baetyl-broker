@@ -113,6 +113,7 @@ func NewManager(cfg Config) (*Manager, error) {
 			}
 			if qos > 1 {
 				manager.log.Warn(ErrSessionMessageQosNotSupported.Error(), log.Any("qos", qos))
+				delete(si.Subscriptions, topic)
 				continue
 			}
 			s.subs.Set(topic, qos)
