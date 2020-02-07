@@ -66,7 +66,6 @@ type mockBroker struct {
 
 func newMockBroker(t *testing.T, cfgStr string) *mockBroker {
 	log.Init(log.Config{Level: "debug", Format: "text"})
-	os.RemoveAll("var")
 
 	var cfg Config
 	err := utils.UnmarshalYAML([]byte(cfgStr), &cfg)
@@ -131,6 +130,15 @@ func (b *mockBroker) assertExchangeCount(expect int) {
 }
 
 func (b *mockBroker) close() {
+	if b.transport != nil {
+		b.transport.Close()
+	}
+	if b.manager != nil {
+		b.manager.Close()
+	}
+}
+
+func (b *mockBroker) closeAndClean() {
 	if b.transport != nil {
 		b.transport.Close()
 	}

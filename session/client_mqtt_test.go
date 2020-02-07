@@ -13,7 +13,7 @@ import (
 
 func TestSessionMqttConnect(t *testing.T) {
 	b := newMockBroker(t, testConfDefault)
-	defer b.close()
+	defer b.closeAndClean()
 
 	// connect
 	c := newMockConn(t)
@@ -56,7 +56,7 @@ func TestSessionMqttConnect(t *testing.T) {
 
 func TestSessionMqttConnectSameClientID(t *testing.T) {
 	b := newMockBroker(t, testConfDefault)
-	defer b.close()
+	defer b.closeAndClean()
 
 	// client to publish
 	pub := newMockConn(t)
@@ -110,7 +110,7 @@ func TestSessionMqttConnectSameClientID(t *testing.T) {
 
 func TestSessionMqttConnectException(t *testing.T) {
 	b := newMockBroker(t, testConfSession)
-	defer b.close()
+	defer b.closeAndClean()
 
 	// connect again with wrong version
 	c := newMockConn(t)
@@ -162,7 +162,7 @@ func TestSessionMqttConnectException(t *testing.T) {
 
 func TestSessionMqttMaxConnections(t *testing.T) {
 	b := newMockBroker(t, testConfSession)
-	defer b.close()
+	defer b.closeAndClean()
 
 	c1 := newMockConn(t)
 	b.manager.ClientMQTTHandler(c1)
@@ -198,7 +198,7 @@ func TestSessionMqttMaxConnections(t *testing.T) {
 
 func TestSessionMqttSubscribe(t *testing.T) {
 	b := newMockBroker(t, testConfDefault)
-	defer b.close()
+	defer b.closeAndClean()
 
 	c := newMockConn(t)
 	b.manager.ClientMQTTHandler(c)
@@ -276,7 +276,7 @@ func TestSessionMqttSubscribe(t *testing.T) {
 
 func TestSessionMqttPublish(t *testing.T) {
 	b := newMockBroker(t, testConfSession)
-	defer b.close()
+	defer b.closeAndClean()
 
 	c := newMockConn(t)
 	b.manager.ClientMQTTHandler(c)
@@ -354,7 +354,7 @@ func TestSessionMqttPublish(t *testing.T) {
 
 func TestSessionMqttCleanSession(t *testing.T) {
 	b := newMockBroker(t, testConfDefault)
-	defer b.close()
+	defer b.closeAndClean()
 
 	pub := newMockConn(t)
 	b.manager.ClientMQTTHandler(pub)
@@ -479,7 +479,7 @@ func TestSessionMqttCleanSession(t *testing.T) {
 
 func TestSessionMqttPubSubQOS(t *testing.T) {
 	b := newMockBroker(t, testConfSession)
-	defer b.close()
+	defer b.closeAndClean()
 
 	pub := newMockConn(t)
 	b.manager.ClientMQTTHandler(pub)
@@ -540,7 +540,7 @@ func TestSessionMqttPubSubQOS(t *testing.T) {
 
 func TestSessionMqttSystemTopicIsolation(t *testing.T) {
 	b := newMockBroker(t, testConfSession)
-	defer b.close()
+	defer b.closeAndClean()
 
 	// pubc connect to broker
 	pubc := newMockConn(t)
@@ -684,14 +684,17 @@ session:
 
 	// broker restart with new configuration
 	b = newMockBroker(t, testConfDefault)
-	defer b.close()
+	defer b.closeAndClean()
 
+	// load the stored session
+	b.assertSession("sub", "{\"ID\":\"sub\",\"CleanSession\":false,\"Subscriptions\":{\"$baidu/iot\":1}}")
+	b.assertExchangeCount(0)
 	sub = newMockConn(t)
 	b.manager.ClientMQTTHandler(sub)
 	sub.sendC2S(&mqtt.Connect{ClientID: "sub", Version: 3})
-	sub.assertS2CPacket("<Connack SessionPresent=false ReturnCode=0>")
+	sub.assertS2CPacket("<Connack SessionPresent=true ReturnCode=0>")
 	// * auto subscribe when cleansession=false
-	b.assertSession("sub", "{\"ID\":\"sub\",\"CleanSession\":false,\"Subscriptions\":null}")
+	b.assertSession("sub", "{\"ID\":\"sub\",\"CleanSession\":false,\"Subscriptions\":{}}")
 	b.assertExchangeCount(0)
 
 	sub.sendC2S(&mqtt.Disconnect{})
@@ -728,14 +731,17 @@ principals:
     permit: [test, talks, '$baidu/iot', '$link/data']
 `
 	b = newMockBroker(t, testSessionConf)
-	defer b.close()
+	defer b.closeAndClean()
 
+	// load the stored session
+	b.assertSession("sub", "{\"ID\":\"sub\",\"CleanSession\":false,\"Subscriptions\":{\"test\":1}}")
+	b.assertExchangeCount(1)
 	sub = newMockConn(t)
 	b.manager.ClientMQTTHandler(sub)
 	sub.sendC2S(&mqtt.Connect{ClientID: "sub", Username: "u1", Password: "p1", Version: 3})
-	sub.assertS2CPacket("<Connack SessionPresent=false ReturnCode=0>")
+	sub.assertS2CPacket("<Connack SessionPresent=true ReturnCode=0>")
 	// * auto subscribe when cleansession=false
-	b.assertSession("sub", "{\"ID\":\"sub\",\"CleanSession\":false,\"Subscriptions\":null}")
+	b.assertSession("sub", "{\"ID\":\"sub\",\"CleanSession\":false,\"Subscriptions\":{}}")
 	b.assertExchangeCount(0)
 
 	sub.sendC2S(&mqtt.Disconnect{})
@@ -745,7 +751,7 @@ principals:
 
 func TestSessionMqttWill(t *testing.T) {
 	b := newMockBroker(t, testConfDefault)
-	defer b.close()
+	defer b.closeAndClean()
 
 	// connect packet
 	pktcon := &mqtt.Connect{}
@@ -871,7 +877,7 @@ func TestSessionMqttWill(t *testing.T) {
 
 func TestSessionMqttRetain(t *testing.T) {
 	b := newMockBroker(t, testConfDefault)
-	defer b.close()
+	defer b.closeAndClean()
 
 	pktcon := &mqtt.Connect{}
 	pktcon.Version = 3
@@ -1016,7 +1022,7 @@ func TestSessionMqttRetain(t *testing.T) {
 
 func TestDefaultMaxMessagePayload(t *testing.T) {
 	b := newMockBroker(t, testConfDefault)
-	defer b.close()
+	defer b.closeAndClean()
 
 	// connect packet
 	pktcon := &mqtt.Connect{}
@@ -1078,7 +1084,7 @@ func TestDefaultMaxMessagePayload(t *testing.T) {
 func TestMQTTCustomizeMaxMessagePayload(t *testing.T) {
 	b := newMockBroker(t, testConfDefault)
 	b.manager.cfg.MaxMessagePayload = utils.Size(256) // set the max message payload
-	defer b.close()
+	defer b.closeAndClean()
 
 	// connect packet
 	pktcon := &mqtt.Connect{}
