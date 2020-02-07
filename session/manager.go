@@ -49,6 +49,7 @@ type client interface {
 	setSession(*Session)
 	sending(*iqel) error
 	resending(*iqel) error
+	authorize(string, string) bool
 	close() error
 }
 
@@ -104,6 +105,17 @@ func NewManager(cfg Config) (*Manager, error) {
 		}
 		manager.sessions.Set(si.ID, s)
 		for topic, qos := range si.Subscriptions {
+			// Re-check subscriptions, if topic invalid, log error, delete and skip
+			if !manager.checker.CheckTopic(topic, true) {
+				manager.log.Warn(ErrSessionMessageTopicInvalid.Error(), log.Any("topic", topic))
+				delete(si.Subscriptions, topic)
+				continue
+			}
+			if qos > 1 {
+				manager.log.Warn(ErrSessionMessageQosNotSupported.Error(), log.Any("qos", qos))
+				delete(si.Subscriptions, topic)
+				continue
+			}
 			s.subs.Set(topic, qos)
 			manager.exchange.Bind(topic, s)
 			// TODO: it is unnecessary to subscribe messages with qos 0 for the session without any client
@@ -152,6 +164,14 @@ func (m *Manager) initSession(si *Info, c client) (s *Session, exists bool, err 
 		}
 	}
 	s = sv.(*Session)
+	for topic := range s.Subscriptions {
+		// Re-check subscriptions, if topic not permit, log error, delete and skip
+		if !c.authorize(Subscribe, topic) {
+			m.log.Warn(ErrSessionMessageTopicNotPermitted.Error(), log.Any("topic", topic))
+			delete(s.Subscriptions, topic)
+			m.exchange.Unbind(topic, s)
+		}
+	}
 	// update session
 	m.mu.Lock()
 	s.Info.CleanSession = si.CleanSession

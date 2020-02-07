@@ -11,7 +11,7 @@ import (
 
 func TestSessionLinkException(t *testing.T) {
 	b := newMockBroker(t, testConfDefault)
-	defer b.close()
+	defer b.closeAndClean()
 
 	errs := make(chan error, 10)
 	c := newMockStream(t, "t")
@@ -58,7 +58,7 @@ func TestSessionLinkException(t *testing.T) {
 func TestSessionLinkSendRecvBL(t *testing.T) {
 	b := newMockBroker(t, testConfDefault)
 	b.manager.cfg.ResendInterval = time.Millisecond * 1000
-	defer b.close()
+	defer b.closeAndClean()
 
 	errs := make(chan error, 10)
 	publid, sublid := "$link/pubc", "$link/subc"
