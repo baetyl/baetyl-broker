@@ -306,8 +306,6 @@ func (m *Manager) delClient(c client) {
 		m.sessions.Remove(sid)
 		m.log.Info("session is removed", log.Any("sid", sid))
 		// TODO: to delete persistent queue data if CleanSession=true
-		// m.sessions.Remove(sid)
-		// m.log.Info("persistent queue data is deleted")
 	}
 }
 
