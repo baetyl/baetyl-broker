@@ -1,10 +1,7 @@
 package session
 
 import (
-	"encoding/base64"
 	"errors"
-	"os"
-	"path"
 	"sync"
 
 	"github.com/baetyl/baetyl-broker/exchange"
@@ -137,7 +134,7 @@ func (m *Manager) Close() error {
 		item.Val.(client).close()
 	}
 	for item := range m.sessions.IterBuffered() {
-		item.Val.(*Session).close()
+		item.Val.(*Session).close(m.cfg.Persistence.Location)
 	}
 
 	m.retaindb.Close()
@@ -158,7 +155,7 @@ func (m *Manager) initSession(si *Info, c client) (s *Session, exists bool, err 
 			return
 		}
 		if exists = !m.sessions.SetIfAbsent(sid, sv); exists {
-			sv.(*Session).close()
+			sv.(*Session).close(m.cfg.Persistence.Location)
 			var ok bool
 			if sv, ok = m.sessions.Get(sid); !ok {
 				return nil, false, ErrSessionAbnormal
@@ -197,7 +194,7 @@ func (m *Manager) initSession(si *Info, c client) (s *Session, exists bool, err 
 func (m *Manager) newSession(si *Info) (*Session, error) {
 	sid := si.ID
 	cfg := m.cfg.Persistence
-	cfg.Name = base64Encoding(sid)
+	cfg.Name = utils.CalculateBase64(sid)
 	cfg.BatchSize = m.cfg.MaxInflightQOS1Messages
 	queuedb, err := m.sessiondb.NewQueueBackend(cfg)
 	if err != nil {
@@ -305,16 +302,9 @@ func (m *Manager) delClient(c client) {
 		sid := s.ID
 		m.sessiondb.Del(sid)
 		m.exchange.UnbindAll(s)
-		s.close()
+		s.close(m.cfg.Persistence.Location)
 		m.sessions.Remove(sid)
 		m.log.Info("session is removed", log.Any("sid", sid))
-		// delete persistent queue data if CleanSession=true
-		qname := base64Encoding(sid)
-		p := path.Join(m.cfg.Persistence.Location, "queue", qname)
-		if utils.FileExists(p) {
-			os.RemoveAll(p)
-			m.log.Info("queue data is deleted", log.Any("queue name", qname))
-		}
 	}
 }
 
@@ -351,8 +341,4 @@ func (m *Manager) removeRetain(topic string) error {
 		return err
 	}
 	return nil
-}
-
-func base64Encoding(s string) string {
-	return base64.StdEncoding.EncodeToString([]byte(s))
 }

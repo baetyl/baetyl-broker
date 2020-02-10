@@ -493,7 +493,7 @@ func TestCleanQueueDataIfCleanSessionIsTrue(t *testing.T) {
 	conn.assertS2CPacket("<Suback ID=0 ReturnCodes=[1]>")
 	b.assertSession("conn1", "{\"ID\":\"conn1\",\"CleanSession\":false,\"Subscriptions\":{\"test\":1}}")
 	b.assertExchangeCount(1)
-	p := path.Join(b.manager.cfg.Persistence.Location, "queue", base64Encoding("conn1"))
+	p := path.Join(b.manager.cfg.Persistence.Location, "queue", utils.CalculateBase64("conn1"))
 	ok := utils.PathExists(p)
 	assert.True(t, ok)
 
@@ -514,7 +514,7 @@ func TestCleanQueueDataIfCleanSessionIsTrue(t *testing.T) {
 	conn.sendC2S(&mqtt.Publish{ID: 1, Message: mqtt.Message{Topic: "talks", QOS: 1, Payload: []byte("hi")}})
 	conn.assertS2CPacket("<Puback ID=1>")
 	b.assertExchangeCount(1)
-	p = path.Join(b.manager.cfg.Persistence.Location, "queue", base64Encoding("conn2"))
+	p = path.Join(b.manager.cfg.Persistence.Location, "queue", utils.CalculateBase64("conn2"))
 	ok = utils.PathExists(p)
 	assert.True(t, ok)
 
