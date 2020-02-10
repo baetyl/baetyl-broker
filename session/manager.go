@@ -311,8 +311,10 @@ func (m *Manager) delClient(c client) {
 		// delete persistent queue data if CleanSession=true
 		qname := base64Encoding(sid)
 		p := path.Join(m.cfg.Persistence.Location, "queue", qname)
-		os.RemoveAll(p)
-		m.log.Info("queue data is deleted", log.Any("queue name", qname))
+		if utils.FileExists(p) {
+			os.RemoveAll(p)
+			m.log.Info("queue data is deleted", log.Any("queue name", qname))
+		}
 	}
 }
 
