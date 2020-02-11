@@ -2,8 +2,6 @@ package session
 
 import (
 	"encoding/json"
-	"os"
-	"path"
 	"sync"
 	"time"
 
@@ -96,7 +94,7 @@ func (s *Session) delClient(c client) bool {
 }
 
 // Close closes session
-func (s *Session) close(location string) {
+func (s *Session) close() {
 	s.Do(func() {
 		s.log.Info("session is closing")
 		defer s.log.Info("session has closed")
@@ -108,15 +106,6 @@ func (s *Session) close(location string) {
 		err = s.qos1.Close()
 		if err != nil {
 			s.log.Warn("failed to close qos1 queue", log.Error(err))
-		}
-		if s.CleanSession {
-			// delete persistent queue data if CleanSession=true
-			qname := utils.CalculateBase64(s.ID)
-			p := path.Join(location, "queue", qname)
-			if utils.FileExists(p) {
-				os.RemoveAll(p)
-				s.log.Info("queue data is deleted", log.Any("queue name", qname))
-			}
 		}
 	})
 	s.tomb.Wait()

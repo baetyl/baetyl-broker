@@ -134,7 +134,7 @@ func (m *Manager) Close() error {
 		item.Val.(client).close()
 	}
 	for item := range m.sessions.IterBuffered() {
-		item.Val.(*Session).close(m.cfg.Persistence.Location)
+		item.Val.(*Session).close()
 	}
 
 	m.retaindb.Close()
@@ -155,7 +155,7 @@ func (m *Manager) initSession(si *Info, c client) (s *Session, exists bool, err 
 			return
 		}
 		if exists = !m.sessions.SetIfAbsent(sid, sv); exists {
-			sv.(*Session).close(m.cfg.Persistence.Location)
+			sv.(*Session).close()
 			var ok bool
 			if sv, ok = m.sessions.Get(sid); !ok {
 				return nil, false, ErrSessionAbnormal
@@ -210,7 +210,7 @@ func (m *Manager) newSession(si *Info) (*Session, error) {
 		sendingC:   make(chan struct{}, 1),
 		resendingC: make(chan struct{}, 1),
 		qos0:       queue.NewTemporary(sid, m.cfg.MaxInflightQOS0Messages, true),
-		qos1:       queue.NewPersistence(cfg, queuedb),
+		qos1:       queue.NewPersistence(cfg, queuedb, si.CleanSession),
 		log:        m.log.With(log.Any("id", sid)),
 	}
 	s.resender = newResender(m.cfg.MaxInflightQOS1Messages, m.cfg.ResendInterval, &s.tomb)
@@ -302,7 +302,7 @@ func (m *Manager) delClient(c client) {
 		sid := s.ID
 		m.sessiondb.Del(sid)
 		m.exchange.UnbindAll(s)
-		s.close(m.cfg.Persistence.Location)
+		s.close()
 		m.sessions.Remove(sid)
 		m.log.Info("session is removed", log.Any("sid", sid))
 	}

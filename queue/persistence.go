@@ -2,6 +2,8 @@ package queue
 
 import (
 	"fmt"
+	"os"
+	"path"
 	"time"
 
 	"github.com/baetyl/baetyl-broker/common"
@@ -12,26 +14,28 @@ import (
 
 // Persistence is a persistent queue
 type Persistence struct {
-	backend *Backend
-	cfg     Config
-	input   chan *common.Event
-	output  chan *common.Event
-	edel    chan uint64 // del events with message id
-	eget    chan bool   // get events
-	log     *log.Logger
+	backend      *Backend
+	cfg          Config
+	cleanSession bool
+	input        chan *common.Event
+	output       chan *common.Event
+	edel         chan uint64 // del events with message id
+	eget         chan bool   // get events
+	log          *log.Logger
 	utils.Tomb
 }
 
 // NewPersistence creates a new persistent queue
-func NewPersistence(cfg Config, backend *Backend) Queue {
+func NewPersistence(cfg Config, backend *Backend, cleanSession bool) Queue {
 	q := &Persistence{
-		backend: backend,
-		cfg:     cfg,
-		input:   make(chan *common.Event, cfg.BatchSize),
-		output:  make(chan *common.Event, cfg.BatchSize),
-		edel:    make(chan uint64, cfg.BatchSize),
-		eget:    make(chan bool, 3),
-		log:     log.With(log.Any("queue", "persist"), log.Any("id", cfg.Name)),
+		backend:      backend,
+		cfg:          cfg,
+		cleanSession: cleanSession,
+		input:        make(chan *common.Event, cfg.BatchSize),
+		output:       make(chan *common.Event, cfg.BatchSize),
+		edel:         make(chan uint64, cfg.BatchSize),
+		eget:         make(chan bool, 3),
+		log:          log.With(log.Any("queue", "persist"), log.Any("id", cfg.Name)),
 	}
 	// to read persistent message
 	q.trigger()
@@ -248,6 +252,16 @@ func (q *Persistence) clean() {
 	}
 }
 
+// delete queue data
+func (q *Persistence) del() {
+	q.log.Info("start to delete queue data")
+	defer q.log.Info("queue data has deleted")
+	p := path.Join(q.cfg.Location, "queue", q.backend.cfg.Name)
+	if utils.FileExists(p) {
+		os.RemoveAll(p)
+	}
+}
+
 // triggers an event to get message from backend database in batch mode
 func (q *Persistence) trigger() {
 	select {
@@ -270,5 +284,13 @@ func (q *Persistence) Close() error {
 	defer q.log.Info("queue has closed")
 
 	q.Kill(nil)
-	return q.Wait()
+	err := q.Wait()
+	if err != nil {
+		return err
+	}
+	// delete queue data when cleanSession is true
+	if q.cleanSession {
+		q.del()
+	}
+	return nil
 }
