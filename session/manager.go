@@ -210,7 +210,7 @@ func (m *Manager) newSession(si *Info) (*Session, error) {
 		sendingC:   make(chan struct{}, 1),
 		resendingC: make(chan struct{}, 1),
 		qos0:       queue.NewTemporary(sid, m.cfg.MaxInflightQOS0Messages, true),
-		qos1:       queue.NewPersistence(cfg, queuedb, si.CleanSession),
+		qos1:       queue.NewPersistence(cfg, queuedb),
 		log:        m.log.With(log.Any("id", sid)),
 	}
 	s.resender = newResender(m.cfg.MaxInflightQOS1Messages, m.cfg.ResendInterval, &s.tomb)

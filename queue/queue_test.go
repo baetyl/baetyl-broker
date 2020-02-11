@@ -19,7 +19,7 @@ import (
 func TestTemporaryQueue(t *testing.T) {
 	b := NewTemporary(t.Name(), 100, true)
 	assert.NotNil(t, b)
-	defer b.Close()
+	defer b.Close(true)
 
 	m := new(link.Message)
 	m.Content = []byte("hi")
@@ -60,9 +60,9 @@ func TestPersistentQueue(t *testing.T) {
 	assert.NotNil(t, be)
 	defer be.Close()
 
-	b := NewPersistence(cfg, be, true)
+	b := NewPersistence(cfg, be)
 	assert.NotNil(t, b)
-	defer b.Close()
+	defer b.Close(false)
 
 	m := new(link.Message)
 	m.Content = []byte("hi")
@@ -128,9 +128,9 @@ func BenchmarkPersistentQueue(b *testing.B) {
 	assert.NotNil(b, be)
 	defer be.Close()
 
-	q := NewPersistence(cfg, be, true)
+	q := NewPersistence(cfg, be)
 	assert.NotNil(b, q)
-	defer q.Close()
+	defer q.Close(false)
 
 	m := new(link.Message)
 	m.Content = []byte("hi")
@@ -179,9 +179,9 @@ func BenchmarkPersistentQueueParallel(b *testing.B) {
 	assert.NotNil(b, be)
 	defer be.Close()
 
-	q := NewPersistence(cfg, be, true)
+	q := NewPersistence(cfg, be)
 	assert.NotNil(b, q)
-	defer q.Close()
+	defer q.Close(false)
 
 	m := new(link.Message)
 	m.Content = []byte("hi")
@@ -203,7 +203,7 @@ func BenchmarkPersistentQueueParallel(b *testing.B) {
 func BenchmarkTemporaryQueueParallel(b *testing.B) {
 	q := NewTemporary(b.Name(), 100, true)
 	assert.NotNil(b, q)
-	defer q.Close()
+	defer q.Close(false)
 
 	m := new(link.Message)
 	m.Content = []byte("hi")

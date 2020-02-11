@@ -2,7 +2,6 @@ package queue
 
 import (
 	"errors"
-	"io"
 
 	"github.com/baetyl/baetyl-broker/common"
 )
@@ -15,5 +14,6 @@ type Queue interface {
 	Push(*common.Event) error
 	Pop() (*common.Event, error)
 	Chan() <-chan *common.Event
-	io.Closer
+	Close(bool) error
+	// io.Closer
 }

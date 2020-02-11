@@ -26,16 +26,15 @@ type Persistence struct {
 }
 
 // NewPersistence creates a new persistent queue
-func NewPersistence(cfg Config, backend *Backend, cleanSession bool) Queue {
+func NewPersistence(cfg Config, backend *Backend) Queue {
 	q := &Persistence{
-		backend:      backend,
-		cfg:          cfg,
-		cleanSession: cleanSession,
-		input:        make(chan *common.Event, cfg.BatchSize),
-		output:       make(chan *common.Event, cfg.BatchSize),
-		edel:         make(chan uint64, cfg.BatchSize),
-		eget:         make(chan bool, 3),
-		log:          log.With(log.Any("queue", "persist"), log.Any("id", cfg.Name)),
+		backend: backend,
+		cfg:     cfg,
+		input:   make(chan *common.Event, cfg.BatchSize),
+		output:  make(chan *common.Event, cfg.BatchSize),
+		edel:    make(chan uint64, cfg.BatchSize),
+		eget:    make(chan bool, 3),
+		log:     log.With(log.Any("queue", "persist"), log.Any("id", cfg.Name)),
 	}
 	// to read persistent message
 	q.trigger()
@@ -279,7 +278,7 @@ func (q *Persistence) acknowledge(id uint64) {
 }
 
 // Close closes this queue
-func (q *Persistence) Close() error {
+func (q *Persistence) Close(clean bool) error {
 	q.log.Info("queue is closing")
 	defer q.log.Info("queue has closed")
 
@@ -289,7 +288,7 @@ func (q *Persistence) Close() error {
 		return err
 	}
 	// delete queue data when cleanSession is true
-	if q.cleanSession {
+	if clean {
 		q.del()
 	}
 	return nil
