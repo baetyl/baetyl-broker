@@ -14,14 +14,13 @@ import (
 
 // Persistence is a persistent queue
 type Persistence struct {
-	backend      *Backend
-	cfg          Config
-	cleanSession bool
-	input        chan *common.Event
-	output       chan *common.Event
-	edel         chan uint64 // del events with message id
-	eget         chan bool   // get events
-	log          *log.Logger
+	backend *Backend
+	cfg     Config
+	input   chan *common.Event
+	output  chan *common.Event
+	edel    chan uint64 // del events with message id
+	eget    chan bool   // get events
+	log     *log.Logger
 	utils.Tomb
 }
 
