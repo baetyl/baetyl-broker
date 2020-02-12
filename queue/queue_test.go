@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"io/ioutil"
 	"os"
+	"path"
 	"sync"
 	"testing"
 	"time"
@@ -19,7 +20,7 @@ import (
 func TestTemporaryQueue(t *testing.T) {
 	b := NewTemporary(t.Name(), 100, true)
 	assert.NotNil(t, b)
-	defer b.Close()
+	defer b.Close(true)
 
 	m := new(link.Message)
 	m.Content = []byte("hi")
@@ -58,11 +59,13 @@ func TestPersistentQueue(t *testing.T) {
 	be, err := NewBackend(cfg)
 	assert.NoError(t, err)
 	assert.NotNil(t, be)
-	defer be.Close()
+	// create queue data file successfully, queue data will be stored
+	p := path.Join(dir, "queue", cfg.Name)
+	ok := utils.FileExists(p)
+	assert.True(t, ok)
 
 	b := NewPersistence(cfg, be)
 	assert.NotNil(t, b)
-	defer b.Close()
 
 	m := new(link.Message)
 	m.Content = []byte("hi")
@@ -112,6 +115,31 @@ func TestPersistentQueue(t *testing.T) {
 	ms, err = be.Get(1, 10)
 	assert.NoError(t, err)
 	assert.Len(t, ms, 0)
+
+	// persist queue close with cleanSession is false, queue data file cannot be deleted
+	be.Close()
+	b.Close(false)
+	p = path.Join(dir, "queue", cfg.Name)
+	ok = utils.FileExists(p)
+	assert.True(t, ok)
+
+	// persist queue close with cleanSession is true, queue data file will be deleted
+	cfg.Name = utils.CalculateBase64(t.Name())
+	be, err = NewBackend(cfg)
+	assert.NoError(t, err)
+	assert.NotNil(t, be)
+	defer be.Close()
+	p = path.Join(dir, "queue", cfg.Name)
+	ok = utils.FileExists(p)
+	assert.True(t, ok)
+
+	b = NewPersistence(cfg, be)
+	assert.NotNil(t, b)
+
+	b.Close(true)
+	p = path.Join(dir, "queue", cfg.Name)
+	ok = utils.FileExists(p)
+	assert.False(t, ok)
 }
 
 func BenchmarkPersistentQueue(b *testing.B) {
@@ -130,7 +158,7 @@ func BenchmarkPersistentQueue(b *testing.B) {
 
 	q := NewPersistence(cfg, be)
 	assert.NotNil(b, q)
-	defer q.Close()
+	defer q.Close(false)
 
 	m := new(link.Message)
 	m.Content = []byte("hi")
@@ -181,7 +209,7 @@ func BenchmarkPersistentQueueParallel(b *testing.B) {
 
 	q := NewPersistence(cfg, be)
 	assert.NotNil(b, q)
-	defer q.Close()
+	defer q.Close(false)
 
 	m := new(link.Message)
 	m.Content = []byte("hi")
@@ -203,7 +231,7 @@ func BenchmarkPersistentQueueParallel(b *testing.B) {
 func BenchmarkTemporaryQueueParallel(b *testing.B) {
 	q := NewTemporary(b.Name(), 100, true)
 	assert.NotNil(b, q)
-	defer q.Close()
+	defer q.Close(false)
 
 	m := new(link.Message)
 	m.Content = []byte("hi")

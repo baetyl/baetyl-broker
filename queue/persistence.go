@@ -2,6 +2,8 @@ package queue
 
 import (
 	"fmt"
+	"os"
+	"path"
 	"time"
 
 	"github.com/baetyl/baetyl-broker/common"
@@ -264,11 +266,23 @@ func (q *Persistence) acknowledge(id uint64) {
 	}
 }
 
-// Close closes this queue
-func (q *Persistence) Close() error {
-	q.log.Info("queue is closing")
+// Close closes this queue and clean queue data when cleanSession is true
+func (q *Persistence) Close(clean bool) error {
+	q.log.Info("queue is closing", log.Any("clean", clean))
 	defer q.log.Info("queue has closed")
 
 	q.Kill(nil)
-	return q.Wait()
+	err := q.Wait()
+	p := path.Join(q.cfg.Location, "queue", q.backend.cfg.Name)
+	if err != nil {
+		q.log.Warn("queue closes failed", log.Any("clean", clean))
+		if clean && utils.FileExists(p) {
+			os.RemoveAll(p)
+		}
+		return err
+	}
+	if clean && utils.FileExists(p) {
+		os.RemoveAll(p)
+	}
+	return nil
 }

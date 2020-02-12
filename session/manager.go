@@ -1,7 +1,6 @@
 package session
 
 import (
-	"encoding/base64"
 	"errors"
 	"sync"
 
@@ -195,7 +194,7 @@ func (m *Manager) initSession(si *Info, c client) (s *Session, exists bool, err 
 func (m *Manager) newSession(si *Info) (*Session, error) {
 	sid := si.ID
 	cfg := m.cfg.Persistence
-	cfg.Name = base64.StdEncoding.EncodeToString([]byte(sid))
+	cfg.Name = utils.CalculateBase64(sid)
 	cfg.BatchSize = m.cfg.MaxInflightQOS1Messages
 	queuedb, err := m.sessiondb.NewQueueBackend(cfg)
 	if err != nil {
@@ -306,7 +305,6 @@ func (m *Manager) delClient(c client) {
 		s.close()
 		m.sessions.Remove(sid)
 		m.log.Info("session is removed", log.Any("sid", sid))
-		// TODO: to delete persistent queue data if CleanSession=true
 	}
 }
 

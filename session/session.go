@@ -99,11 +99,11 @@ func (s *Session) close() {
 		s.log.Info("session is closing")
 		defer s.log.Info("session has closed")
 		s.tomb.Kill(nil)
-		err := s.qos0.Close()
+		err := s.qos0.Close(s.CleanSession)
 		if err != nil {
 			s.log.Warn("failed to close qos0 queue", log.Error(err))
 		}
-		err = s.qos1.Close()
+		err = s.qos1.Close(s.CleanSession)
 		if err != nil {
 			s.log.Warn("failed to close qos1 queue", log.Error(err))
 		}

@@ -3,6 +3,8 @@ package session
 import (
 	"fmt"
 	"math/rand"
+	"os"
+	"path"
 	"testing"
 
 	"github.com/baetyl/baetyl-go/mqtt"
@@ -475,6 +477,98 @@ func TestSessionMqttCleanSession(t *testing.T) {
 	pub.sendC2S(&mqtt.Disconnect{})
 	pub.assertS2CPacketTimeout()
 	pub.assertClosed(true)
+}
+
+func TestCleanQueueDataIfCleanSessionIsTrue(t *testing.T) {
+	b := newMockBroker(t, testConfSession)
+
+	// broker close unexpected, queue data cannot be deleted when cleanSession is false
+	conn := newMockConn(t)
+	b.manager.ClientMQTTHandler(conn)
+	conn.sendC2S(&mqtt.Connect{ClientID: "conn1", Username: "u1", Password: "p1", Version: 3})
+	conn.assertS2CPacket("<Connack SessionPresent=false ReturnCode=0>")
+	b.assertExchangeCount(0)
+	// conn subscribe, queue data is stored
+	conn.sendC2S(&mqtt.Subscribe{ID: 0, Subscriptions: []mqtt.Subscription{{Topic: "test", QOS: 1}}})
+	conn.assertS2CPacket("<Suback ID=0 ReturnCodes=[1]>")
+	b.assertSession("conn1", "{\"ID\":\"conn1\",\"CleanSession\":false,\"Subscriptions\":{\"test\":1}}")
+	b.assertExchangeCount(1)
+	p := path.Join(b.manager.cfg.Persistence.Location, "queue", utils.CalculateBase64("conn1"))
+	ok := utils.PathExists(p)
+	assert.True(t, ok)
+
+	// broker close unexpected, queue data is already stored
+	b.close()
+	ok = utils.PathExists(p)
+	assert.True(t, ok)
+
+	// broker start, conn send disconnect packet, queue data cannot be deleted when cleanSession is false
+	os.RemoveAll("var")
+	b = newMockBroker(t, testConfSession)
+	conn = newMockConn(t)
+	b.manager.ClientMQTTHandler(conn)
+	conn.sendC2S(&mqtt.Connect{ClientID: "conn2", Username: "u1", Password: "p1", Version: 3})
+	conn.assertS2CPacket("<Connack SessionPresent=false ReturnCode=0>")
+	b.assertExchangeCount(0)
+	// conn subscribe, queue data is stored
+	conn.sendC2S(&mqtt.Subscribe{ID: 1, Subscriptions: []mqtt.Subscription{{Topic: "test", QOS: 1}}})
+	conn.assertS2CPacket("<Suback ID=1 ReturnCodes=[1]>")
+	b.assertSession("conn2", "{\"ID\":\"conn2\",\"CleanSession\":false,\"Subscriptions\":{\"test\":1}}")
+	b.assertExchangeCount(1)
+	p = path.Join(b.manager.cfg.Persistence.Location, "queue", utils.CalculateBase64("conn2"))
+	ok = utils.PathExists(p)
+	assert.True(t, ok)
+
+	// conn send disconnect packet, queue data is also stored
+	conn.sendC2S(&mqtt.Disconnect{})
+	conn.assertS2CPacketTimeout()
+	conn.assertClosed(true)
+	ok = utils.PathExists(p)
+	assert.True(t, ok)
+
+	// broker close unexpected, queue data will be deleted when cleanSession is true
+	conn = newMockConn(t)
+	b.manager.ClientMQTTHandler(conn)
+	conn.sendC2S(&mqtt.Connect{ClientID: "conn3", Username: "u2", Password: "p2", CleanSession: true, Version: 3})
+	conn.assertS2CPacket("<Connack SessionPresent=false ReturnCode=0>")
+	b.assertExchangeCount(1)
+	// conn publish, queue data is stored
+	conn.sendC2S(&mqtt.Publish{ID: 2, Message: mqtt.Message{Topic: "talks", QOS: 1, Payload: []byte("hi")}})
+	conn.assertS2CPacket("<Puback ID=2>")
+	b.assertExchangeCount(1)
+	p = path.Join(b.manager.cfg.Persistence.Location, "queue", utils.CalculateBase64("conn3"))
+	ok = utils.PathExists(p)
+	assert.True(t, ok)
+
+	// broker close unexpected, queue data will be deleted
+	b.close()
+	ok = utils.PathExists(p)
+	assert.False(t, ok)
+
+	// broker start, connect send disconnect packet, queue data will be deleted when cleanSession is true
+	os.RemoveAll("var")
+	b = newMockBroker(t, testConfSession)
+	defer b.closeAndClean()
+
+	conn = newMockConn(t)
+	b.manager.ClientMQTTHandler(conn)
+	conn.sendC2S(&mqtt.Connect{ClientID: "conn4", Username: "u2", Password: "p2", CleanSession: true, Version: 3})
+	conn.assertS2CPacket("<Connack SessionPresent=false ReturnCode=0>")
+	b.assertExchangeCount(0)
+	// conn publish, queue data is stored
+	conn.sendC2S(&mqtt.Publish{ID: 3, Message: mqtt.Message{Topic: "test", QOS: 1, Payload: []byte("hello")}})
+	conn.assertS2CPacket("<Puback ID=3>")
+	b.assertExchangeCount(0)
+	p = path.Join(b.manager.cfg.Persistence.Location, "queue", utils.CalculateBase64("conn4"))
+	ok = utils.PathExists(p)
+	assert.True(t, ok)
+
+	// conn disconnect, queue data will be deleted
+	conn.sendC2S(&mqtt.Disconnect{})
+	conn.assertS2CPacketTimeout()
+	conn.assertClosed(true)
+	ok = utils.PathExists(p)
+	assert.False(t, ok)
 }
 
 func TestSessionMqttPubSubQOS(t *testing.T) {
