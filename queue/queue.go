@@ -15,5 +15,4 @@ type Queue interface {
 	Pop() (*common.Event, error)
 	Chan() <-chan *common.Event
 	Close(bool) error
-	// io.Closer
 }

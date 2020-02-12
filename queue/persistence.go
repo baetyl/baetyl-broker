@@ -250,16 +250,6 @@ func (q *Persistence) clean() {
 	}
 }
 
-// delete queue data
-func (q *Persistence) del() {
-	q.log.Info("start to delete queue data")
-	defer q.log.Info("queue data has deleted")
-	p := path.Join(q.cfg.Location, "queue", q.backend.cfg.Name)
-	if utils.FileExists(p) {
-		os.RemoveAll(p)
-	}
-}
-
 // triggers an event to get message from backend database in batch mode
 func (q *Persistence) trigger() {
 	select {
@@ -276,19 +266,23 @@ func (q *Persistence) acknowledge(id uint64) {
 	}
 }
 
-// Close closes this queue
+// Close closes this queue and clean queue data when cleanSession is true
 func (q *Persistence) Close(clean bool) error {
-	q.log.Info("queue is closing")
+	q.log.Info("queue is closing", log.Any("clean", clean))
 	defer q.log.Info("queue has closed")
 
 	q.Kill(nil)
 	err := q.Wait()
+	p := path.Join(q.cfg.Location, "queue", q.backend.cfg.Name)
 	if err != nil {
+		q.log.Warn("queue closes failed", log.Any("clean", clean))
+		if clean && utils.FileExists(p) {
+			os.RemoveAll(p)
+		}
 		return err
 	}
-	// delete queue data when cleanSession is true
-	if clean {
-		q.del()
+	if clean && utils.FileExists(p) {
+		os.RemoveAll(p)
 	}
 	return nil
 }
