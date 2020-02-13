@@ -117,7 +117,6 @@ func TestPersistentQueue(t *testing.T) {
 	assert.Len(t, ms, 0)
 
 	// persist queue close with cleanSession is false, queue data file cannot be deleted
-	be.Close()
 	b.Close(false)
 	p = path.Join(dir, "queue", cfg.Name)
 	ok = utils.FileExists(p)
@@ -128,7 +127,7 @@ func TestPersistentQueue(t *testing.T) {
 	be, err = NewBackend(cfg)
 	assert.NoError(t, err)
 	assert.NotNil(t, be)
-	defer be.Close()
+
 	p = path.Join(dir, "queue", cfg.Name)
 	ok = utils.FileExists(p)
 	assert.True(t, ok)
@@ -154,7 +153,6 @@ func BenchmarkPersistentQueue(b *testing.B) {
 	be, err := NewBackend(cfg)
 	assert.NoError(b, err)
 	assert.NotNil(b, be)
-	defer be.Close()
 
 	q := NewPersistence(cfg, be)
 	assert.NotNil(b, q)
@@ -205,7 +203,6 @@ func BenchmarkPersistentQueueParallel(b *testing.B) {
 	be, err := NewBackend(cfg)
 	assert.NoError(b, err)
 	assert.NotNil(b, be)
-	defer be.Close()
 
 	q := NewPersistence(cfg, be)
 	assert.NotNil(b, q)

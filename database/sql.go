@@ -3,6 +3,7 @@ package database
 import (
 	"database/sql"
 	"fmt"
+	"os"
 	"strings"
 	"time"
 )
@@ -29,7 +30,7 @@ func init() {
 
 // sqldb the backend SQL DB to persist values
 type sqldb struct {
-	*sql.DB
+	db      *sql.DB
 	conf    Conf
 	encoder Encoder
 }
@@ -46,12 +47,20 @@ func _new(conf Conf, encoder Encoder) (DB, error) {
 			return nil, err
 		}
 	}
-	return &sqldb{DB: db, conf: conf, encoder: encoder}, nil
+	return &sqldb{db: db, conf: conf, encoder: encoder}, nil
 }
 
 // Conf returns the configuration
 func (d *sqldb) Conf() Conf {
 	return d.conf
+}
+
+func (d *sqldb) Close(clean bool) error {
+	err := d.db.Close()
+	if clean {
+		os.RemoveAll(d.conf.Source)
+	}
+	return err
 }
 
 // * t
@@ -70,13 +79,13 @@ func (d *sqldb) Put(values []interface{}) error {
 		}
 	}
 	query := fmt.Sprintf("insert into t(value) values %s", strings.Join(phs, ", "))
-	_, err := d.Exec(query, values...)
+	_, err := d.db.Exec(query, values...)
 	return err
 }
 
 // Get gets values from SQL DB
 func (d *sqldb) Get(offset uint64, length int) ([]interface{}, error) {
-	rows, err := d.Query("select id, value from t where id >= ? order by id limit ?", offset, length)
+	rows, err := d.db.Query("select id, value from t where id >= ? order by id limit ?", offset, length)
 	if err != nil {
 		return nil, err
 	}
@@ -107,13 +116,13 @@ func (d *sqldb) Del(ids []uint64) error {
 		args[i] = ids[i]
 	}
 	query := fmt.Sprintf("delete from t where id in (%s)", strings.Join(phs, ","))
-	_, err := d.Exec(query, args...)
+	_, err := d.db.Exec(query, args...)
 	return err
 }
 
 // DelBefore delete expired messages
 func (d *sqldb) DelBefore(ts time.Time) error {
-	_, err := d.Exec("delete from t where ts < ?", ts)
+	_, err := d.db.Exec("delete from t where ts < ?", ts)
 	return err
 }
 
@@ -128,13 +137,13 @@ func (d *sqldb) SetKV(key, value interface{}) error {
 		value = d.encoder.Encode(value)
 	}
 	query := "insert into kv(key,value) values (?,?) on conflict(key) do update set value=excluded.value"
-	_, err := d.Exec(query, key, value)
+	_, err := d.db.Exec(query, key, value)
 	return err
 }
 
 // GetKV gets value by key from SQL DB
 func (d *sqldb) GetKV(key interface{}) (interface{}, error) {
-	rows, err := d.Query("select value from kv where key=?", key)
+	rows, err := d.db.Query("select value from kv where key=?", key)
 	if err != nil {
 		return nil, err
 	}
@@ -156,13 +165,13 @@ func (d *sqldb) GetKV(key interface{}) (interface{}, error) {
 
 // Del deletes key and value from SQL DB
 func (d *sqldb) DelKV(key interface{}) error {
-	_, err := d.Exec("delete from kv where key=?", key)
+	_, err := d.db.Exec("delete from kv where key=?", key)
 	return err
 }
 
 // ListKV list all values
 func (d *sqldb) ListKV() (vs []interface{}, err error) {
-	rows, err := d.Query("select value from kv")
+	rows, err := d.db.Query("select value from kv")
 	if err != nil {
 		return nil, err
 	}

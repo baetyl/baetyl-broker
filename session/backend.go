@@ -88,7 +88,7 @@ func (b *Backend) List() ([]interface{}, error) {
 	return b.db.ListKV()
 }
 
-// Close closes backend database
+// Close closes backend database, don't remove file
 func (b *Backend) Close() error {
-	return b.db.Close()
+	return b.db.Close(false)
 }

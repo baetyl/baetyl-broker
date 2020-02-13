@@ -2,7 +2,6 @@ package database
 
 import (
 	"errors"
-	"io"
 	"time"
 )
 
@@ -31,7 +30,7 @@ type DB interface {
 	DelKV(k interface{}) error
 	ListKV() (vs []interface{}, err error)
 
-	io.Closer
+	Close(clean bool) error
 }
 
 // Conf the configuration of database
