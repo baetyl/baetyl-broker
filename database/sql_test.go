@@ -37,6 +37,14 @@ func (e *dummyEncoder) Decode(value []byte, others ...interface{}) interface{} {
 	return v
 }
 
+func getFileSize(name string) (int64, error) {
+	fi, err := os.Stat(name)
+	if err != nil {
+		return 0, err
+	}
+	return fi.Size(), nil
+}
+
 func TestDatabaseDriveNotFound(t *testing.T) {
 	db, err := New(Conf{Driver: "does not exist", Source: "t.db"}, nil)
 	assert.EqualError(t, err, "database driver not found")
@@ -195,14 +203,16 @@ func TestSQLiteDelExpiredData(t *testing.T) {
 	assert.NoError(t, err)
 	defer os.RemoveAll(dir)
 
-	db, err := New(Conf{Driver: "sqlite3", Source: path.Join(dir, "kv.db")}, nil)
+	file := path.Join(dir, "kv.db")
+	db, err := New(Conf{Driver: "sqlite3", Source: file}, nil)
 	assert.NoError(t, err)
 	assert.NotNil(t, db)
 	defer db.Close(false)
 
 	var a []interface{}
+	value := make([]byte, 1024)
 	for i := 0; i < 100; i++ {
-		a = append(a, []byte("name"))
+		a = append(a, value)
 	}
 	err = db.Put(a)
 	assert.NoError(t, err)
@@ -211,8 +221,26 @@ func TestSQLiteDelExpiredData(t *testing.T) {
 	assert.NoError(t, err)
 	assert.Len(t, v, 100)
 
+	s1, err := getFileSize(file)
+	assert.NoError(t, err)
+
+	ids := make([]uint64, 50)
+	for i := 0; i < 50; i++ {
+		ids = append(ids, uint64(i))
+	}
+	err = db.Del(ids)
+	assert.NoError(t, err)
+
+	s2, err := getFileSize(file)
+	assert.NoError(t, err)
+	assert.Equal(t, s1, s2)
+
 	time.Sleep(100 * time.Millisecond)
 	err = db.DelBefore(time.Now())
+
+	s3, err := getFileSize(file)
+	assert.NoError(t, err)
+	assert.Less(t, s3, s1)
 
 	v, err = db.Get(0, 1000)
 	assert.NoError(t, err)
