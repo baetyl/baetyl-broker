@@ -1,13 +1,17 @@
 package database
 
 import (
+	"database/sql"
 	"encoding/json"
+	"fmt"
 	"io/ioutil"
 	"os"
 	"path"
+	"sync"
 	"testing"
 	"time"
 
+	"github.com/baetyl/baetyl-go/utils"
 	_ "github.com/mattn/go-sqlite3"
 	"github.com/stretchr/testify/assert"
 )
@@ -44,10 +48,11 @@ func TestDatabaseDriveReopen(t *testing.T) {
 	assert.NoError(t, err)
 	defer os.RemoveAll(dir)
 
-	db1, err := New(Conf{Driver: "sqlite3", Source: path.Join(dir, "t.db")}, &dummyEncoder{})
+	file := path.Join(dir, "t.db")
+	db1, err := New(Conf{Driver: "sqlite3", Source: file}, &dummyEncoder{})
 	assert.NoError(t, err)
 
-	db2, err := New(Conf{Driver: "sqlite3", Source: path.Join(dir, "t.db")}, &dummyEncoder{})
+	db2, err := New(Conf{Driver: "sqlite3", Source: file}, &dummyEncoder{})
 	assert.NoError(t, err)
 
 	value := &dummy{
@@ -63,13 +68,15 @@ func TestDatabaseDriveReopen(t *testing.T) {
 	assert.NoError(t, err)
 	assert.Len(t, values, 2)
 
-	db2.Close()
+	db2.Close(false)
+	assert.True(t, utils.FileExists(file))
 
 	values, err = db1.Get(0, 10)
 	assert.NoError(t, err)
 	assert.Len(t, values, 2)
 
-	db1.Close()
+	db1.Close(true)
+	assert.False(t, utils.FileExists(file))
 
 	values, err = db1.Get(0, 10)
 	assert.EqualError(t, err, "sql: database is closed")
@@ -84,7 +91,7 @@ func TestDatabaseSQLite(t *testing.T) {
 	db, err := New(Conf{Driver: "sqlite3", Source: path.Join(dir, "t.db")}, &dummyEncoder{})
 	assert.NoError(t, err)
 	assert.NotNil(t, db)
-	defer db.Close()
+	defer db.Close(false)
 
 	values, err := db.Get(0, 1)
 	assert.NoError(t, err)
@@ -142,7 +149,7 @@ func TestDatabaseSQLiteNoEncoder(t *testing.T) {
 	db, err := New(Conf{Driver: "sqlite3", Source: path.Join(dir, "t.db")}, nil)
 	assert.NoError(t, err)
 	assert.NotNil(t, db)
-	defer db.Close()
+	defer db.Close(false)
 
 	values, err := db.Get(0, 1)
 	assert.NoError(t, err)
@@ -191,7 +198,7 @@ func TestSQLiteDelExpiredData(t *testing.T) {
 	db, err := New(Conf{Driver: "sqlite3", Source: path.Join(dir, "kv.db")}, nil)
 	assert.NoError(t, err)
 	assert.NotNil(t, db)
-	defer db.Close()
+	defer db.Close(false)
 
 	var a []interface{}
 	for i := 0; i < 100; i++ {
@@ -220,7 +227,7 @@ func TestDatabaseSQLiteKV(t *testing.T) {
 	db, err := New(Conf{Driver: "sqlite3", Source: path.Join(dir, "kv.db")}, &dummyEncoder{})
 	assert.NoError(t, err)
 	assert.NotNil(t, db)
-	defer db.Close()
+	defer db.Close(false)
 
 	k1 := "k1"
 	k2 := "k2"
@@ -312,7 +319,7 @@ func TestDatabaseSQLiteKVNoEncoder(t *testing.T) {
 	db, err := New(Conf{Driver: "sqlite3", Source: path.Join(dir, "kv.db")}, nil)
 	assert.NoError(t, err)
 	assert.NotNil(t, db)
-	defer db.Close()
+	defer db.Close(false)
 
 	k1 := []byte("k1")
 	k2 := []byte("k2")
@@ -396,7 +403,7 @@ func BenchmarkDatabaseSQLite(b *testing.B) {
 	db, err := New(Conf{Driver: "sqlite3", Source: path.Join(dir, "t.db")}, &dummyEncoder{})
 	assert.NoError(b, err)
 	assert.NotNil(b, db)
-	defer db.Close()
+	defer db.Close(false)
 
 	values, err := db.Get(0, 1)
 	assert.NoError(b, err)
@@ -431,7 +438,7 @@ func TestDatabaseSQLiteData(t *testing.T) {
 	db, err := New(Conf{Driver: "sqlite3", Source: "queue4.db"}, &dummyEncoder{})
 	assert.NoError(t, err)
 	assert.NotNil(t, db)
-	defer db.Close()
+	defer db.Close(false)
 
 	value := &dummy{
 		ID:   1,
@@ -440,4 +447,63 @@ func TestDatabaseSQLiteData(t *testing.T) {
 	for i := 0; i < 10000; i++ {
 		db.Put([]interface{}{value})
 	}
+}
+
+func TestSQLite3MultiDBsVSMultiTables(t *testing.T) {
+	t.Skip("only for dev test")
+
+	dir, err := ioutil.TempDir("", t.Name())
+	assert.NoError(t, err)
+	defer os.RemoveAll(dir)
+	t.Log(dir)
+
+	createTable := `CREATE TABLE IF NOT EXISTS t%d (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		value TEXT,
+		ts TIMESTAMP DEFAULT CURRENT_TIMESTAMP)`
+	insertValue := "insert into t%d(value) values (?)"
+
+	count := 10
+	var dbs []*sql.DB
+	tables, err := sql.Open("sqlite3", path.Join(dir, "t.db"))
+	assert.NoError(t, err)
+	for index := 0; index < count; index++ {
+		_, err = tables.Exec(fmt.Sprintf(createTable, index))
+		assert.NoError(t, err)
+
+		db, err := sql.Open("sqlite3", path.Join(dir, fmt.Sprintf("%d.db", index)))
+		assert.NoError(t, err)
+		_, err = db.Exec(fmt.Sprintf(createTable, 0))
+		assert.NoError(t, err)
+		dbs = append(dbs, db)
+	}
+
+	messages := 1000
+	var wg1 sync.WaitGroup
+	start := time.Now()
+	wg1.Add(count)
+	for index := 0; index < count; index++ {
+		go func(wg *sync.WaitGroup, db *sql.DB) {
+			defer wg.Done()
+			for i := 0; i < messages; i++ {
+				db.Exec(fmt.Sprintf(insertValue, 0), "aaaaaaaaaa")
+			}
+		}(&wg1, dbs[index])
+	}
+	wg1.Wait()
+	t.Log("dbs", time.Since(start))
+
+	var wg2 sync.WaitGroup
+	start = time.Now()
+	wg2.Add(count)
+	for index := 0; index < count; index++ {
+		go func(wg *sync.WaitGroup, db *sql.DB, t int) {
+			defer wg.Done()
+			for i := 0; i < messages; i++ {
+				db.Exec(fmt.Sprintf(insertValue, t), "aaaaaaaaaa")
+			}
+		}(&wg2, tables, index)
+	}
+	wg2.Wait()
+	t.Log("tables", time.Since(start))
 }
