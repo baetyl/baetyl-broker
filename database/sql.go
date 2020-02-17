@@ -123,6 +123,10 @@ func (d *sqldb) Del(ids []uint64) error {
 // DelBefore delete expired messages
 func (d *sqldb) DelBefore(ts time.Time) error {
 	_, err := d.db.Exec("delete from t where ts < ?", ts)
+	if err != nil {
+		return err
+	}
+	_, err = d.db.Exec("VACUUM")
 	return err
 }
 
