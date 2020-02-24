@@ -1,17 +1,193 @@
 package session
 
 import (
+	"io"
+	"regexp"
+	"strings"
+	"sync"
+
 	"github.com/baetyl/baetyl-broker/common"
 	"github.com/baetyl/baetyl-go/link"
 	"github.com/baetyl/baetyl-go/log"
 	"github.com/baetyl/baetyl-go/mqtt"
+	"github.com/baetyl/baetyl-go/utils"
+	"github.com/docker/distribution/uuid"
 )
+
+// ClientMQTT the client of MQTT
+type ClientMQTT struct {
+	id      string
+	mgr     *Manager
+	session *Session
+	auth    *Authorizer
+	conn    mqtt.Connection
+	log     *log.Logger
+	tomb    utils.Tomb
+	mut     sync.Mutex
+	once    sync.Once
+}
+
+// * connection handlers
+
+// ClientMQTTHandler the connection handler to create a new MQTT client
+func (m *Manager) ClientMQTTHandler(conn mqtt.Connection) {
+	err := m.checkSessions()
+	if err != nil {
+		conn.Close()
+		return
+	}
+	id := strings.ReplaceAll(uuid.Generate().String(), "-", "")
+	c := &ClientMQTT{
+		id:   id,
+		mgr:  m,
+		conn: conn,
+		log:  log.With(log.Any("type", "mqtt"), log.Any("id", id)),
+	}
+	si := &Info{
+		ID:           id,
+		Kind:         MQTT,
+		CleanSession: true, // always true for random client
+	}
+	_, err = m.initSession(si, c, true)
+	if err != nil {
+		conn.Close()
+		return
+	}
+	c.tomb.Go(c.receiving)
+}
+
+func (c *ClientMQTT) getID() string {
+	return c.id
+}
+
+func (c *ClientMQTT) setSession(s *Session) {
+	c.session = s
+	if c.id != s.ID {
+		c.log = c.log.With(log.Any("sid", s.ID))
+	}
+}
+
+func (c *ClientMQTT) getSession() *Session {
+	return c.session
+}
+
+// Close closes client by session
+func (c *ClientMQTT) close() error {
+	c.once.Do(func() {
+		c.log.Info("client is closing")
+		defer c.log.Info("client has closed")
+		c.tomb.Kill(nil)
+		c.conn.Close()
+	})
+	return c.tomb.Wait()
+}
+
+// closes client by itself
+func (c *ClientMQTT) die(msg string, err error) {
+	if !c.tomb.Alive() {
+		return
+	}
+	c.tomb.Kill(err)
+	c.session.delClient(c)
+	if err != nil {
+		if err == io.EOF {
+			c.log.Info("client disconnected", log.Error(err))
+		} else {
+			c.log.Error(msg, log.Error(err))
+		}
+		c.sendWillMessage()
+	}
+	go c.close()
+}
+
+func (c *ClientMQTT) authorize(action, topic string) bool {
+	return c.auth == nil || c.auth.Authorize(action, topic)
+}
+
+// SendWillMessage sends will message
+func (c *ClientMQTT) sendWillMessage() {
+	if c.session == nil || c.session.WillMessage == nil {
+		return
+	}
+	msg := c.session.WillMessage
+	if msg.Retain() {
+		err := c.retainMessage(msg)
+		if err != nil {
+			c.log.Error("failed to retain will message", log.Any("topic", msg.Context.Topic))
+		}
+	}
+	// change to normal message before exchange
+	msg.Context.Type = link.Msg
+	c.mgr.exch.Route(msg, c.callback)
+}
+
+func (c *ClientMQTT) retainMessage(msg *link.Message) error {
+	if len(msg.Content) == 0 {
+		return c.mgr.unretainMessage(msg.Context.Topic)
+	}
+	return c.mgr.retainMessage(msg.Context.Topic, msg)
+}
+
+// SendRetainMessage sends retain message
+func (c *ClientMQTT) sendRetainMessage() error {
+	if c.session == nil {
+		return nil
+	}
+	msgs, err := c.mgr.listRetainedMessages()
+	if err != nil || len(msgs) == 0 {
+		return err
+	}
+	// TODO: improve
+	for _, msg := range msgs {
+		if ok, qos := c.session.matchQOS(msg.Context.Topic); ok {
+			if msg.Context.QOS > qos {
+				msg.Context.QOS = qos
+			}
+			e := common.NewEvent(msg, 0, nil)
+			err = c.session.Push(e)
+			if err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+// * egress
+
+func (c *ClientMQTT) send(pkt mqtt.Packet, async bool) error {
+	c.mut.Lock()
+	err := c.conn.Send(pkt, async)
+	c.mut.Unlock()
+	if err != nil {
+		c.die("failed to send packet", err)
+		return err
+	}
+	if ent := c.log.Check(log.DebugLevel, "client sent a packet"); ent != nil {
+		ent.Write(log.Any("packet", pkt.String()))
+	}
+	return nil
+}
+
+func (c *ClientMQTT) sendConnack(code mqtt.ConnackCode, exists bool) error {
+	ack := &mqtt.Connack{
+		SessionPresent: exists,
+		ReturnCode:     code,
+	}
+	return c.send(ack, false)
+}
+
+func (c *ClientMQTT) sendEvent(m *eventWrapper, dup bool) (err error) {
+	return c.send(m.packet(dup), true)
+}
+
+// * ingress
 
 func (c *ClientMQTT) receiving() error {
 	c.log.Info("client starts to receive messages")
 	defer c.log.Info("client has stopped receiving messages")
 
-	pkt, err := c.connection.Receive()
+	pkt, err := c.conn.Receive()
 	if err != nil {
 		c.die("failed to receive packet at first time", err)
 		return err
@@ -30,7 +206,7 @@ func (c *ClientMQTT) receiving() error {
 	}
 
 	for {
-		pkt, err = c.connection.Receive()
+		pkt, err = c.conn.Receive()
 		if err != nil {
 			c.die("failed to receive packet", err)
 			return err
@@ -42,7 +218,7 @@ func (c *ClientMQTT) receiving() error {
 		case *mqtt.Publish:
 			err = c.onPublish(p)
 		case *mqtt.Puback:
-			err = c.onPuback(p)
+			c.session.acknowledge(uint64(p.ID))
 		case *mqtt.Subscribe:
 			err = c.onSubscribe(p)
 		case *mqtt.Pingreq:
@@ -68,8 +244,9 @@ func (c *ClientMQTT) receiving() error {
 }
 
 func (c *ClientMQTT) onConnect(p *mqtt.Connect) error {
-	si := Info{
+	si := &Info{
 		ID:           p.ClientID,
+		Kind:         MQTT,
 		CleanSession: p.CleanSession,
 	}
 	if p.Version != mqtt.Version31 && p.Version != mqtt.Version311 {
@@ -80,23 +257,23 @@ func (c *ClientMQTT) onConnect(p *mqtt.Connect) error {
 		c.sendConnack(mqtt.IdentifierRejected, false)
 		return ErrSessionClientIDInvalid
 	}
-	if c.manager.authenticator != nil {
+	if c.mgr.auth != nil {
 		if p.Password != "" {
 			// username/password authentication
 			if p.Username == "" {
 				c.sendConnack(mqtt.BadUsernameOrPassword, false)
 				return ErrSessionUsernameNotSet
 			}
-			c.authorizer = c.manager.authenticator.AuthenticateAccount(p.Username, p.Password)
-			if c.authorizer == nil {
+			c.auth = c.mgr.auth.AuthenticateAccount(p.Username, p.Password)
+			if c.auth == nil {
 				c.sendConnack(mqtt.BadUsernameOrPassword, false)
 				return ErrSessionUsernameNotPermitted
 			}
 		} else {
-			if cn, ok := mqtt.GetTLSCommonName(c.connection); ok {
+			if cn, ok := mqtt.GetTLSCommonName(c.conn); ok {
 				// if it is bidirectional authentication, will use certificate authentication
-				c.authorizer = c.manager.authenticator.AuthenticateCertificate(cn)
-				if c.authorizer == nil {
+				c.auth = c.mgr.auth.AuthenticateCertificate(cn)
+				if c.auth == nil {
 					c.sendConnack(mqtt.BadUsernameOrPassword, false)
 					return ErrSessionCertificateCommonNameNotPermitted
 				}
@@ -108,36 +285,35 @@ func (c *ClientMQTT) onConnect(p *mqtt.Connect) error {
 	}
 
 	if p.Will != nil {
-		if len(p.Will.Payload) > int(c.manager.cfg.MaxMessagePayload) {
+		if len(p.Will.Payload) > int(c.mgr.cfg.MaxMessagePayloadSize) {
 			return ErrSessionWillMessagePayloadSizeExceedsLimit
 		}
 		if p.Will.QOS > 1 {
 			return ErrSessionWillMessageQosNotSupported
 		}
-		if !c.manager.checker.CheckTopic(p.Will.Topic, false) {
+		if !c.mgr.checker.CheckTopic(p.Will.Topic, false) {
 			return ErrSessionWillMessageTopicInvalid
 		}
 		if !c.authorize(Publish, p.Will.Topic) {
 			c.sendConnack(mqtt.NotAuthorized, false)
 			return ErrSessionWillMessageTopicNotPermitted
 		}
-		si.Will = common.NewMessage(&mqtt.Publish{Message: *p.Will})
-	}
-	if si.ID == "" {
-		si.ID = c.id
-		si.CleanSession = true
+		si.WillMessage = common.NewMessage(&mqtt.Publish{Message: *p.Will})
 	}
 
-	s, exists, err := c.manager.initSession(&si, c)
-	if err != nil {
-		return err
+	var err error
+	var exists bool
+	if si.ID != "" {
+		// re-init
+		c.mgr.removeSession(c.session)
+		exists, err = c.mgr.initSession(si, c, true)
+		if err != nil {
+			return err
+		}
 	}
 	err = c.sendConnack(mqtt.ConnectionAccepted, exists)
 	if err != nil {
 		return err
-	}
-	for oc := range s.addClient(c, true) {
-		oc.Val.(client).close() // close old clients
 	}
 	c.log.Info("client is connected")
 	return nil
@@ -145,13 +321,13 @@ func (c *ClientMQTT) onConnect(p *mqtt.Connect) error {
 
 func (c *ClientMQTT) onPublish(p *mqtt.Publish) error {
 	// TODO: improvement, cache auth result
-	if len(p.Message.Payload) > int(c.manager.cfg.MaxMessagePayload) {
+	if len(p.Message.Payload) > int(c.mgr.cfg.MaxMessagePayloadSize) {
 		return ErrSessionMessagePayloadSizeExceedsLimit
 	}
 	if p.Message.QOS > 1 {
 		return ErrSessionMessageQosNotSupported
 	}
-	if !c.manager.checker.CheckTopic(p.Message.Topic, false) {
+	if !c.mgr.checker.CheckTopic(p.Message.Topic, false) {
 		return ErrSessionMessageTopicInvalid
 	}
 	if !c.authorize(Publish, p.Message.Topic) {
@@ -163,28 +339,20 @@ func (c *ClientMQTT) onPublish(p *mqtt.Publish) error {
 		if err != nil {
 			return err
 		}
-		// change to normal message before exchange
+		// change to normal message before exch
 		msg.Context.Type = link.Msg
 	}
 	cb := c.callback
 	if p.Message.QOS == 0 {
 		cb = nil
 	}
-	c.manager.exchange.Route(msg, cb)
-	return nil
-}
-
-func (c *ClientMQTT) onPuback(p *mqtt.Puback) error {
-	err := c.session.resender.delete(uint16(p.ID))
-	if err != nil {
-		c.log.Warn(err.Error(), log.Any("pid", int(p.ID)))
-	}
+	c.mgr.exch.Route(msg, cb)
 	return nil
 }
 
 func (c *ClientMQTT) onSubscribe(p *mqtt.Subscribe) error {
 	sa, subs := c.genSuback(p)
-	err := c.manager.subscribe(c, subs)
+	err := c.session.subscribe(subs)
 	if err != nil {
 		return err
 	}
@@ -198,7 +366,7 @@ func (c *ClientMQTT) onSubscribe(p *mqtt.Subscribe) error {
 func (c *ClientMQTT) onUnsubscribe(p *mqtt.Unsubscribe) error {
 	usa := mqtt.NewUnsuback()
 	usa.ID = p.ID
-	err := c.manager.unsubscribe(c, p.Topics)
+	err := c.session.unsubscribe(p.Topics)
 	if err != nil {
 		return err
 	}
@@ -220,7 +388,7 @@ func (c *ClientMQTT) genSuback(p *mqtt.Subscribe) (*mqtt.Suback, []mqtt.Subscrip
 	}
 	var subs []mqtt.Subscription
 	for i, sub := range p.Subscriptions {
-		if !c.manager.checker.CheckTopic(sub.Topic, true) {
+		if !c.mgr.checker.CheckTopic(sub.Topic, true) {
 			c.log.Error("subscribe topic invalid", log.Any("topic", sub.Topic))
 			sa.ReturnCodes[i] = mqtt.QOSFailure
 		} else if sub.QOS > 1 {
@@ -236,3 +404,10 @@ func (c *ClientMQTT) genSuback(p *mqtt.Subscribe) (*mqtt.Suback, []mqtt.Subscrip
 	}
 	return sa, subs
 }
+
+// checkClientID checks clientID
+func checkClientID(v string) bool {
+	return regexpClientID.MatchString(v)
+}
+
+var regexpClientID = regexp.MustCompile("^[0-9A-Za-z_-]{0,128}$")

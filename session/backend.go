@@ -6,7 +6,6 @@ import (
 	"path"
 
 	"github.com/baetyl/baetyl-broker/database"
-	"github.com/baetyl/baetyl-broker/queue"
 	"github.com/baetyl/baetyl-broker/retain"
 )
 
@@ -33,11 +32,6 @@ func NewBackend(cfg Config) (*Backend, error) {
 	}
 	backend.db = db
 	return backend, nil
-}
-
-// NewQueueBackend create a new backend database for queue
-func (b *Backend) NewQueueBackend(cfg queue.Config) (*queue.Backend, error) {
-	return queue.NewBackend(cfg)
 }
 
 // NewRetainBackend create a new backend database for retain

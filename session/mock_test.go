@@ -14,6 +14,7 @@ import (
 	"github.com/baetyl/baetyl-go/log"
 	"github.com/baetyl/baetyl-go/mqtt"
 	"github.com/baetyl/baetyl-go/utils"
+	cmap "github.com/orcaman/concurrent-map"
 	"github.com/stretchr/testify/assert"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/metadata"
@@ -26,7 +27,8 @@ session:
   sysTopics:
   - $link
   - $baidu
-  maxConnections: 3
+  maxSessions: 3
+  maxClientsPerSession: 2
   resendInterval: 200ms
   persistence:
   location: testdata
@@ -59,8 +61,8 @@ principals:
 type mockBroker struct {
 	t          *testing.T
 	cfg        Config
-	manager    *Manager
-	transport  *mqtt.Transport
+	mgr        *Manager
+	trans      *mqtt.Transport
 	linkserver *grpc.Server
 }
 
@@ -71,48 +73,20 @@ func newMockBroker(t *testing.T, cfgStr string) *mockBroker {
 	err := utils.UnmarshalYAML([]byte(cfgStr), &cfg)
 	assert.NoError(t, err)
 	b := &mockBroker{t: t, cfg: cfg}
-	b.manager, err = NewManager(cfg)
+	b.mgr, err = NewManager(cfg)
 	assert.NoError(t, err)
 	return b
 }
 
-func (b *mockBroker) waitClientReady(cnt int) {
-	for {
-		if b.manager.clients.Count() != cnt {
-			time.Sleep(time.Millisecond * 100)
-			continue
-		}
-		return
-	}
-}
-
-func (b *mockBroker) waitBindingReady(sid string, cnt int) {
-	for {
-		s, ok := b.manager.sessions.Get(sid)
-		if !ok || s.(*Session).clientCount() != cnt {
-			time.Sleep(time.Millisecond * 100)
-			continue
-		}
-		return
-	}
-}
-
 func (b *mockBroker) assertSessionCount(expect int) {
-	assert.Equal(b.t, expect, b.manager.sessions.Count())
+	b.mgr.mut.RLock()
+	defer b.mgr.mut.RUnlock()
+
+	assert.Len(b.t, b.mgr.sessions, expect)
 }
 
-func (b *mockBroker) assertClientCount(expect int) {
-	assert.Equal(b.t, expect, b.manager.clients.Count())
-}
-
-func (b *mockBroker) assertBindingCount(sid string, expect int) {
-	s, ok := b.manager.sessions.Get(sid)
-	assert.True(b.t, ok)
-	assert.Equal(b.t, expect, s.(*Session).clientCount())
-}
-
-func (b *mockBroker) assertSession(id string, expect string) {
-	ses, err := b.manager.sessiondb.Get(id)
+func (b *mockBroker) assertSessionStore(id string, expect string) {
+	ses, err := b.mgr.sstore.Get(id)
 	assert.NoError(b.t, err)
 	if expect == "" {
 		assert.Nil(b.t, ses)
@@ -121,29 +95,75 @@ func (b *mockBroker) assertSession(id string, expect string) {
 	}
 }
 
+func (b *mockBroker) assertSessionState(id string, expect state) {
+	b.mgr.mut.RLock()
+	defer b.mgr.mut.RUnlock()
+
+	ses, ok := b.mgr.sessions[id]
+	assert.True(b.t, ok)
+	assert.Equal(b.t, expect, ses.stat)
+	if expect == STATE0 {
+		assert.Nil(b.t, ses.disp)
+		assert.Nil(b.t, ses.qos0)
+		assert.Nil(b.t, ses.qos1)
+		assert.Nil(b.t, ses.subs)
+	} else if expect == STATE1 {
+		assert.NotNil(b.t, ses.disp)
+		assert.NotNil(b.t, ses.qos0)
+		assert.NotNil(b.t, ses.qos1)
+		assert.NotNil(b.t, ses.subs)
+	} else if expect == STATE2 {
+		assert.Nil(b.t, ses.disp)
+		assert.Nil(b.t, ses.qos0)
+		assert.NotNil(b.t, ses.qos1)
+		assert.NotNil(b.t, ses.subs)
+	}
+}
+
+func (b *mockBroker) waitClientReady(sid string, cnt int) {
+	for {
+		b.mgr.mut.RLock()
+		clis := b.mgr.sessions[sid].copyClients()
+		b.mgr.mut.RUnlock()
+		if len(clis) != cnt {
+			time.Sleep(time.Millisecond * 100)
+			continue
+		}
+		return
+	}
+}
+
+func (b *mockBroker) assertClientCount(sid string, expect int) {
+	b.mgr.mut.RLock()
+	clis := b.mgr.sessions[sid].copyClients()
+	b.mgr.mut.RUnlock()
+
+	assert.Len(b.t, clis, expect)
+}
+
 func (b *mockBroker) assertExchangeCount(expect int) {
 	count := 0
-	for _, bind := range b.manager.exchange.Bindings() {
+	for _, bind := range b.mgr.exch.Bindings() {
 		count += bind.Count()
 	}
 	assert.Equal(b.t, expect, count)
 }
 
 func (b *mockBroker) close() {
-	if b.transport != nil {
-		b.transport.Close()
+	if b.trans != nil {
+		b.trans.Close()
 	}
-	if b.manager != nil {
-		b.manager.Close()
+	if b.mgr != nil {
+		b.mgr.Close()
 	}
 }
 
 func (b *mockBroker) closeAndClean() {
-	if b.transport != nil {
-		b.transport.Close()
+	if b.trans != nil {
+		b.trans.Close()
 	}
-	if b.manager != nil {
-		b.manager.Close()
+	if b.mgr != nil {
+		b.mgr.Close()
 	}
 	os.RemoveAll(b.cfg.Persistence.Location)
 }
@@ -365,5 +385,12 @@ func assertS2CMessageLB(subc1, subc2 *mockStream, expect string) *mockStream {
 	case <-time.After(time.Minute):
 		assert.Fail(subc1.t, "receive common timeout")
 		return nil
+	}
+}
+
+func TestCMAP(t *testing.T) {
+	clis := cmap.New()
+	for c := range clis.IterBuffered() {
+		t.Log(c)
 	}
 }
