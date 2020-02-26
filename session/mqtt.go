@@ -43,12 +43,17 @@ func (m *Manager) ClientMQTTHandler(conn mqtt.Connection) {
 		conn: conn,
 		log:  log.With(log.Any("type", "mqtt"), log.Any("id", id)),
 	}
-	si := &Info{
+	si := Info{
 		ID:           id,
 		Kind:         MQTT,
 		CleanSession: true, // always true for random client
 	}
-	_, err = m.initSession(si, c, true)
+	s, _, err := m.initSession(si)
+	if err != nil {
+		conn.Close()
+		return
+	}
+	err = s.addClient(c, true)
 	if err != nil {
 		conn.Close()
 		return
@@ -60,10 +65,10 @@ func (c *ClientMQTT) getID() string {
 	return c.id
 }
 
-func (c *ClientMQTT) setSession(s *Session) {
+func (c *ClientMQTT) setSession(sid string, s *Session) {
 	c.session = s
-	if c.id != s.ID {
-		c.log = c.log.With(log.Any("sid", s.ID))
+	if c.id != sid {
+		c.log = c.log.With(log.Any("sid", sid))
 	}
 }
 
@@ -71,15 +76,18 @@ func (c *ClientMQTT) getSession() *Session {
 	return c.session
 }
 
-// Close closes client by session
+// closes client by session
 func (c *ClientMQTT) close() error {
+	if !c.tomb.Alive() {
+		return nil
+	}
+	c.log.Info("client is closing")
+	defer c.log.Info("client has closed")
+	c.tomb.Kill(nil)
 	c.once.Do(func() {
-		c.log.Info("client is closing")
-		defer c.log.Info("client has closed")
-		c.tomb.Kill(nil)
 		c.conn.Close()
 	})
-	return c.tomb.Wait()
+	return nil
 }
 
 // closes client by itself
@@ -87,6 +95,8 @@ func (c *ClientMQTT) die(msg string, err error) {
 	if !c.tomb.Alive() {
 		return
 	}
+	c.log.Info("client is dying")
+	defer c.log.Info("client has died")
 	c.tomb.Kill(err)
 	c.session.delClient(c)
 	if err != nil {
@@ -97,7 +107,9 @@ func (c *ClientMQTT) die(msg string, err error) {
 		}
 		c.sendWillMessage()
 	}
-	go c.close()
+	c.once.Do(func() {
+		c.conn.Close()
+	})
 }
 
 func (c *ClientMQTT) authorize(action, topic string) bool {
@@ -106,10 +118,13 @@ func (c *ClientMQTT) authorize(action, topic string) bool {
 
 // SendWillMessage sends will message
 func (c *ClientMQTT) sendWillMessage() {
-	if c.session == nil || c.session.WillMessage == nil {
+	if c.session == nil {
 		return
 	}
-	msg := c.session.WillMessage
+	msg := c.session.will()
+	if msg == nil {
+		return
+	}
 	if msg.Retain() {
 		err := c.retainMessage(msg)
 		if err != nil {
@@ -193,7 +208,11 @@ func (c *ClientMQTT) receiving() error {
 		return err
 	}
 	if ent := c.log.Check(log.DebugLevel, "client received a packet"); ent != nil {
-		ent.Write(log.Any("packet", pkt.String()))
+		data := pkt.String()
+		if len(data) > 200 {
+			data = data[:200]
+		}
+		ent.Write(log.Any("packet", data))
 	}
 	p, ok := pkt.(*mqtt.Connect)
 	if !ok {
@@ -212,7 +231,11 @@ func (c *ClientMQTT) receiving() error {
 			return err
 		}
 		if ent := c.log.Check(log.DebugLevel, "client received a packet"); ent != nil {
-			ent.Write(log.Any("packet", pkt.String()))
+			data := pkt.String()
+			if len(data) > 200 {
+				data = data[:200]
+			}
+			ent.Write(log.Any("packet", data))
 		}
 		switch p := pkt.(type) {
 		case *mqtt.Publish:
@@ -244,7 +267,7 @@ func (c *ClientMQTT) receiving() error {
 }
 
 func (c *ClientMQTT) onConnect(p *mqtt.Connect) error {
-	si := &Info{
+	si := Info{
 		ID:           p.ClientID,
 		Kind:         MQTT,
 		CleanSession: p.CleanSession,
@@ -303,10 +326,13 @@ func (c *ClientMQTT) onConnect(p *mqtt.Connect) error {
 
 	var err error
 	var exists bool
+	var s *Session
 	if si.ID != "" {
-		// re-init
-		c.mgr.removeSession(c.session)
-		exists, err = c.mgr.initSession(si, c, true)
+		s, exists, err = c.mgr.initSession(si)
+		if err != nil {
+			return err
+		}
+		err = s.addClient(c, true)
 		if err != nil {
 			return err
 		}

@@ -22,16 +22,16 @@ type dispatcher struct {
 	wrap func(*common.Event) *eventWrapper
 }
 
-func newDispatcher(session *Session) *dispatcher {
+func newDispatcher(s *Session) *dispatcher {
 	d := &dispatcher{
-		session:  session,
-		interval: session.mgr.cfg.ResendInterval,
-		queue:    make(chan *eventWrapper, session.mgr.cfg.MaxInflightQOS1Messages),
-		log:      log.With(log.Any("session", "dispatcher"), log.Any("id", session.ID)),
+		session:  s,
+		interval: s.mgr.cfg.ResendInterval,
+		queue:    make(chan *eventWrapper, s.mgr.cfg.MaxInflightQOS1Messages),
+		log:      s.log.With(log.Any("session", "dispatcher"), log.Any("id", s.info.ID)),
 	}
-	if session.Kind == MQTT {
+	if s.info.Kind == MQTT {
 		d.wrap = func(m *common.Event) *eventWrapper {
-			return newEventWrapper(uint64(session.cnt.NextID()), 1, m)
+			return newEventWrapper(uint64(s.cnt.NextID()), 1, m)
 		}
 	} else {
 		d.wrap = func(m *common.Event) *eventWrapper {

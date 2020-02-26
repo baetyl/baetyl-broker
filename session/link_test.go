@@ -1,236 +1,298 @@
 package session
 
-// import (
-// 	"testing"
-// 	"time"
+import (
+	"path"
+	"testing"
+	"time"
 
-// 	"github.com/baetyl/baetyl-go/link"
-// 	_ "github.com/mattn/go-sqlite3"
-// 	"github.com/stretchr/testify/assert"
-// )
+	"github.com/baetyl/baetyl-go/link"
+	"github.com/baetyl/baetyl-go/utils"
+	_ "github.com/mattn/go-sqlite3"
+	"github.com/stretchr/testify/assert"
+)
 
-// func TestSessionLinkException(t *testing.T) {
-// 	b := newMockBroker(t, testConfDefault)
-// 	defer b.closeAndClean()
+func TestSessionLinkException(t *testing.T) {
+	b := newMockBroker(t, testConfDefault)
+	defer b.closeAndClean()
 
-// 	errs := make(chan error, 10)
-// 	c := newMockStream(t, "t")
+	errs := make(chan error, 10)
+	c := newMockStream(t, "t")
 
-// 	// empty topic
-// 	go func() {
-// 		errs <- b.mgr.Talk(c)
-// 	}()
-// 	m := &link.Message{}
-// 	c.sendC2S(m)
-// 	err := <-errs
-// 	assert.EqualError(t, err, "message topic is invalid")
+	// empty topic
+	go func() {
+		errs <- b.mgr.Talk(c)
+	}()
+	m := &link.Message{}
+	c.sendC2S(m)
+	err := <-errs
+	assert.EqualError(t, err, "message topic is invalid")
 
-// 	// invalid topic
-// 	go func() {
-// 		errs <- b.mgr.Talk(c)
-// 	}()
-// 	m.Context.Topic = "$non-exist"
-// 	c.sendC2S(m)
-// 	err = <-errs
-// 	assert.EqualError(t, err, "message topic is invalid")
+	// invalid topic
+	go func() {
+		errs <- b.mgr.Talk(c)
+	}()
+	m.Context.Topic = "$non-exist"
+	c.sendC2S(m)
+	err = <-errs
+	assert.EqualError(t, err, "message topic is invalid")
 
-// 	// invalid message type
-// 	go func() {
-// 		errs <- b.mgr.Talk(c)
-// 	}()
-// 	m.Context.Type = 111
-// 	c.sendC2S(m)
-// 	err = <-errs
-// 	assert.EqualError(t, err, "message type is invalid")
+	// invalid message type
+	go func() {
+		errs <- b.mgr.Talk(c)
+	}()
+	m.Context.Type = 111
+	c.sendC2S(m)
+	err = <-errs
+	assert.EqualError(t, err, "message type is invalid")
 
-// 	// invalid message qos
-// 	go func() {
-// 		errs <- b.mgr.Talk(c)
-// 	}()
-// 	m.Context.Type = 0
-// 	m.Context.QOS = 111
-// 	m.Context.Topic = "a"
-// 	c.sendC2S(m)
-// 	err = <-errs
-// 	assert.EqualError(t, err, "message QOS is not supported")
-// }
+	// invalid message qos
+	go func() {
+		errs <- b.mgr.Talk(c)
+	}()
+	m.Context.Type = 0
+	m.Context.QOS = 111
+	m.Context.Topic = "a"
+	c.sendC2S(m)
+	err = <-errs
+	assert.EqualError(t, err, "message QOS is not supported")
+}
 
-// func TestSessionLinkSendRecvBL(t *testing.T) {
-// 	b := newMockBroker(t, testConfDefault)
-// 	b.mgr.cfg.ResendInterval = time.Millisecond * 1000
-// 	defer b.closeAndClean()
+func TestSessionLinkAllStates(t *testing.T) {
+	b := newMockBroker(t, testConfDefault)
 
-// 	errs := make(chan error, 10)
-// 	publid, sublid := "$link/pubc", "$link/subc"
+	lid := "$link/c"
+	errs := make(chan error, 10)
+	queuePath := path.Join(b.mgr.cfg.Persistence.Location, "queue", utils.CalculateBase64(lid))
 
-// 	// pubc connect
-// 	pubc := newMockStream(t, "pubc")
-// 	go func() {
-// 		errs <- b.mgr.Talk(pubc)
-// 		pubc.Close()
-// 	}()
-// 	// subc1 connect with the same link id
-// 	subc1 := newMockStream(t, "subc")
-// 	go func() {
-// 		errs <- b.mgr.Talk(subc1)
-// 		subc1.Close()
-// 	}()
-// 	// subc2 connect with the same link id
-// 	subc2 := newMockStream(t, "subc")
-// 	go func() {
-// 		errs <- b.mgr.Talk(subc2)
-// 		subc2.Close()
-// 	}()
+	// c1 connects
+	c1 := newMockStream(t, "c")
+	go func() {
+		errs <- b.mgr.Talk(c1)
+		c1.Close()
+	}()
 
-// 	b.waitClientReady(publid, 1)
-// 	b.waitClientReady(sublid, 2)
-// 	b.assertSessionCount(2)
-// 	b.waitClientReady(publid, 1)
-// 	b.assertClientCount(publid, 1)
-// 	b.waitClientReady(sublid, 2)
-// 	b.assertClientCount(sublid, 2)
-// 	b.assertExchangeCount(2)
+	b.waitClientReady(lid, 1)
+	b.assertSessionState(lid, STATE1)
+	b.assertSessionStore(lid, "{\"id\":\""+lid+"\",\"kind\":\"link\",\"subs\":{\""+lid+"\":1}}")
+	b.assertExchangeCount(1)
+	assert.True(t, utils.FileExists(queuePath))
 
-// 	// pubc send a message with qos 0 to subc
-// 	m := &link.Message{}
-// 	m.Context.Topic = sublid
-// 	m.Content = []byte("111")
-// 	pubc.sendC2S(m)
-// 	assertS2CMessageLB(subc1, subc2, "Context:<Topic:\"$link/subc\" > Content:\"111\" ")
-// 	b.assertSessionStore(publid, "{\"ID\":\"$link/pubc\",\"CleanSession\":false,\"Subscriptions\":{\"$link/pubc\":1}}")
-// 	b.assertSessionStore(sublid, "{\"ID\":\"$link/subc\",\"CleanSession\":false,\"Subscriptions\":{\"$link/subc\":1}}")
+	// send invalid topic to disconnect
+	c1.sendC2S(&link.Message{})
+	err := <-errs
+	assert.EqualError(t, err, "message topic is invalid")
 
-// 	// pubc send more messages with qos 0 to subc
-// 	m = &link.Message{}
-// 	m.Context.Topic = sublid
-// 	m.Content = []byte("222")
-// 	count := 100
-// 	go func() {
-// 		for index := 0; index < count; index++ {
-// 			pubc.sendC2S(m)
-// 		}
-// 	}()
-// 	go func() {
-// 		for index := 0; index < count; index++ {
-// 			pubc.sendC2S(m)
-// 		}
-// 	}()
-// 	go func() {
-// 		for index := 0; index < count; index++ {
-// 			pubc.sendC2S(m)
-// 		}
-// 	}()
-// 	for index := 0; index < count*3; index++ {
-// 		assertS2CMessageLB(subc1, subc2, "Context:<Topic:\"$link/subc\" > Content:\"222\" ")
-// 	}
-// 	subc1.assertS2CMessageTimeout()
-// 	subc2.assertS2CMessageTimeout()
+	b.waitClientReady(lid, 0)
+	b.assertSessionCount(1)
+	b.assertSessionState(lid, STATE2)
+	b.assertSessionStore(lid, "{\"id\":\""+lid+"\",\"kind\":\"link\",\"subs\":{\""+lid+"\":1}}")
+	b.assertExchangeCount(1)
+	assert.True(t, utils.FileExists(queuePath))
 
-// 	// pubc send a message with qos 1 to subc
-// 	m = &link.Message{}
-// 	m.Context.ID = 1
-// 	m.Context.QOS = 1
-// 	m.Context.Topic = sublid
-// 	m.Content = []byte("333")
-// 	pubc.sendC2S(m)
-// 	pubc.assertS2CMessage("Context:<ID:1 Type:Ack > ")
-// 	subc := assertS2CMessageLB(subc1, subc2, "Context:<ID:1 QOS:1 Topic:\"$link/subc\" > Content:\"333\" ")
-// 	ack := &link.Message{}
-// 	ack.Context.ID = 1
-// 	ack.Context.Type = link.Ack
-// 	subc.sendC2S(ack)
-// 	subc1.assertS2CMessageTimeout()
-// 	subc2.assertS2CMessageTimeout()
+	// broker closes unexpected, session queue data is already stored
+	b.close()
+	assert.True(t, utils.FileExists(queuePath))
 
-// 	// close subc1 by sending a invalid message
-// 	subc1.sendC2S(&link.Message{})
-// 	err := <-errs
-// 	assert.EqualError(t, err, "message topic is invalid")
-// 	b.waitClientReady(publid, 1)
-// 	b.waitClientReady(sublid, 1)
-// 	b.assertSessionCount(2)
-// 	b.waitClientReady(publid, 1)
-// 	b.assertClientCount(publid, 1)
-// 	b.waitClientReady(sublid, 1)
-// 	b.assertClientCount(sublid, 1)
-// 	b.assertExchangeCount(2)
+	// broker restarts, persisted session will be started in state2
+	b = newMockBroker(t, testConfDefault)
+	defer b.closeAndClean()
+	b.assertSessionState(lid, STATE2)
+	b.assertSessionStore(lid, "{\"id\":\""+lid+"\",\"kind\":\"link\",\"subs\":{\""+lid+"\":1}}")
+	b.assertExchangeCount(1)
+	assert.True(t, utils.FileExists(queuePath))
 
-// 	m = &link.Message{}
-// 	m.Context.Topic = sublid
-// 	m.Content = []byte(">444<")
-// 	pubc.sendC2S(m)
-// 	subc2.assertS2CMessage("Context:<Topic:\"$link/subc\" > Content:\">444<\" ")
-// 	subc1.assertS2CMessageTimeout()
+	// c2 connects again
+	c2 := newMockStream(t, "c")
+	go func() {
+		errs <- b.mgr.Talk(c2)
+		c2.Close()
+	}()
 
-// 	m = &link.Message{}
-// 	m.Context.ID = 2
-// 	m.Context.QOS = 1
-// 	m.Context.Topic = sublid
-// 	m.Content = []byte(">555<")
-// 	pubc.sendC2S(m)
-// 	pubc.assertS2CMessage("Context:<ID:2 Type:Ack > ")
-// 	subc2.assertS2CMessage("Context:<ID:2 QOS:1 Topic:\"$link/subc\" > Content:\">555<\" ")
-// 	ack = &link.Message{}
-// 	ack.Context.ID = 2
-// 	ack.Context.Type = link.Ack
-// 	subc2.sendC2S(ack)
-// 	subc1.assertS2CMessageTimeout()
+	b.waitClientReady(lid, 1)
+	b.assertSessionState(lid, STATE1)
+	b.assertSessionStore(lid, "{\"id\":\""+lid+"\",\"kind\":\"link\",\"subs\":{\""+lid+"\":1}}")
+	b.assertExchangeCount(1)
+	assert.True(t, utils.FileExists(queuePath))
+}
 
-// 	//close subc2 by sending a invalid message
-// 	subc2.sendC2S(&link.Message{})
-// 	err = <-errs
-// 	assert.EqualError(t, err, "message topic is invalid")
-// 	b.waitClientReady(publid, 1)
-// 	b.waitClientReady(sublid, 0)
-// 	b.assertSessionCount(2)
-// 	b.waitClientReady(publid, 1)
-// 	b.assertClientCount(publid, 1)
-// 	b.waitClientReady(sublid, 0)
-// 	b.assertClientCount(sublid, 0)
-// 	b.assertExchangeCount(2)
+func TestSessionLinkClientLimit(t *testing.T) {
+	// TODO
+}
 
-// 	m = &link.Message{}
-// 	m.Context.ID = 3
-// 	m.Context.QOS = 1
-// 	m.Context.Topic = sublid
-// 	m.Content = []byte(">666<")
-// 	pubc.sendC2S(m)
-// 	pubc.assertS2CMessage("Context:<ID:3 Type:Ack > ")
-// 	subc1.assertS2CMessageTimeout()
-// 	subc2.assertS2CMessageTimeout()
+func TestSessionLinkSendRecvBL(t *testing.T) {
+	b := newMockBroker(t, testConfDefault)
+	b.mgr.cfg.ResendInterval = time.Millisecond * 1000
+	defer b.closeAndClean()
 
-// 	subc3 := newMockStream(t, "subc")
-// 	go func() {
-// 		errs <- b.mgr.Talk(subc3)
-// 		subc3.Close()
-// 	}()
-// 	subc3.assertS2CMessage("Context:<ID:3 QOS:1 Topic:\"$link/subc\" > Content:\">666<\" ")
-// 	ack = &link.Message{}
-// 	ack.Context.ID = 3
-// 	ack.Context.Type = link.Ack
-// 	subc3.sendC2S(ack)
+	errs := make(chan error, 10)
+	publid, sublid := "$link/pubc", "$link/subc"
 
-// 	subc3.sendC2S(&link.Message{})
-// 	err = <-errs
-// 	assert.EqualError(t, err, "message topic is invalid")
-// 	b.waitClientReady(publid, 1)
-// 	b.waitClientReady(sublid, 0)
-// 	b.assertSessionCount(2)
-// 	b.waitClientReady(publid, 1)
-// 	b.assertClientCount(publid, 1)
-// 	b.waitClientReady(sublid, 0)
-// 	b.assertClientCount(sublid, 0)
-// 	b.assertExchangeCount(2)
+	// pubc connect
+	pubc := newMockStream(t, "pubc")
+	go func() {
+		errs <- b.mgr.Talk(pubc)
+		pubc.Close()
+	}()
+	// subc1 connect with the same link id
+	subc1 := newMockStream(t, "subc")
+	go func() {
+		errs <- b.mgr.Talk(subc1)
+		subc1.Close()
+	}()
+	// subc2 connect with the same link id
+	subc2 := newMockStream(t, "subc")
+	go func() {
+		errs <- b.mgr.Talk(subc2)
+		subc2.Close()
+	}()
 
-// 	pubc.sendC2S(&link.Message{})
-// 	err = <-errs
-// 	assert.EqualError(t, err, "message topic is invalid")
-// 	b.waitClientReady(publid, 0)
-// 	b.waitClientReady(sublid, 0)
-// 	b.assertSessionCount(2)
-// 	b.waitClientReady(publid, 0)
-// 	b.assertClientCount(publid, 0)
-// 	b.waitClientReady(sublid, 0)
-// 	b.assertClientCount(sublid, 0)
-// 	b.assertExchangeCount(2)
-// }
+	b.waitClientReady(publid, 1)
+	b.waitClientReady(sublid, 2)
+	b.assertSessionCount(2)
+	b.assertSessionState(publid, STATE1)
+	b.assertSessionState(sublid, STATE1)
+	b.assertSessionStore(publid, "{\"id\":\"$link/pubc\",\"kind\":\"link\",\"subs\":{\"$link/pubc\":1}}")
+	b.assertSessionStore(sublid, "{\"id\":\"$link/subc\",\"kind\":\"link\",\"subs\":{\"$link/subc\":1}}")
+	b.assertExchangeCount(2)
+
+	// pubc send a message with qos 0 to subc
+	m := &link.Message{}
+	m.Context.Topic = sublid
+	m.Content = []byte("111")
+	pubc.sendC2S(m)
+	assertS2CMessageLB(subc1, subc2, "Context:<Topic:\"$link/subc\" > Content:\"111\" ")
+
+	// pubc send more messages with qos 0 to subc
+	m = &link.Message{}
+	m.Context.Topic = sublid
+	m.Content = []byte("222")
+	count := 100
+	go func() {
+		for index := 0; index < count; index++ {
+			pubc.sendC2S(m)
+		}
+	}()
+	go func() {
+		for index := 0; index < count; index++ {
+			pubc.sendC2S(m)
+		}
+	}()
+	go func() {
+		for index := 0; index < count; index++ {
+			pubc.sendC2S(m)
+		}
+	}()
+	for index := 0; index < count*3; index++ {
+		assertS2CMessageLB(subc1, subc2, "Context:<Topic:\"$link/subc\" > Content:\"222\" ")
+	}
+	subc1.assertS2CMessageTimeout()
+	subc2.assertS2CMessageTimeout()
+
+	// pubc send a message with qos 1 to subc
+	m = &link.Message{}
+	m.Context.ID = 1
+	m.Context.QOS = 1
+	m.Context.Topic = sublid
+	m.Content = []byte("333")
+	pubc.sendC2S(m)
+	pubc.assertS2CMessage("Context:<ID:1 Type:Ack > ")
+	subc := assertS2CMessageLB(subc1, subc2, "Context:<ID:1 QOS:1 Topic:\"$link/subc\" > Content:\"333\" ")
+	ack := &link.Message{}
+	ack.Context.ID = 1
+	ack.Context.Type = link.Ack
+	subc.sendC2S(ack)
+	subc1.assertS2CMessageTimeout()
+	subc2.assertS2CMessageTimeout()
+
+	// close subc1 by sending a invalid message
+	subc1.sendC2S(&link.Message{})
+	err := <-errs
+	assert.EqualError(t, err, "message topic is invalid")
+	b.waitClientReady(publid, 1)
+	b.waitClientReady(sublid, 1)
+	b.assertSessionCount(2)
+	b.assertSessionState(publid, STATE1)
+	b.assertSessionState(sublid, STATE1)
+	b.assertSessionStore(publid, "{\"id\":\"$link/pubc\",\"kind\":\"link\",\"subs\":{\"$link/pubc\":1}}")
+	b.assertSessionStore(sublid, "{\"id\":\"$link/subc\",\"kind\":\"link\",\"subs\":{\"$link/subc\":1}}")
+	b.assertExchangeCount(2)
+
+	m = &link.Message{}
+	m.Context.Topic = sublid
+	m.Content = []byte(">444<")
+	pubc.sendC2S(m)
+	subc2.assertS2CMessage("Context:<Topic:\"$link/subc\" > Content:\">444<\" ")
+	subc1.assertS2CMessageTimeout()
+
+	m = &link.Message{}
+	m.Context.ID = 2
+	m.Context.QOS = 1
+	m.Context.Topic = sublid
+	m.Content = []byte(">555<")
+	pubc.sendC2S(m)
+	pubc.assertS2CMessage("Context:<ID:2 Type:Ack > ")
+	subc2.assertS2CMessage("Context:<ID:2 QOS:1 Topic:\"$link/subc\" > Content:\">555<\" ")
+	ack = &link.Message{}
+	ack.Context.ID = 2
+	ack.Context.Type = link.Ack
+	subc2.sendC2S(ack)
+	subc1.assertS2CMessageTimeout()
+
+	//close subc2 by sending a invalid message
+	subc2.sendC2S(&link.Message{})
+	err = <-errs
+	assert.EqualError(t, err, "message topic is invalid")
+	b.waitClientReady(publid, 1)
+	b.waitClientReady(sublid, 0)
+	b.assertSessionCount(2)
+	b.assertSessionState(publid, STATE1)
+	b.assertSessionState(sublid, STATE2)
+	b.assertSessionStore(publid, "{\"id\":\"$link/pubc\",\"kind\":\"link\",\"subs\":{\"$link/pubc\":1}}")
+	b.assertSessionStore(sublid, "{\"id\":\"$link/subc\",\"kind\":\"link\",\"subs\":{\"$link/subc\":1}}")
+	b.assertExchangeCount(2)
+
+	m = &link.Message{}
+	m.Context.ID = 3
+	m.Context.QOS = 1
+	m.Context.Topic = sublid
+	m.Content = []byte(">666<")
+	pubc.sendC2S(m)
+	pubc.assertS2CMessage("Context:<ID:3 Type:Ack > ")
+	subc1.assertS2CMessageTimeout()
+	subc2.assertS2CMessageTimeout()
+
+	subc3 := newMockStream(t, "subc")
+	go func() {
+		errs <- b.mgr.Talk(subc3)
+		subc3.Close()
+	}()
+	subc3.assertS2CMessage("Context:<ID:3 QOS:1 Topic:\"$link/subc\" > Content:\">666<\" ")
+	ack = &link.Message{}
+	ack.Context.ID = 3
+	ack.Context.Type = link.Ack
+	subc3.sendC2S(ack)
+
+	subc3.sendC2S(&link.Message{})
+	err = <-errs
+	assert.EqualError(t, err, "message topic is invalid")
+	b.waitClientReady(publid, 1)
+	b.waitClientReady(sublid, 0)
+	b.assertSessionCount(2)
+	b.assertSessionState(publid, STATE1)
+	b.assertSessionState(sublid, STATE2)
+	b.assertSessionStore(publid, "{\"id\":\"$link/pubc\",\"kind\":\"link\",\"subs\":{\"$link/pubc\":1}}")
+	b.assertSessionStore(sublid, "{\"id\":\"$link/subc\",\"kind\":\"link\",\"subs\":{\"$link/subc\":1}}")
+	b.assertExchangeCount(2)
+
+	pubc.sendC2S(&link.Message{})
+	err = <-errs
+	assert.EqualError(t, err, "message topic is invalid")
+	b.waitClientReady(publid, 0)
+	b.waitClientReady(sublid, 0)
+	b.assertSessionCount(2)
+	b.assertSessionState(publid, STATE2)
+	b.assertSessionState(sublid, STATE2)
+	b.assertSessionStore(publid, "{\"id\":\"$link/pubc\",\"kind\":\"link\",\"subs\":{\"$link/pubc\":1}}")
+	b.assertSessionStore(sublid, "{\"id\":\"$link/subc\",\"kind\":\"link\",\"subs\":{\"$link/subc\":1}}")
+	b.assertExchangeCount(2)
+}

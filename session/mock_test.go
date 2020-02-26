@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"net"
 	"os"
 	"sync"
@@ -14,7 +15,6 @@ import (
 	"github.com/baetyl/baetyl-go/log"
 	"github.com/baetyl/baetyl-go/mqtt"
 	"github.com/baetyl/baetyl-go/utils"
-	cmap "github.com/orcaman/concurrent-map"
 	"github.com/stretchr/testify/assert"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/metadata"
@@ -79,66 +79,61 @@ func newMockBroker(t *testing.T, cfgStr string) *mockBroker {
 }
 
 func (b *mockBroker) assertSessionCount(expect int) {
-	b.mgr.mut.RLock()
-	defer b.mgr.mut.RUnlock()
-
-	assert.Len(b.t, b.mgr.sessions, expect)
+	assert.Equal(b.t, expect, b.mgr.countSessions())
 }
 
 func (b *mockBroker) assertSessionStore(id string, expect string) {
-	ses, err := b.mgr.sstore.Get(id)
+	s, err := b.mgr.sstore.Get(id)
 	assert.NoError(b.t, err)
 	if expect == "" {
-		assert.Nil(b.t, ses)
+		assert.Nil(b.t, s)
 	} else {
-		assert.Equal(b.t, expect, ses.String())
+		assert.Equal(b.t, expect, s.String())
 	}
 }
 
-func (b *mockBroker) assertSessionState(id string, expect state) {
-	b.mgr.mut.RLock()
-	defer b.mgr.mut.RUnlock()
-
-	ses, ok := b.mgr.sessions[id]
+func (b *mockBroker) assertSessionState(sid string, expect state) {
+	v, ok := b.mgr.sessions.Load(sid)
 	assert.True(b.t, ok)
-	assert.Equal(b.t, expect, ses.stat)
+	if !ok {
+		return
+	}
+	s := v.(*Session)
+	s.mut.RLock()
+	defer s.mut.RUnlock()
+	assert.Equal(b.t, expect, s.stat)
 	if expect == STATE0 {
-		assert.Nil(b.t, ses.disp)
-		assert.Nil(b.t, ses.qos0)
-		assert.Nil(b.t, ses.qos1)
-		assert.Nil(b.t, ses.subs)
+		assert.Nil(b.t, s.disp)
+		assert.Nil(b.t, s.qos0)
+		assert.Nil(b.t, s.qos1)
+		assert.Zero(b.t, s.subs.Count())
+		assert.Zero(b.t, len(s.info.Subscriptions))
 	} else if expect == STATE1 {
-		assert.NotNil(b.t, ses.disp)
-		assert.NotNil(b.t, ses.qos0)
-		assert.NotNil(b.t, ses.qos1)
-		assert.NotNil(b.t, ses.subs)
+		assert.NotNil(b.t, s.disp)
+		assert.NotNil(b.t, s.qos0)
+		assert.NotNil(b.t, s.qos1)
+		assert.NotZero(b.t, s.countClients())
+		assert.NotZero(b.t, s.subs.Count())
+		assert.NotZero(b.t, len(s.info.Subscriptions))
 	} else if expect == STATE2 {
-		assert.Nil(b.t, ses.disp)
-		assert.Nil(b.t, ses.qos0)
-		assert.NotNil(b.t, ses.qos1)
-		assert.NotNil(b.t, ses.subs)
+		assert.Nil(b.t, s.disp)
+		assert.Nil(b.t, s.qos0)
+		assert.NotNil(b.t, s.qos1)
+		assert.Zero(b.t, s.countClients())
+		assert.NotZero(b.t, s.subs.Count())
+		assert.NotZero(b.t, len(s.info.Subscriptions))
 	}
 }
 
 func (b *mockBroker) waitClientReady(sid string, cnt int) {
 	for {
-		b.mgr.mut.RLock()
-		clis := b.mgr.sessions[sid].copyClients()
-		b.mgr.mut.RUnlock()
-		if len(clis) != cnt {
+		v, ok := b.mgr.sessions.Load(sid)
+		if !ok || v.(*Session).countClients() != cnt {
 			time.Sleep(time.Millisecond * 100)
 			continue
 		}
 		return
 	}
-}
-
-func (b *mockBroker) assertClientCount(sid string, expect int) {
-	b.mgr.mut.RLock()
-	clis := b.mgr.sessions[sid].copyClients()
-	b.mgr.mut.RUnlock()
-
-	assert.Len(b.t, clis, expect)
 }
 
 func (b *mockBroker) assertExchangeCount(expect int) {
@@ -159,13 +154,8 @@ func (b *mockBroker) close() {
 }
 
 func (b *mockBroker) closeAndClean() {
-	if b.trans != nil {
-		b.trans.Close()
-	}
-	if b.mgr != nil {
-		b.mgr.Close()
-	}
-	os.RemoveAll(b.cfg.Persistence.Location)
+	b.close()
+	os.RemoveAll("./var")
 }
 
 // * mqtt mock
@@ -210,7 +200,7 @@ func (c *mockConn) Close() error {
 	c.Lock()
 	c.closed = true
 	c.Unlock()
-	c.err <- errors.New("closed")
+	c.err <- io.EOF
 	return nil
 }
 
@@ -322,8 +312,9 @@ func (c *mockStream) RecvMsg(m interface{}) error  { return nil }
 
 func (c *mockStream) Close() {
 	c.Lock()
-	defer c.Unlock()
 	c.closed = true
+	c.Unlock()
+	c.err <- io.EOF
 }
 
 func (c *mockStream) isClosed() bool {
@@ -385,12 +376,5 @@ func assertS2CMessageLB(subc1, subc2 *mockStream, expect string) *mockStream {
 	case <-time.After(time.Minute):
 		assert.Fail(subc1.t, "receive common timeout")
 		return nil
-	}
-}
-
-func TestCMAP(t *testing.T) {
-	clis := cmap.New()
-	for c := range clis.IterBuffered() {
-		t.Log(c)
 	}
 }

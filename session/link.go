@@ -3,6 +3,7 @@ package session
 import (
 	"context"
 	"fmt"
+	"io"
 	"strings"
 	"sync"
 
@@ -56,7 +57,7 @@ func (m *Manager) Call(ctx context.Context, msg *link.Message) (*link.Message, e
 
 // Talk handler of link
 func (m *Manager) Talk(stream link.Link_TalkServer) error {
-	defer m.log.Info("link client is closed")
+	defer m.log.Info("stream is closed")
 	err := m.checkSessions()
 	if err != nil {
 		return err
@@ -66,8 +67,10 @@ func (m *Manager) Talk(stream link.Link_TalkServer) error {
 		m.log.Error("failed to create link client", log.Error(err))
 		return err
 	}
-	m.log.Debug("link client is created")
-	return c.tomb.Wait()
+	select {
+	case <-c.tomb.Dying():
+		return c.tomb.Err()
+	}
 }
 
 func (m *Manager) newClientLink(stream link.Link_TalkServer) (*ClientLink, error) {
@@ -87,13 +90,17 @@ func (m *Manager) newClientLink(stream link.Link_TalkServer) (*ClientLink, error
 		stream: stream,
 		log:    log.With(log.Any("type", "link"), log.Any("id", id)),
 	}
-	si := &Info{
+	si := Info{
 		ID:            lid,
 		Kind:          LINK,
 		CleanSession:  false,                       // always false for link client
 		Subscriptions: map[string]mqtt.QOS{lid: 1}, // always subscribe link's id, e.g. $link/<service_name>
 	}
-	_, err := m.initSession(si, c, false)
+	s, _, err := m.initSession(si)
+	if err != nil {
+		return nil, err
+	}
+	err = s.addClient(c, false)
 	if err != nil {
 		return nil, err
 	}
@@ -105,24 +112,24 @@ func (c *ClientLink) getID() string {
 	return c.id
 }
 
-func (c *ClientLink) setSession(s *Session) {
+func (c *ClientLink) setSession(sid string, s *Session) {
 	c.session = s
-	c.log = c.log.With(log.Any("sid", s.ID))
+	c.log = c.log.With(log.Any("sid", sid))
 }
 
 func (c *ClientLink) getSession() *Session {
 	return c.session
 }
 
-// Close closes client by session
+// closes client by session
 func (c *ClientLink) close() error {
-	c.once.Do(func() {
-		c.log.Info("client is closing")
-		defer c.log.Info("client has closed")
-		c.tomb.Kill(nil)
-		c.session.delClient(c)
-	})
-	return c.tomb.Wait()
+	if !c.tomb.Alive() {
+		return nil
+	}
+	c.log.Info("client is closing")
+	defer c.log.Info("client has closed")
+	c.tomb.Kill(ErrConnectionRefuse)
+	return nil
 }
 
 // closes client by itself
@@ -130,11 +137,18 @@ func (c *ClientLink) die(msg string, err error) {
 	if !c.tomb.Alive() {
 		return
 	}
-	if err != nil {
+	c.log.Info("client is dying")
+	defer c.log.Info("client has died")
+	c.tomb.Kill(err)
+	c.session.delClient(c)
+	if err == nil {
+		return
+	}
+	if err == io.EOF {
+		c.log.Info("client disconnected", log.Error(err))
+	} else {
 		c.log.Error(msg, log.Error(err))
 	}
-	c.tomb.Kill(err)
-	go c.close()
 }
 
 func (c *ClientLink) authorize(action, topic string) bool {
