@@ -64,18 +64,6 @@ func (b *RetainBackend) Set(msg *RetainMessage) error {
 	return b.db.SetKV(msg.Topic, msg)
 }
 
-// // Get gets retain information
-// func (b *RetainBackend) Get(topic string) (*RetainMessage, error) {
-// 	r, err := b.db.GetKV(topic)
-// 	if err != nil {
-// 		return nil, err
-// 	}
-// 	if r == nil {
-// 		return nil, nil
-// 	}
-// 	return r.(*RetainMessage), nil
-// }
-
 // Del deletes retain information
 func (b *RetainBackend) Del(topic string) error {
 	return b.db.DelKV(topic)

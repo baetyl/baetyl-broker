@@ -52,7 +52,7 @@ type Session struct {
 	mgr     *Manager
 	qos0    queue.Queue // queue for qos0
 	qos1    queue.Queue // queue for qos1
-	clients sync.Map
+	clients *syncmap
 	subs    *mqtt.Trie
 	cnt     *mqtt.Counter
 	disp    *dispatcher
@@ -63,11 +63,12 @@ type Session struct {
 
 func newSession(i Info, m *Manager) *Session {
 	return &Session{
-		info: i,
-		mgr:  m,
-		subs: mqtt.NewTrie(),
-		cnt:  mqtt.NewCounter(),
-		log:  m.log.With(log.Any("id", i.ID)),
+		info:    i,
+		mgr:     m,
+		subs:    mqtt.NewTrie(),
+		cnt:     mqtt.NewCounter(),
+		clients: newSyncMap(m.cfg.MaxClientsPerSession),
+		log:     m.log.With(log.Any("id", i.ID)),
 	}
 }
 
@@ -142,10 +143,10 @@ func (s *Session) close() {
 	s.log.Info("session is closing")
 	defer s.log.Info("session has closed")
 	s.mgr.exch.UnbindAll(s)
-	s.mgr.sessions.Delete(s.info.ID)
+	s.mgr.sessions.delete(s.info.ID)
 	s.gotoState0()
-	for _, c := range s.copyClients() {
-		c.close()
+	for _, v := range s.clients.empty() {
+		v.(client).close()
 	}
 }
 
@@ -153,31 +154,23 @@ func (s *Session) close() {
 
 func (s *Session) addClient(c client, exclusive bool) error {
 	if exclusive {
-		for _, prevClient := range s.emptyClients() {
-			prevClient.close()
+		for _, prevClient := range s.clients.empty() {
+			prevClient.(client).close()
 		}
-	} else if s.countClients() != 0 {
-		// check limit
-		if s.mgr.cfg.MaxClientsPerSession > 0 && s.countClients() >= s.mgr.cfg.MaxClientsPerSession {
-			s.log.Error(ErrSessionClientNumberExceeds.Error(), log.Any("max", s.mgr.cfg.MaxClientsPerSession))
-			return ErrSessionClientNumberExceeds
-		}
-		s.log.Info("add new client to existing session", log.Any("cid", c.getID()))
-	}
-
-	prevSession := c.getSession()
-	if prevSession != nil && prevSession != s {
-		prevSession.delClient(c)
 	}
 	c.setSession(s.id(), s)
-	s.clients.Store(c.getID(), c)
+	err := s.clients.store(c.getID(), c)
+	if err != nil {
+		s.log.Error("number of session clients exceeds the limit", log.Any("max", s.mgr.cfg.MaxClientsPerSession))
+		return err
+	}
 
 	s.updateInfo(nil, nil, nil, c.authorize)
 	return s.updateState()
 }
 
 func (s *Session) delClient(c client) {
-	s.clients.Delete(c.getID())
+	s.clients.delete(c.getID())
 	if !s.closeIfNeed() {
 		s.updateState()
 	}
@@ -274,7 +267,7 @@ func (s *Session) closeIfNeed() bool {
 	s.mut.Lock()
 	defer s.mut.Unlock()
 
-	if s.info.CleanSession && s.countClients() == 0 {
+	if s.info.CleanSession && s.clients.count() == 0 {
 		s.close()
 		s.log.Info("remove session whose cleansession flag is true when all clients are closed")
 		return true
@@ -288,7 +281,7 @@ func (s *Session) updateState() (err error) {
 
 	if len(s.info.Subscriptions) == 0 {
 		s.gotoState0()
-	} else if s.countClients() == 0 {
+	} else if s.clients.count() == 0 {
 		err = s.gotoState2()
 	} else {
 		err = s.gotoState1()
@@ -367,33 +360,4 @@ func (s *Session) acknowledge(id uint64) {
 	if err != nil {
 		s.log.Warn("failed to acknowledge", log.Any("id", id), log.Error(err))
 	}
-}
-
-// * client operations
-
-func (s *Session) countClients() (count int) {
-	s.clients.Range(func(_, _ interface{}) bool {
-		count++
-		return true
-	})
-	return
-}
-
-func (s *Session) copyClients() map[string]client {
-	res := map[string]client{}
-	s.clients.Range(func(k, v interface{}) bool {
-		res[k.(string)] = v.(client)
-		return true
-	})
-	return res
-}
-
-func (s *Session) emptyClients() map[string]client {
-	res := map[string]client{}
-	s.clients.Range(func(k, v interface{}) bool {
-		s.clients.Delete(k)
-		res[k.(string)] = v.(client)
-		return true
-	})
-	return res
 }

@@ -31,11 +31,6 @@ type ClientMQTT struct {
 
 // ClientMQTTHandler the connection handler to create a new MQTT client
 func (m *Manager) ClientMQTTHandler(conn mqtt.Connection) {
-	err := m.checkSessions()
-	if err != nil {
-		conn.Close()
-		return
-	}
 	id := strings.ReplaceAll(uuid.Generate().String(), "-", "")
 	c := &ClientMQTT{
 		id:   id,
@@ -70,10 +65,6 @@ func (c *ClientMQTT) setSession(sid string, s *Session) {
 	if c.id != sid {
 		c.log = c.log.With(log.Any("sid", sid))
 	}
-}
-
-func (c *ClientMQTT) getSession() *Session {
-	return c.session
 }
 
 // closes client by session
@@ -171,6 +162,9 @@ func (c *ClientMQTT) sendRetainMessage() error {
 // * egress
 
 func (c *ClientMQTT) send(pkt mqtt.Packet, async bool) error {
+	if !c.tomb.Alive() {
+		return ErrSessionClientAlreadyClosed
+	}
 	c.mut.Lock()
 	err := c.conn.Send(pkt, async)
 	c.mut.Unlock()
@@ -220,7 +214,7 @@ func (c *ClientMQTT) receiving() error {
 		return ErrSessionClientPacketUnexpected
 	}
 	if err = c.onConnect(p); err != nil {
-		c.die("failed to hanle connect packet", err)
+		c.die("failed to handle connect packet", err)
 		return err
 	}
 
@@ -328,6 +322,11 @@ func (c *ClientMQTT) onConnect(p *mqtt.Connect) error {
 	var exists bool
 	var s *Session
 	if si.ID != "" {
+		// clean previous session
+		if c.session != nil {
+			c.session.delClient(c)
+		}
+		//  init new session
 		s, exists, err = c.mgr.initSession(si)
 		if err != nil {
 			return err

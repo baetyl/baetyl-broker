@@ -2,7 +2,6 @@ package session
 
 import (
 	"errors"
-	"sync"
 	"sync/atomic"
 
 	"github.com/baetyl/baetyl-broker/exchange"
@@ -14,15 +13,13 @@ import (
 // all errors
 var (
 	ErrConnectionRefuse                          = errors.New("connection refuse on server side")
-	ErrSessionClosed                             = errors.New("session is closed")
-	ErrSessionNumberExceeds                      = errors.New("number of sessions exceeds the limit")
-	ErrSessionClientNumberExceeds                = errors.New("number of session clients exceeds the limit")
-	ErrSessionClientAlreadyConnecting            = errors.New("session client is already connecting")
+	ErrSessionClientAlreadyClosed                = errors.New("session client is already closed")
+	ErrSessionClientAlreadyConnecting            = errors.New("session client is already connected")
 	ErrSessionClientPacketUnexpected             = errors.New("session client received unexpected packet")
 	ErrSessionClientPacketIDConflict             = errors.New("packet id conflict, to acknowledge old packet")
 	ErrSessionClientPacketNotFound               = errors.New("packet id is not found")
-	ErrSessionProtocolVersionInvalid             = errors.New("protocol version is invalid")
 	ErrSessionClientIDInvalid                    = errors.New("client ID is invalid")
+	ErrSessionProtocolVersionInvalid             = errors.New("protocol version is invalid")
 	ErrSessionUsernameNotSet                     = errors.New("username is not set")
 	ErrSessionPasswordNotSet                     = errors.New("password is not set")
 	ErrSessionUsernameNotPermitted               = errors.New("username or password is not permitted")
@@ -43,7 +40,6 @@ var (
 
 type client interface {
 	getID() string
-	getSession() *Session
 	setSession(sid string, s *Session)
 	authorize(string, string) bool
 	sendEvent(e *eventWrapper, dup bool) error
@@ -53,7 +49,7 @@ type client interface {
 // Manager the manager of sessions
 type Manager struct {
 	cfg      Config
-	sessions sync.Map
+	sessions *syncmap
 	checker  *mqtt.TopicChecker
 	sstore   *Backend       // session store to persist sessions
 	mstore   *RetainBackend // message store to retain messages
@@ -66,11 +62,12 @@ type Manager struct {
 // NewManager create a new session manager
 func NewManager(cfg Config) (m *Manager, err error) {
 	m = &Manager{
-		cfg:     cfg,
-		checker: mqtt.NewTopicChecker(cfg.SysTopics),
-		exch:    exchange.NewExchange(cfg.SysTopics),
-		auth:    NewAuthenticator(cfg.Principals),
-		log:     log.With(log.Any("session", "manager")),
+		cfg:      cfg,
+		sessions: newSyncMap(cfg.MaxSessions),
+		checker:  mqtt.NewTopicChecker(cfg.SysTopics),
+		exch:     exchange.NewExchange(cfg.SysTopics),
+		auth:     NewAuthenticator(cfg.Principals),
+		log:      log.With(log.Any("session", "manager")),
 	}
 	m.sstore, err = NewBackend(cfg)
 	if err != nil {
@@ -107,12 +104,14 @@ func (m *Manager) initSession(si Info) (s *Session, exists bool, err error) {
 	}
 
 	var v interface{}
-	if v, exists = m.sessions.Load(si.ID); exists {
+	if v, exists = m.sessions.load(si.ID); exists {
 		s = v.(*Session)
 	} else {
 		s = newSession(si, m)
-		if v, exists = m.sessions.LoadOrStore(si.ID, s); exists {
-			s = v.(*Session)
+		err = m.sessions.store(si.ID, s)
+		if err != nil {
+			s.log.Error("number of sessions exceeds the limit", log.Any("max", s.mgr.cfg.MaxSessions))
+			return
 		}
 	}
 
@@ -145,25 +144,6 @@ func (m *Manager) checkSubscriptions(si *Info) {
 	}
 }
 
-func (m *Manager) checkSessions() error {
-	if err := m.checkQuitState(); err != nil {
-		return err
-	}
-	if m.cfg.MaxSessions > 0 && m.countSessions() >= m.cfg.MaxSessions {
-		m.log.Error(ErrSessionNumberExceeds.Error(), log.Any("max", m.cfg.MaxSessions))
-		return ErrSessionNumberExceeds
-	}
-	return nil
-}
-
-func (m *Manager) countSessions() (count int) {
-	m.sessions.Range(func(_, _ interface{}) bool {
-		count++
-		return true
-	})
-	return
-}
-
 // Close close
 func (m *Manager) Close() error {
 	m.log.Info("session manager is closing")
@@ -171,10 +151,9 @@ func (m *Manager) Close() error {
 
 	atomic.AddInt32(&m.quit, -1)
 
-	m.sessions.Range(func(_, v interface{}) bool {
+	for _, v := range m.sessions.empty() {
 		v.(*Session).Close()
-		return true
-	})
+	}
 	if m.mstore != nil {
 		m.mstore.Close()
 	}
