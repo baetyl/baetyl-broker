@@ -6,7 +6,6 @@ import (
 	"sync/atomic"
 
 	"github.com/baetyl/baetyl-broker/exchange"
-	"github.com/baetyl/baetyl-broker/retain"
 	"github.com/baetyl/baetyl-go/link"
 	"github.com/baetyl/baetyl-go/log"
 	"github.com/baetyl/baetyl-go/mqtt"
@@ -56,8 +55,8 @@ type Manager struct {
 	cfg      Config
 	sessions sync.Map
 	checker  *mqtt.TopicChecker
-	sstore   *Backend        // session store to persist sessions
-	mstore   *retain.Backend // message store to retain messages
+	sstore   *Backend       // session store to persist sessions
+	mstore   *RetainBackend // message store to retain messages
 	exch     *exchange.Exchange
 	auth     *Authenticator
 	log      *log.Logger
@@ -194,14 +193,14 @@ func (m *Manager) listRetainedMessages() ([]*link.Message, error) {
 	}
 	msgs := make([]*link.Message, 0)
 	for _, v := range retains {
-		msg := v.(*retain.Retain).Message
+		msg := v.(*RetainMessage).Message
 		msgs = append(msgs, msg)
 	}
 	return msgs, nil
 }
 
 func (m *Manager) retainMessage(topic string, msg *link.Message) error {
-	return m.mstore.Set(&retain.Retain{Topic: msg.Context.Topic, Message: msg})
+	return m.mstore.Set(&RetainMessage{Topic: msg.Context.Topic, Message: msg})
 }
 
 func (m *Manager) unretainMessage(topic string) error {

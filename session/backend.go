@@ -6,7 +6,6 @@ import (
 	"path"
 
 	"github.com/baetyl/baetyl-broker/database"
-	"github.com/baetyl/baetyl-broker/retain"
 )
 
 // Backend the backend database of session
@@ -35,8 +34,8 @@ func NewBackend(cfg Config) (*Backend, error) {
 }
 
 // NewRetainBackend create a new backend database for retain
-func (b *Backend) NewRetainBackend() (*retain.Backend, error) {
-	return retain.NewBackend(retain.Config{
+func (b *Backend) NewRetainBackend() (*RetainBackend, error) {
+	return NewRetainBackend(RetainConfig{
 		Driver:   b.cfg.Persistence.Driver,
 		Location: path.Join(b.cfg.Persistence.Location),
 	})
