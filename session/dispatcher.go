@@ -77,11 +77,11 @@ func (d *dispatcher) sending() error {
 	defer d.log.Info("dispatcher has stopped sending messages")
 
 	var msg *eventWrapper
-	var clis map[string]client
+	var clis []interface{}
 	qos0 := d.session.qos0.Chan()
 	qos1 := d.session.qos1.Chan()
 	for {
-		clis = d.session.copyClients()
+		clis = d.session.clients.copy()
 		if len(clis) == 0 {
 			d.log.Debug("no client")
 			return nil
@@ -89,7 +89,8 @@ func (d *dispatcher) sending() error {
 	LB:
 		for _, c := range clis {
 			if msg != nil {
-				if err := c.sendEvent(msg, false); err != nil {
+				if err := c.(client).sendEvent(msg, false); err != nil {
+					d.log.Debug("failed to send message", log.Error(err), log.Any("cid", c.(client).getID()))
 					continue LB
 				}
 				if msg.qos == 1 {
@@ -126,11 +127,11 @@ func (d *dispatcher) resending() error {
 	defer d.log.Info("dispatcher has stopped resending messages")
 
 	var msg *eventWrapper
-	var clis map[string]client
+	var clis []interface{}
 	timer := time.NewTimer(d.interval)
 	defer timer.Stop()
 	for {
-		clis = d.session.copyClients()
+		clis = d.session.clients.copy()
 		if len(clis) == 0 {
 			d.log.Debug("no client")
 			return nil
@@ -139,7 +140,7 @@ func (d *dispatcher) resending() error {
 		for _, c := range clis {
 			if msg != nil {
 				for timer.Reset(d.next(msg)); msg.Wait(timer.C, d.tomb.Dying()) == common.ErrAcknowledgeTimedOut; timer.Reset(d.interval) {
-					if err := c.sendEvent(msg, true); err != nil {
+					if err := c.(client).sendEvent(msg, true); err != nil {
 						continue LB
 					}
 				}

@@ -115,8 +115,63 @@ func TestSessionLinkAllStates(t *testing.T) {
 	assert.True(t, utils.FileExists(queuePath))
 }
 
-func TestSessionLinkClientLimit(t *testing.T) {
-	// TODO
+func TestSessionLinkMaxSessionsAndClients(t *testing.T) {
+	b := newMockBroker(t, testConfSession)
+	defer b.closeAndClean()
+
+	errs := make(chan error, 10)
+	// c1 connect
+	c1 := newMockStream(t, "c1")
+	go func() {
+		errs <- b.mgr.Talk(c1)
+		c1.Close()
+	}()
+	// c2 connect
+	c2 := newMockStream(t, "c2")
+	go func() {
+		errs <- b.mgr.Talk(c2)
+		c2.Close()
+	}()
+	// c3 connect
+	c3 := newMockStream(t, "c3")
+	go func() {
+		errs <- b.mgr.Talk(c3)
+		c3.Close()
+	}()
+
+	// c4 connect
+	c4 := newMockStream(t, "c4")
+	go func() {
+		errs <- b.mgr.Talk(c4)
+		c4.Close()
+	}()
+
+	err := <-errs
+	assert.EqualError(t, err, "exceeds limit")
+	lid := assertClientClosed(1, c1, c2, c3, c4)
+	b.assertSessionCount(3)
+
+	// c5 connect
+	c5 := newMockStream(t, lid)
+	go func() {
+		errs <- b.mgr.Talk(c5)
+		c5.Close()
+	}()
+
+	b.waitClientReady("$link/"+lid, 2)
+	c5.assertClosed(false)
+	b.assertSessionCount(3)
+
+	// c6 connect
+	c6 := newMockStream(t, lid)
+	go func() {
+		errs <- b.mgr.Talk(c6)
+		c6.Close()
+	}()
+
+	err = <-errs
+	assert.EqualError(t, err, "exceeds limit")
+	c6.assertClosed(true)
 }
 
 func TestSessionLinkSendRecvBL(t *testing.T) {

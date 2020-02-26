@@ -58,10 +58,6 @@ func (m *Manager) Call(ctx context.Context, msg *link.Message) (*link.Message, e
 // Talk handler of link
 func (m *Manager) Talk(stream link.Link_TalkServer) error {
 	defer m.log.Info("stream is closed")
-	err := m.checkSessions()
-	if err != nil {
-		return err
-	}
 	c, err := m.newClientLink(stream)
 	if err != nil {
 		m.log.Error("failed to create link client", log.Error(err))
@@ -117,10 +113,6 @@ func (c *ClientLink) setSession(sid string, s *Session) {
 	c.log = c.log.With(log.Any("sid", sid))
 }
 
-func (c *ClientLink) getSession() *Session {
-	return c.session
-}
-
 // closes client by session
 func (c *ClientLink) close() error {
 	if !c.tomb.Alive() {
@@ -156,6 +148,9 @@ func (c *ClientLink) authorize(action, topic string) bool {
 }
 
 func (c *ClientLink) send(msg *link.Message) error {
+	if !c.tomb.Alive() {
+		return ErrSessionClientAlreadyClosed
+	}
 	c.mut.Lock()
 	err := c.stream.Send(msg)
 	c.mut.Unlock()

@@ -2,7 +2,6 @@ package session
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -79,7 +78,7 @@ func newMockBroker(t *testing.T, cfgStr string) *mockBroker {
 }
 
 func (b *mockBroker) assertSessionCount(expect int) {
-	assert.Equal(b.t, expect, b.mgr.countSessions())
+	assert.Equal(b.t, expect, b.mgr.sessions.count())
 }
 
 func (b *mockBroker) assertSessionStore(id string, expect string) {
@@ -93,7 +92,7 @@ func (b *mockBroker) assertSessionStore(id string, expect string) {
 }
 
 func (b *mockBroker) assertSessionState(sid string, expect state) {
-	v, ok := b.mgr.sessions.Load(sid)
+	v, ok := b.mgr.sessions.load(sid)
 	assert.True(b.t, ok)
 	if !ok {
 		return
@@ -112,14 +111,14 @@ func (b *mockBroker) assertSessionState(sid string, expect state) {
 		assert.NotNil(b.t, s.disp)
 		assert.NotNil(b.t, s.qos0)
 		assert.NotNil(b.t, s.qos1)
-		assert.NotZero(b.t, s.countClients())
+		assert.NotZero(b.t, s.clients.count())
 		assert.NotZero(b.t, s.subs.Count())
 		assert.NotZero(b.t, len(s.info.Subscriptions))
 	} else if expect == STATE2 {
 		assert.Nil(b.t, s.disp)
 		assert.Nil(b.t, s.qos0)
 		assert.NotNil(b.t, s.qos1)
-		assert.Zero(b.t, s.countClients())
+		assert.Zero(b.t, s.clients.count())
 		assert.NotZero(b.t, s.subs.Count())
 		assert.NotZero(b.t, len(s.info.Subscriptions))
 	}
@@ -127,8 +126,8 @@ func (b *mockBroker) assertSessionState(sid string, expect state) {
 
 func (b *mockBroker) waitClientReady(sid string, cnt int) {
 	for {
-		v, ok := b.mgr.sessions.Load(sid)
-		if !ok || v.(*Session).countClients() != cnt {
+		v, ok := b.mgr.sessions.load(sid)
+		if !ok || v.(*Session).clients.count() != cnt {
 			time.Sleep(time.Millisecond * 100)
 			continue
 		}
@@ -277,9 +276,6 @@ func newMockStream(t *testing.T, linkid string) *mockStream {
 }
 
 func (c *mockStream) Send(msg *link.Message) error {
-	if c.isClosed() {
-		return errors.New("stream has closed")
-	}
 	select {
 	case c.s2c <- msg:
 		// default:
@@ -289,9 +285,6 @@ func (c *mockStream) Send(msg *link.Message) error {
 }
 
 func (c *mockStream) Recv() (*link.Message, error) {
-	if c.isClosed() {
-		return nil, errors.New("stream has closed")
-	}
 	select {
 	case msg := <-c.c2s:
 		return msg, nil
@@ -343,6 +336,12 @@ func (c *mockStream) receiveS2C() *link.Message {
 	}
 }
 
+func (c *mockStream) assertClosed(expect bool) {
+	c.RLock()
+	assert.Equal(c.t, expect, c.closed)
+	c.RUnlock()
+}
+
 func (c *mockStream) assertS2CMessage(expect string) {
 	select {
 	case msg := <-c.s2c:
@@ -359,6 +358,20 @@ func (c *mockStream) assertS2CMessageTimeout() {
 		assert.Fail(c.t, "receive unexpected packet", msg.String())
 	case <-time.After(time.Millisecond * 100):
 	}
+}
+
+func assertClientClosed(expect int, cs ...*mockStream) string {
+	var count int
+	var active *mockStream
+	for _, c := range cs {
+		if c.isClosed() {
+			count++
+		} else {
+			active = c
+		}
+	}
+	assert.Equal(active.t, expect, count)
+	return active.md.Get("linkid")[0]
 }
 
 func assertS2CMessageLB(subc1, subc2 *mockStream, expect string) *mockStream {
