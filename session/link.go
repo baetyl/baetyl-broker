@@ -3,6 +3,7 @@ package session
 import (
 	"context"
 	"fmt"
+	"io"
 	"strings"
 	"sync"
 
@@ -18,15 +19,15 @@ import (
 
 // ClientLink the client of Link
 type ClientLink struct {
-	id         string
-	manager    *Manager
-	session    *Session
-	authorizer *Authorizer
-	stream     link.Link_TalkServer
-	log        *log.Logger
-	tomb       utils.Tomb
-	mu         sync.Mutex
-	sync.Once
+	id      string
+	mgr     *Manager
+	session *Session
+	stream  link.Link_TalkServer
+	auth    *Authorizer
+	log     *log.Logger
+	mut     sync.Mutex
+	once    sync.Once
+	tomb    utils.Tomb
 }
 
 // Call handler of link
@@ -39,11 +40,11 @@ func (m *Manager) Call(ctx context.Context, msg *link.Message) (*link.Message, e
 		return nil, ErrSessionMessageTopicInvalid
 	}
 	if msg.Context.QOS == 0 {
-		m.exchange.Route(msg, nil)
+		m.exch.Route(msg, nil)
 		return nil, nil
 	}
 	done := make(chan struct{})
-	m.exchange.Route(msg, func(_ uint64) {
+	m.exch.Route(msg, func(_ uint64) {
 		close(done)
 	})
 	select {
@@ -56,8 +57,8 @@ func (m *Manager) Call(ctx context.Context, msg *link.Message) (*link.Message, e
 
 // Talk handler of link
 func (m *Manager) Talk(stream link.Link_TalkServer) error {
-	defer m.log.Info("link client is closed")
-	err := m.checkConnection()
+	defer m.log.Info("stream is closed")
+	err := m.checkSessions()
 	if err != nil {
 		return err
 	}
@@ -66,8 +67,10 @@ func (m *Manager) Talk(stream link.Link_TalkServer) error {
 		m.log.Error("failed to create link client", log.Error(err))
 		return err
 	}
-	m.log.Debug("link client is created")
-	return c.tomb.Wait()
+	select {
+	case <-c.tomb.Dying():
+		return c.tomb.Err()
+	}
 }
 
 func (m *Manager) newClientLink(stream link.Link_TalkServer) (*ClientLink, error) {
@@ -82,23 +85,25 @@ func (m *Manager) newClientLink(stream link.Link_TalkServer) (*ClientLink, error
 	lid = "$link/" + lid
 	id := strings.ReplaceAll(uuid.Generate().String(), "-", "")
 	c := &ClientLink{
-		id:      id,
-		manager: m,
-		stream:  stream,
-		log:     log.With(log.Any("type", "link"), log.Any("id", id)),
+		id:     id,
+		mgr:    m,
+		stream: stream,
+		log:    log.With(log.Any("type", "link"), log.Any("id", id)),
 	}
-	si := &Info{
+	si := Info{
 		ID:            lid,
+		Kind:          LINK,
 		CleanSession:  false,                       // always false for link client
 		Subscriptions: map[string]mqtt.QOS{lid: 1}, // always subscribe link's id, e.g. $link/<service_name>
 	}
-	s, _, err := m.initSession(si, c)
+	s, _, err := m.initSession(si)
 	if err != nil {
 		return nil, err
 	}
-
-	c.manager.addClient(c)
-	s.addClient(c, false)
+	err = s.addClient(c, false)
+	if err != nil {
+		return nil, err
+	}
 	c.tomb.Go(c.receiving)
 	return c, nil
 }
@@ -107,24 +112,24 @@ func (c *ClientLink) getID() string {
 	return c.id
 }
 
-func (c *ClientLink) setSession(s *Session) {
+func (c *ClientLink) setSession(sid string, s *Session) {
 	c.session = s
-	c.log = c.log.With(log.Any("sid", s.ID))
+	c.log = c.log.With(log.Any("sid", sid))
 }
 
 func (c *ClientLink) getSession() *Session {
 	return c.session
 }
 
-// Close closes client by session
+// closes client by session
 func (c *ClientLink) close() error {
-	c.Do(func() {
-		c.log.Info("client is closing")
-		defer c.log.Info("client has closed")
-		c.tomb.Kill(nil)
-		c.manager.delClient(c)
-	})
-	return c.tomb.Wait()
+	if !c.tomb.Alive() {
+		return nil
+	}
+	c.log.Info("client is closing")
+	defer c.log.Info("client has closed")
+	c.tomb.Kill(ErrConnectionRefuse)
+	return nil
 }
 
 // closes client by itself
@@ -132,21 +137,28 @@ func (c *ClientLink) die(msg string, err error) {
 	if !c.tomb.Alive() {
 		return
 	}
-	if err != nil {
+	c.log.Info("client is dying")
+	defer c.log.Info("client has died")
+	c.tomb.Kill(err)
+	c.session.delClient(c)
+	if err == nil {
+		return
+	}
+	if err == io.EOF {
+		c.log.Info("client disconnected", log.Error(err))
+	} else {
 		c.log.Error(msg, log.Error(err))
 	}
-	c.tomb.Kill(err)
-	go c.close()
 }
 
 func (c *ClientLink) authorize(action, topic string) bool {
-	return c.authorizer == nil || c.authorizer.Authorize(action, topic)
+	return c.auth == nil || c.auth.Authorize(action, topic)
 }
 
 func (c *ClientLink) send(msg *link.Message) error {
-	c.mu.Lock()
+	c.mut.Lock()
 	err := c.stream.Send(msg)
-	c.mu.Unlock()
+	c.mut.Unlock()
 	if err != nil {
 		c.die("failed to send message", err)
 		return err
@@ -158,13 +170,8 @@ func (c *ClientLink) send(msg *link.Message) error {
 
 	return nil
 }
-
-func (c *ClientLink) sending(i *iqel) (err error) {
-	return c.send(i.message())
-}
-
-func (c *ClientLink) resending(i *iqel) error {
-	return c.send(i.message())
+func (c *ClientLink) sendEvent(e *eventWrapper, _ bool) (err error) {
+	return c.send(e.Message)
 }
 
 func (c *ClientLink) receiving() error {
@@ -188,7 +195,7 @@ func (c *ClientLink) receiving() error {
 		case link.Msg, link.MsgRtn:
 			err = c.onMsg(msg, c.callback)
 		case link.Ack:
-			err = c.onAck(msg)
+			c.session.acknowledge(msg.Context.ID)
 		default:
 			err = ErrSessionMessageTypeInvalid
 		}
@@ -199,20 +206,12 @@ func (c *ClientLink) receiving() error {
 	}
 }
 
-func (c *ClientLink) onAck(msg *link.Message) error {
-	err := c.session.resender.delete(uint16(msg.Context.ID))
-	if err != nil {
-		c.log.Warn(err.Error(), log.Any("pid", int(msg.Context.ID)))
-	}
-	return nil
-}
-
 func (c *ClientLink) onMsg(msg *link.Message, cb func(uint64)) error {
 	// TODO: improvement, cache auth result
 	if msg.Context.QOS > 1 {
 		return ErrSessionMessageQosNotSupported
 	}
-	if !c.manager.checker.CheckTopic(msg.Context.Topic, false) {
+	if !c.mgr.checker.CheckTopic(msg.Context.Topic, false) {
 		return ErrSessionMessageTopicInvalid
 	}
 	if !c.authorize(Publish, msg.Context.Topic) {
@@ -221,7 +220,7 @@ func (c *ClientLink) onMsg(msg *link.Message, cb func(uint64)) error {
 	if msg.Context.QOS == 0 {
 		cb = nil
 	}
-	c.manager.exchange.Route(msg, cb)
+	c.mgr.exch.Route(msg, cb)
 	return nil
 }
 

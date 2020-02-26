@@ -20,14 +20,14 @@ principals:
 `
 	testConf3 := `
 session:
-  maxMessagePayload: 256m
+  maxMessagePayloadSize: 256m
 `
 	testConf4 := `
 session:
   sysTopics:
   - $link
   - $baidu
-  maxConnections: 3
+  maxSessions: 3
   republishInterval: 200ms
   persistence:
   location: testdata
@@ -51,7 +51,7 @@ principals:
 	assert.EqualError(t, err, "Principals: sub topic($link) invalid")
 
 	err = utils.UnmarshalYAML([]byte(testConf3), &cfg3)
-	assert.EqualError(t, err, "SessionConfig.MaxMessagePayload: greater than max") // for mqtt protocol, the valid max payloadSize of message is (256MB - 1)
+	assert.EqualError(t, err, "SessionConfig.MaxMessagePayloadSize: greater than max") // for mqtt protocol, the valid max payloadSize of message is (256MB - 1)
 
 	err = utils.UnmarshalYAML([]byte(testConf4), &cfg4)
 	assert.NoError(t, err)

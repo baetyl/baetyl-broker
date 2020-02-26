@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"net"
 	"os"
 	"sync"
@@ -26,7 +27,8 @@ session:
   sysTopics:
   - $link
   - $baidu
-  maxConnections: 3
+  maxSessions: 3
+  maxClientsPerSession: 2
   resendInterval: 200ms
   persistence:
   location: testdata
@@ -59,8 +61,8 @@ principals:
 type mockBroker struct {
 	t          *testing.T
 	cfg        Config
-	manager    *Manager
-	transport  *mqtt.Transport
+	mgr        *Manager
+	trans      *mqtt.Transport
 	linkserver *grpc.Server
 }
 
@@ -71,81 +73,89 @@ func newMockBroker(t *testing.T, cfgStr string) *mockBroker {
 	err := utils.UnmarshalYAML([]byte(cfgStr), &cfg)
 	assert.NoError(t, err)
 	b := &mockBroker{t: t, cfg: cfg}
-	b.manager, err = NewManager(cfg)
+	b.mgr, err = NewManager(cfg)
 	assert.NoError(t, err)
 	return b
 }
 
-func (b *mockBroker) waitClientReady(cnt int) {
-	for {
-		if b.manager.clients.Count() != cnt {
-			time.Sleep(time.Millisecond * 100)
-			continue
-		}
-		return
-	}
-}
-
-func (b *mockBroker) waitBindingReady(sid string, cnt int) {
-	for {
-		s, ok := b.manager.sessions.Get(sid)
-		if !ok || s.(*Session).clientCount() != cnt {
-			time.Sleep(time.Millisecond * 100)
-			continue
-		}
-		return
-	}
-}
-
 func (b *mockBroker) assertSessionCount(expect int) {
-	assert.Equal(b.t, expect, b.manager.sessions.Count())
+	assert.Equal(b.t, expect, b.mgr.countSessions())
 }
 
-func (b *mockBroker) assertClientCount(expect int) {
-	assert.Equal(b.t, expect, b.manager.clients.Count())
-}
-
-func (b *mockBroker) assertBindingCount(sid string, expect int) {
-	s, ok := b.manager.sessions.Get(sid)
-	assert.True(b.t, ok)
-	assert.Equal(b.t, expect, s.(*Session).clientCount())
-}
-
-func (b *mockBroker) assertSession(id string, expect string) {
-	ses, err := b.manager.sessiondb.Get(id)
+func (b *mockBroker) assertSessionStore(id string, expect string) {
+	s, err := b.mgr.sstore.Get(id)
 	assert.NoError(b.t, err)
 	if expect == "" {
-		assert.Nil(b.t, ses)
+		assert.Nil(b.t, s)
 	} else {
-		assert.Equal(b.t, expect, ses.String())
+		assert.Equal(b.t, expect, s.String())
+	}
+}
+
+func (b *mockBroker) assertSessionState(sid string, expect state) {
+	v, ok := b.mgr.sessions.Load(sid)
+	assert.True(b.t, ok)
+	if !ok {
+		return
+	}
+	s := v.(*Session)
+	s.mut.RLock()
+	defer s.mut.RUnlock()
+	assert.Equal(b.t, expect, s.stat)
+	if expect == STATE0 {
+		assert.Nil(b.t, s.disp)
+		assert.Nil(b.t, s.qos0)
+		assert.Nil(b.t, s.qos1)
+		assert.Zero(b.t, s.subs.Count())
+		assert.Zero(b.t, len(s.info.Subscriptions))
+	} else if expect == STATE1 {
+		assert.NotNil(b.t, s.disp)
+		assert.NotNil(b.t, s.qos0)
+		assert.NotNil(b.t, s.qos1)
+		assert.NotZero(b.t, s.countClients())
+		assert.NotZero(b.t, s.subs.Count())
+		assert.NotZero(b.t, len(s.info.Subscriptions))
+	} else if expect == STATE2 {
+		assert.Nil(b.t, s.disp)
+		assert.Nil(b.t, s.qos0)
+		assert.NotNil(b.t, s.qos1)
+		assert.Zero(b.t, s.countClients())
+		assert.NotZero(b.t, s.subs.Count())
+		assert.NotZero(b.t, len(s.info.Subscriptions))
+	}
+}
+
+func (b *mockBroker) waitClientReady(sid string, cnt int) {
+	for {
+		v, ok := b.mgr.sessions.Load(sid)
+		if !ok || v.(*Session).countClients() != cnt {
+			time.Sleep(time.Millisecond * 100)
+			continue
+		}
+		return
 	}
 }
 
 func (b *mockBroker) assertExchangeCount(expect int) {
 	count := 0
-	for _, bind := range b.manager.exchange.Bindings() {
+	for _, bind := range b.mgr.exch.Bindings() {
 		count += bind.Count()
 	}
 	assert.Equal(b.t, expect, count)
 }
 
 func (b *mockBroker) close() {
-	if b.transport != nil {
-		b.transport.Close()
+	if b.trans != nil {
+		b.trans.Close()
 	}
-	if b.manager != nil {
-		b.manager.Close()
+	if b.mgr != nil {
+		b.mgr.Close()
 	}
 }
 
 func (b *mockBroker) closeAndClean() {
-	if b.transport != nil {
-		b.transport.Close()
-	}
-	if b.manager != nil {
-		b.manager.Close()
-	}
-	os.RemoveAll(b.cfg.Persistence.Location)
+	b.close()
+	os.RemoveAll("./var")
 }
 
 // * mqtt mock
@@ -190,7 +200,7 @@ func (c *mockConn) Close() error {
 	c.Lock()
 	c.closed = true
 	c.Unlock()
-	c.err <- errors.New("closed")
+	c.err <- io.EOF
 	return nil
 }
 
@@ -302,8 +312,9 @@ func (c *mockStream) RecvMsg(m interface{}) error  { return nil }
 
 func (c *mockStream) Close() {
 	c.Lock()
-	defer c.Unlock()
 	c.closed = true
+	c.Unlock()
+	c.err <- io.EOF
 }
 
 func (c *mockStream) isClosed() bool {

@@ -1,10 +1,12 @@
 package session
 
 import (
+	"path"
 	"testing"
 	"time"
 
 	"github.com/baetyl/baetyl-go/link"
+	"github.com/baetyl/baetyl-go/utils"
 	_ "github.com/mattn/go-sqlite3"
 	"github.com/stretchr/testify/assert"
 )
@@ -18,7 +20,7 @@ func TestSessionLinkException(t *testing.T) {
 
 	// empty topic
 	go func() {
-		errs <- b.manager.Talk(c)
+		errs <- b.mgr.Talk(c)
 	}()
 	m := &link.Message{}
 	c.sendC2S(m)
@@ -27,7 +29,7 @@ func TestSessionLinkException(t *testing.T) {
 
 	// invalid topic
 	go func() {
-		errs <- b.manager.Talk(c)
+		errs <- b.mgr.Talk(c)
 	}()
 	m.Context.Topic = "$non-exist"
 	c.sendC2S(m)
@@ -36,7 +38,7 @@ func TestSessionLinkException(t *testing.T) {
 
 	// invalid message type
 	go func() {
-		errs <- b.manager.Talk(c)
+		errs <- b.mgr.Talk(c)
 	}()
 	m.Context.Type = 111
 	c.sendC2S(m)
@@ -45,7 +47,7 @@ func TestSessionLinkException(t *testing.T) {
 
 	// invalid message qos
 	go func() {
-		errs <- b.manager.Talk(c)
+		errs <- b.mgr.Talk(c)
 	}()
 	m.Context.Type = 0
 	m.Context.QOS = 111
@@ -55,9 +57,71 @@ func TestSessionLinkException(t *testing.T) {
 	assert.EqualError(t, err, "message QOS is not supported")
 }
 
+func TestSessionLinkAllStates(t *testing.T) {
+	b := newMockBroker(t, testConfDefault)
+
+	lid := "$link/c"
+	errs := make(chan error, 10)
+	queuePath := path.Join(b.mgr.cfg.Persistence.Location, "queue", utils.CalculateBase64(lid))
+
+	// c1 connects
+	c1 := newMockStream(t, "c")
+	go func() {
+		errs <- b.mgr.Talk(c1)
+		c1.Close()
+	}()
+
+	b.waitClientReady(lid, 1)
+	b.assertSessionState(lid, STATE1)
+	b.assertSessionStore(lid, "{\"id\":\""+lid+"\",\"kind\":\"link\",\"subs\":{\""+lid+"\":1}}")
+	b.assertExchangeCount(1)
+	assert.True(t, utils.FileExists(queuePath))
+
+	// send invalid topic to disconnect
+	c1.sendC2S(&link.Message{})
+	err := <-errs
+	assert.EqualError(t, err, "message topic is invalid")
+
+	b.waitClientReady(lid, 0)
+	b.assertSessionCount(1)
+	b.assertSessionState(lid, STATE2)
+	b.assertSessionStore(lid, "{\"id\":\""+lid+"\",\"kind\":\"link\",\"subs\":{\""+lid+"\":1}}")
+	b.assertExchangeCount(1)
+	assert.True(t, utils.FileExists(queuePath))
+
+	// broker closes unexpected, session queue data is already stored
+	b.close()
+	assert.True(t, utils.FileExists(queuePath))
+
+	// broker restarts, persisted session will be started in state2
+	b = newMockBroker(t, testConfDefault)
+	defer b.closeAndClean()
+	b.assertSessionState(lid, STATE2)
+	b.assertSessionStore(lid, "{\"id\":\""+lid+"\",\"kind\":\"link\",\"subs\":{\""+lid+"\":1}}")
+	b.assertExchangeCount(1)
+	assert.True(t, utils.FileExists(queuePath))
+
+	// c2 connects again
+	c2 := newMockStream(t, "c")
+	go func() {
+		errs <- b.mgr.Talk(c2)
+		c2.Close()
+	}()
+
+	b.waitClientReady(lid, 1)
+	b.assertSessionState(lid, STATE1)
+	b.assertSessionStore(lid, "{\"id\":\""+lid+"\",\"kind\":\"link\",\"subs\":{\""+lid+"\":1}}")
+	b.assertExchangeCount(1)
+	assert.True(t, utils.FileExists(queuePath))
+}
+
+func TestSessionLinkClientLimit(t *testing.T) {
+	// TODO
+}
+
 func TestSessionLinkSendRecvBL(t *testing.T) {
 	b := newMockBroker(t, testConfDefault)
-	b.manager.cfg.ResendInterval = time.Millisecond * 1000
+	b.mgr.cfg.ResendInterval = time.Millisecond * 1000
 	defer b.closeAndClean()
 
 	errs := make(chan error, 10)
@@ -66,29 +130,29 @@ func TestSessionLinkSendRecvBL(t *testing.T) {
 	// pubc connect
 	pubc := newMockStream(t, "pubc")
 	go func() {
-		errs <- b.manager.Talk(pubc)
+		errs <- b.mgr.Talk(pubc)
 		pubc.Close()
 	}()
 	// subc1 connect with the same link id
 	subc1 := newMockStream(t, "subc")
 	go func() {
-		errs <- b.manager.Talk(subc1)
+		errs <- b.mgr.Talk(subc1)
 		subc1.Close()
 	}()
 	// subc2 connect with the same link id
 	subc2 := newMockStream(t, "subc")
 	go func() {
-		errs <- b.manager.Talk(subc2)
+		errs <- b.mgr.Talk(subc2)
 		subc2.Close()
 	}()
 
-	b.waitClientReady(3)
-	b.assertClientCount(3)
+	b.waitClientReady(publid, 1)
+	b.waitClientReady(sublid, 2)
 	b.assertSessionCount(2)
-	b.waitBindingReady(publid, 1)
-	b.assertBindingCount(publid, 1)
-	b.waitBindingReady(sublid, 2)
-	b.assertBindingCount(sublid, 2)
+	b.assertSessionState(publid, STATE1)
+	b.assertSessionState(sublid, STATE1)
+	b.assertSessionStore(publid, "{\"id\":\"$link/pubc\",\"kind\":\"link\",\"subs\":{\"$link/pubc\":1}}")
+	b.assertSessionStore(sublid, "{\"id\":\"$link/subc\",\"kind\":\"link\",\"subs\":{\"$link/subc\":1}}")
 	b.assertExchangeCount(2)
 
 	// pubc send a message with qos 0 to subc
@@ -97,8 +161,6 @@ func TestSessionLinkSendRecvBL(t *testing.T) {
 	m.Content = []byte("111")
 	pubc.sendC2S(m)
 	assertS2CMessageLB(subc1, subc2, "Context:<Topic:\"$link/subc\" > Content:\"111\" ")
-	b.assertSession(publid, "{\"ID\":\"$link/pubc\",\"CleanSession\":false,\"Subscriptions\":{\"$link/pubc\":1}}")
-	b.assertSession(sublid, "{\"ID\":\"$link/subc\",\"CleanSession\":false,\"Subscriptions\":{\"$link/subc\":1}}")
 
 	// pubc send more messages with qos 0 to subc
 	m = &link.Message{}
@@ -146,13 +208,13 @@ func TestSessionLinkSendRecvBL(t *testing.T) {
 	subc1.sendC2S(&link.Message{})
 	err := <-errs
 	assert.EqualError(t, err, "message topic is invalid")
-	b.waitClientReady(2)
-	b.assertClientCount(2)
+	b.waitClientReady(publid, 1)
+	b.waitClientReady(sublid, 1)
 	b.assertSessionCount(2)
-	b.waitBindingReady(publid, 1)
-	b.assertBindingCount(publid, 1)
-	b.waitBindingReady(sublid, 1)
-	b.assertBindingCount(sublid, 1)
+	b.assertSessionState(publid, STATE1)
+	b.assertSessionState(sublid, STATE1)
+	b.assertSessionStore(publid, "{\"id\":\"$link/pubc\",\"kind\":\"link\",\"subs\":{\"$link/pubc\":1}}")
+	b.assertSessionStore(sublid, "{\"id\":\"$link/subc\",\"kind\":\"link\",\"subs\":{\"$link/subc\":1}}")
 	b.assertExchangeCount(2)
 
 	m = &link.Message{}
@@ -180,13 +242,13 @@ func TestSessionLinkSendRecvBL(t *testing.T) {
 	subc2.sendC2S(&link.Message{})
 	err = <-errs
 	assert.EqualError(t, err, "message topic is invalid")
-	b.waitClientReady(1)
-	b.assertClientCount(1)
+	b.waitClientReady(publid, 1)
+	b.waitClientReady(sublid, 0)
 	b.assertSessionCount(2)
-	b.waitBindingReady(publid, 1)
-	b.assertBindingCount(publid, 1)
-	b.waitBindingReady(sublid, 0)
-	b.assertBindingCount(sublid, 0)
+	b.assertSessionState(publid, STATE1)
+	b.assertSessionState(sublid, STATE2)
+	b.assertSessionStore(publid, "{\"id\":\"$link/pubc\",\"kind\":\"link\",\"subs\":{\"$link/pubc\":1}}")
+	b.assertSessionStore(sublid, "{\"id\":\"$link/subc\",\"kind\":\"link\",\"subs\":{\"$link/subc\":1}}")
 	b.assertExchangeCount(2)
 
 	m = &link.Message{}
@@ -201,7 +263,7 @@ func TestSessionLinkSendRecvBL(t *testing.T) {
 
 	subc3 := newMockStream(t, "subc")
 	go func() {
-		errs <- b.manager.Talk(subc3)
+		errs <- b.mgr.Talk(subc3)
 		subc3.Close()
 	}()
 	subc3.assertS2CMessage("Context:<ID:3 QOS:1 Topic:\"$link/subc\" > Content:\">666<\" ")
@@ -213,24 +275,24 @@ func TestSessionLinkSendRecvBL(t *testing.T) {
 	subc3.sendC2S(&link.Message{})
 	err = <-errs
 	assert.EqualError(t, err, "message topic is invalid")
-	b.waitClientReady(1)
-	b.assertClientCount(1)
+	b.waitClientReady(publid, 1)
+	b.waitClientReady(sublid, 0)
 	b.assertSessionCount(2)
-	b.waitBindingReady(publid, 1)
-	b.assertBindingCount(publid, 1)
-	b.waitBindingReady(sublid, 0)
-	b.assertBindingCount(sublid, 0)
+	b.assertSessionState(publid, STATE1)
+	b.assertSessionState(sublid, STATE2)
+	b.assertSessionStore(publid, "{\"id\":\"$link/pubc\",\"kind\":\"link\",\"subs\":{\"$link/pubc\":1}}")
+	b.assertSessionStore(sublid, "{\"id\":\"$link/subc\",\"kind\":\"link\",\"subs\":{\"$link/subc\":1}}")
 	b.assertExchangeCount(2)
 
 	pubc.sendC2S(&link.Message{})
 	err = <-errs
 	assert.EqualError(t, err, "message topic is invalid")
-	b.waitClientReady(0)
-	b.assertClientCount(0)
+	b.waitClientReady(publid, 0)
+	b.waitClientReady(sublid, 0)
 	b.assertSessionCount(2)
-	b.waitBindingReady(publid, 0)
-	b.assertBindingCount(publid, 0)
-	b.waitBindingReady(sublid, 0)
-	b.assertBindingCount(sublid, 0)
+	b.assertSessionState(publid, STATE2)
+	b.assertSessionState(sublid, STATE2)
+	b.assertSessionStore(publid, "{\"id\":\"$link/pubc\",\"kind\":\"link\",\"subs\":{\"$link/pubc\":1}}")
+	b.assertSessionStore(sublid, "{\"id\":\"$link/subc\",\"kind\":\"link\",\"subs\":{\"$link/subc\":1}}")
 	b.assertExchangeCount(2)
 }

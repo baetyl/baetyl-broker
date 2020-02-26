@@ -3,21 +3,20 @@ package session
 import (
 	"errors"
 	"sync"
+	"sync/atomic"
 
 	"github.com/baetyl/baetyl-broker/exchange"
-	"github.com/baetyl/baetyl-broker/queue"
-	"github.com/baetyl/baetyl-broker/retain"
 	"github.com/baetyl/baetyl-go/link"
 	"github.com/baetyl/baetyl-go/log"
 	"github.com/baetyl/baetyl-go/mqtt"
-	"github.com/baetyl/baetyl-go/utils"
-	cmap "github.com/orcaman/concurrent-map"
 )
 
 // all errors
 var (
-	ErrConnectionRefuse                          = errors.New("connection refuse, sessions are closing")
-	ErrConnectionExceeds                         = errors.New("number of connections exceeds the max limit")
+	ErrConnectionRefuse                          = errors.New("connection refuse on server side")
+	ErrSessionClosed                             = errors.New("session is closed")
+	ErrSessionNumberExceeds                      = errors.New("number of sessions exceeds the limit")
+	ErrSessionClientNumberExceeds                = errors.New("number of session clients exceeds the limit")
 	ErrSessionClientAlreadyConnecting            = errors.New("session client is already connecting")
 	ErrSessionClientPacketUnexpected             = errors.New("session client received unexpected packet")
 	ErrSessionClientPacketIDConflict             = errors.New("packet id conflict, to acknowledge old packet")
@@ -45,300 +44,165 @@ var (
 type client interface {
 	getID() string
 	getSession() *Session
-	setSession(*Session)
-	sending(*iqel) error
-	resending(*iqel) error
+	setSession(sid string, s *Session)
 	authorize(string, string) bool
+	sendEvent(e *eventWrapper, dup bool) error
 	close() error
 }
 
 // Manager the manager of sessions
 type Manager struct {
-	cfg           Config
-	sessiondb     *Backend
-	retaindb      *retain.Backend
-	exchange      *exchange.Exchange
-	checker       *mqtt.TopicChecker
-	authenticator *Authenticator
-	sessions      cmap.ConcurrentMap // map[sid]session
-	clients       cmap.ConcurrentMap // map[cid]client
-	tomb          utils.Tomb
-	log           *log.Logger
-	mu            sync.Mutex
+	cfg      Config
+	sessions sync.Map
+	checker  *mqtt.TopicChecker
+	sstore   *Backend       // session store to persist sessions
+	mstore   *RetainBackend // message store to retain messages
+	exch     *exchange.Exchange
+	auth     *Authenticator
+	log      *log.Logger
+	quit     int32 // if quit != 0, it means manager is closed
 }
 
 // NewManager create a new session manager
-func NewManager(cfg Config) (*Manager, error) {
-	sessiondb, err := NewBackend(cfg)
+func NewManager(cfg Config) (m *Manager, err error) {
+	m = &Manager{
+		cfg:     cfg,
+		checker: mqtt.NewTopicChecker(cfg.SysTopics),
+		exch:    exchange.NewExchange(cfg.SysTopics),
+		auth:    NewAuthenticator(cfg.Principals),
+		log:     log.With(log.Any("session", "manager")),
+	}
+	m.sstore, err = NewBackend(cfg)
 	if err != nil {
-		return nil, err
+		m.Close()
+		return
+	}
+	m.mstore, err = m.sstore.NewRetainBackend()
+	if err != nil {
+		m.Close()
+		return
 	}
 	// load stored sessions from backend database
-	items, err := sessiondb.List()
+	ss, err := m.sstore.List()
 	if err != nil {
-		sessiondb.Close()
-		return nil, err
+		m.Close()
+		return
 	}
-	retaindb, err := sessiondb.NewRetainBackend()
-	if err != nil {
-		sessiondb.Close()
-		return nil, err
-	}
-	manager := &Manager{
-		cfg:           cfg,
-		sessiondb:     sessiondb,
-		retaindb:      retaindb,
-		authenticator: NewAuthenticator(cfg.Principals),
-		checker:       mqtt.NewTopicChecker(cfg.SysTopics),
-		exchange:      exchange.NewExchange(cfg.SysTopics),
-		sessions:      cmap.New(),
-		clients:       cmap.New(),
-		log:           log.With(log.Any("session", "manager")),
-	}
-	for _, i := range items {
+	for _, i := range ss {
 		si := i.(*Info)
-		s, err := manager.newSession(si)
+		m.checkSubscriptions(si)
+		_, _, err = m.initSession(*si)
 		if err != nil {
-			manager.Close()
-			return nil, err
-		}
-		manager.sessions.Set(si.ID, s)
-		for topic, qos := range si.Subscriptions {
-			// Re-check subscriptions, if topic invalid, log error, delete and skip
-			if !manager.checker.CheckTopic(topic, true) {
-				manager.log.Warn(ErrSessionMessageTopicInvalid.Error(), log.Any("topic", topic))
-				delete(si.Subscriptions, topic)
-				continue
-			}
-			if qos > 1 {
-				manager.log.Warn(ErrSessionMessageQosNotSupported.Error(), log.Any("qos", qos))
-				delete(si.Subscriptions, topic)
-				continue
-			}
-			s.subs.Set(topic, qos)
-			manager.exchange.Bind(topic, s)
-			// TODO: it is unnecessary to subscribe messages with qos 0 for the session without any client
+			m.Close()
+			return
 		}
 	}
-	manager.log.Info("session manager has initialized")
-	return manager, nil
+	m.log.Info("session manager has initialized")
+	return m, nil
+}
+
+func (m *Manager) initSession(si Info) (s *Session, exists bool, err error) {
+	if err = m.checkQuitState(); err != nil {
+		return
+	}
+
+	var v interface{}
+	if v, exists = m.sessions.Load(si.ID); exists {
+		s = v.(*Session)
+	} else {
+		s = newSession(si, m)
+		if v, exists = m.sessions.LoadOrStore(si.ID, s); exists {
+			s = v.(*Session)
+		}
+	}
+
+	s.updateInfo(&si, nil, nil, nil)
+	err = s.updateState()
+	return
+}
+
+func (m *Manager) checkQuitState() error {
+	if atomic.LoadInt32(&m.quit) == 1 {
+		m.log.Error(ErrConnectionRefuse.Error())
+		return ErrConnectionRefuse
+	}
+	return nil
+}
+
+func (m *Manager) checkSubscriptions(si *Info) {
+	for topic, qos := range si.Subscriptions {
+		// Re-check subscriptions, if topic invalid, log error, delete and skip
+		if qos != 0 && qos != 1 {
+			m.log.Warn(ErrSessionMessageQosNotSupported.Error(), log.Any("qos", qos))
+			delete(si.Subscriptions, topic)
+			continue
+		}
+		if !m.checker.CheckTopic(topic, true) {
+			m.log.Warn(ErrSessionMessageTopicInvalid.Error(), log.Any("topic", topic))
+			delete(si.Subscriptions, topic)
+			continue
+		}
+	}
+}
+
+func (m *Manager) checkSessions() error {
+	if err := m.checkQuitState(); err != nil {
+		return err
+	}
+	if m.cfg.MaxSessions > 0 && m.countSessions() >= m.cfg.MaxSessions {
+		m.log.Error(ErrSessionNumberExceeds.Error(), log.Any("max", m.cfg.MaxSessions))
+		return ErrSessionNumberExceeds
+	}
+	return nil
+}
+
+func (m *Manager) countSessions() (count int) {
+	m.sessions.Range(func(_, _ interface{}) bool {
+		count++
+		return true
+	})
+	return
 }
 
 // Close close
 func (m *Manager) Close() error {
 	m.log.Info("session manager is closing")
 	defer m.log.Info("session manager has closed")
-	m.tomb.Kill(nil)
 
-	for item := range m.clients.IterBuffered() {
-		item.Val.(client).close()
-	}
-	for item := range m.sessions.IterBuffered() {
-		item.Val.(*Session).close()
-	}
+	atomic.AddInt32(&m.quit, -1)
 
-	m.retaindb.Close()
-	m.sessiondb.Close()
-	return nil
-}
-
-// * init session for client
-
-// initSession init session for client, creates new session if not exists
-func (m *Manager) initSession(si *Info, c client) (s *Session, exists bool, err error) {
-	// prepare session
-	sid := si.ID
-	var sv interface{}
-	if sv, exists = m.sessions.Get(sid); !exists {
-		sv, err = m.newSession(si)
-		if err != nil {
-			return
-		}
-		if exists = !m.sessions.SetIfAbsent(sid, sv); exists {
-			sv.(*Session).close()
-			var ok bool
-			if sv, ok = m.sessions.Get(sid); !ok {
-				return nil, false, ErrSessionAbnormal
-			}
-		}
+	m.sessions.Range(func(_, v interface{}) bool {
+		v.(*Session).Close()
+		return true
+	})
+	if m.mstore != nil {
+		m.mstore.Close()
 	}
-	s = sv.(*Session)
-	for topic := range s.Subscriptions {
-		// Re-check subscriptions, if topic not permit, log error, delete and skip
-		if !c.authorize(Subscribe, topic) {
-			m.log.Warn(ErrSessionMessageTopicNotPermitted.Error(), log.Any("topic", topic))
-			delete(s.Subscriptions, topic)
-			m.exchange.Unbind(topic, s)
-		}
-	}
-	// update session
-	m.mu.Lock()
-	s.Info.CleanSession = si.CleanSession
-	m.mu.Unlock()
-	if s.Info.CleanSession {
-		m.sessiondb.Del(sid)
-		s.log.Info("session is removed from backend")
-	} else {
-		m.sessiondb.Set(&s.Info)
-		s.log.Info("session is stored to backend")
-	}
-	// TODO: if no topic subscribed, the session does not need to create queues
-	// only used by link client
-	for topic, qos := range s.Subscriptions {
-		s.subs.Set(topic, qos)
-		m.exchange.Bind(topic, s)
-	}
-	return
-}
-
-func (m *Manager) newSession(si *Info) (*Session, error) {
-	sid := si.ID
-	cfg := m.cfg.Persistence
-	cfg.Name = utils.CalculateBase64(sid)
-	cfg.BatchSize = m.cfg.MaxInflightQOS1Messages
-	queuedb, err := m.sessiondb.NewQueueBackend(cfg)
-	if err != nil {
-		m.log.Error("failed to create session", log.Any("session", sid), log.Error(err))
-		return nil, err
-	}
-	defer m.log.Info("session is created", log.Any("session", sid))
-	s := &Session{
-		Info:       *si,
-		subs:       mqtt.NewTrie(),
-		clis:       cmap.New(),
-		counter:    mqtt.NewCounter(),
-		sendingC:   make(chan struct{}, 1),
-		resendingC: make(chan struct{}, 1),
-		qos0:       queue.NewTemporary(sid, m.cfg.MaxInflightQOS0Messages, true),
-		qos1:       queue.NewPersistence(cfg, queuedb),
-		log:        m.log.With(log.Any("id", sid)),
-	}
-	s.resender = newResender(m.cfg.MaxInflightQOS1Messages, m.cfg.ResendInterval, &s.tomb)
-	s.tomb.Go(s.sending, s.resending)
-	return s, nil
-}
-
-// * subscription
-
-// Subscribe subscribes topics
-// only used by mqtt client
-func (m *Manager) subscribe(c client, subs []mqtt.Subscription) error {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-
-	s := c.getSession()
-	if s == nil {
-		panic("session should be prepared before client subscribes")
-	}
-	if s.Subscriptions == nil {
-		s.Subscriptions = map[string]mqtt.QOS{}
-	}
-	for _, sub := range subs {
-		s.Subscriptions[sub.Topic] = sub.QOS
-		s.subs.Set(sub.Topic, sub.QOS)
-		m.exchange.Bind(sub.Topic, s)
-	}
-	if !s.CleanSession {
-		return m.sessiondb.Set(&s.Info)
+	if m.sstore != nil {
+		m.sstore.Close()
 	}
 	return nil
 }
 
-// Unsubscribe unsubscribes topics
-func (m *Manager) unsubscribe(c client, topics []string) error {
-	m.mu.Lock()
-	defer m.mu.Unlock()
+// * retain message operations
 
-	s := c.getSession()
-	if s == nil {
-		panic("session should be prepared before client unsubscribes")
-	}
-	for _, t := range topics {
-		delete(s.Subscriptions, t)
-		s.subs.Empty(t)
-		m.exchange.Unbind(t, s)
-	}
-	if !s.CleanSession {
-		return m.sessiondb.Set(&s.Info)
-	}
-	return nil
-}
-
-func (m *Manager) checkConnection() error {
-	if !m.tomb.Alive() {
-		m.log.Error(ErrConnectionRefuse.Error())
-		return ErrConnectionRefuse
-	}
-	if m.cfg.MaxConnections > 0 && m.clients.Count() >= m.cfg.MaxConnections {
-		m.log.Error(ErrConnectionExceeds.Error(), log.Any("max", m.cfg.MaxConnections))
-		return ErrConnectionExceeds
-	}
-	return nil
-}
-
-//  * client operations
-
-func (m *Manager) addClient(c client) {
-	m.clients.Set(c.getID(), c)
-}
-
-// delClient deletes client and clean session if needs
-func (m *Manager) delClient(c client) {
-	// remove client
-	cid := c.getID()
-	m.clients.Remove(cid)
-
-	// remove session if needs
-	s := c.getSession()
-	if s == nil {
-		return
-	}
-
-	m.mu.Lock()
-	clean := s.delClient(c)
-	m.mu.Unlock()
-	if clean {
-		// close session if not bound and CleanSession=true
-		sid := s.ID
-		m.sessiondb.Del(sid)
-		m.exchange.UnbindAll(s)
-		s.close()
-		m.sessions.Remove(sid)
-		m.log.Info("session is removed", log.Any("sid", sid))
-	}
-}
-
-// * session operations
-
-// SetRetain sets retain message
-func (m *Manager) setRetain(topic string, msg *link.Message) error {
-	retain := &retain.Retain{Topic: msg.Context.Topic, Message: msg}
-	err := m.retaindb.Set(retain)
-	if err != nil {
-		return err
-	}
-	return nil
-}
-
-// GetRetain gets retain messages
-func (m *Manager) getRetain() ([]*link.Message, error) {
-	retains, err := m.retaindb.List()
+func (m *Manager) listRetainedMessages() ([]*link.Message, error) {
+	retains, err := m.mstore.List()
 	if err != nil {
 		return nil, err
 	}
 	msgs := make([]*link.Message, 0)
 	for _, v := range retains {
-		msg := v.(*retain.Retain).Message
+		msg := v.(*RetainMessage).Message
 		msgs = append(msgs, msg)
 	}
 	return msgs, nil
 }
 
-// RemoveRetain removes retain message
-func (m *Manager) removeRetain(topic string) error {
-	err := m.retaindb.Del(topic)
-	if err != nil {
-		return err
-	}
-	return nil
+func (m *Manager) retainMessage(topic string, msg *link.Message) error {
+	return m.mstore.Set(&RetainMessage{Topic: msg.Context.Topic, Message: msg})
+}
+
+func (m *Manager) unretainMessage(topic string) error {
+	return m.mstore.Del(topic)
 }
