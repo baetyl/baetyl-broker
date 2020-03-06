@@ -41,6 +41,7 @@ func _new(conf Conf, encoder Encoder) (DB, error) {
 	if err != nil {
 		return nil, err
 	}
+	db.SetMaxOpenConns(1)
 	for _, v := range schema[conf.Driver] {
 		if _, err = db.Exec(v); err != nil {
 			db.Close()
