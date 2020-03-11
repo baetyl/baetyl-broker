@@ -4,10 +4,8 @@ import (
 	"flag"
 	// "net/http"
 	// _ "net/http/pprof"
-	"os"
-	"os/signal"
-	"syscall"
 
+	"github.com/baetyl/baetyl-go/context"
 	"github.com/baetyl/baetyl-go/log"
 	"github.com/baetyl/baetyl-go/utils"
 	_ "github.com/mattn/go-sqlite3"
@@ -50,26 +48,19 @@ func main() {
 		return
 	}
 
-	l, _ := log.Init(log.Config{Level: "debug", Format: "text"})
-	// l := log.With()
-	defer l.Sync()
-
-	// baetyl.Run(func(ctx baetyl.Context) error {
-	var cfg Config
-	if utils.FileExists(c) {
-		utils.LoadYAML(c, &cfg)
-	} else {
-		utils.SetDefaults(&cfg)
-	}
-	b, err := NewBroker(cfg)
-	if err != nil {
-		l.Fatal("failed to create broker", log.Error(err))
-	}
-	defer b.Close()
-
-	sig := make(chan os.Signal, 1)
-	signal.Notify(sig, syscall.SIGTERM, syscall.SIGINT)
-	signal.Ignore(syscall.SIGPIPE)
-	<-sig
-	// })
+	context.Run(func(ctx context.Context) error {
+		var cfg Config
+		if utils.FileExists(c) {
+			utils.LoadYAML(c, &cfg)
+		} else {
+			utils.SetDefaults(&cfg)
+		}
+		b, err := NewBroker(cfg)
+		if err != nil {
+			ctx.Log().Fatal("failed to create broker", log.Error(err))
+		}
+		defer b.Close()
+		ctx.Wait()
+		return nil
+	})
 }

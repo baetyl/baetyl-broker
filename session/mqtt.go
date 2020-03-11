@@ -29,8 +29,8 @@ type ClientMQTT struct {
 
 // * connection handlers
 
-// ClientMQTTHandler the connection handler to create a new MQTT client
-func (m *Manager) ClientMQTTHandler(conn mqtt.Connection) {
+// Handle the connection handler to create a new MQTT client
+func (m *Manager) Handle(conn mqtt.Connection) {
 	id := strings.ReplaceAll(uuid.Generate().String(), "-", "")
 	c := &ClientMQTT{
 		id:   id,

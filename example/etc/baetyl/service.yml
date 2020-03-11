@@ -1,12 +1,14 @@
-addresses:
-  - tcp://0.0.0.0:1883
-  - ssl://0.0.0.0:1884
-  - ws://0.0.0.0:8883/mqtt
-  - wss://0.0.0.0:8884/mqtt
-certificate:
-  ca: example/var/lib/baetyl/testcert/ca.pem
-  cert: example/var/lib/baetyl/testcert/server.pem
-  key: example/var/lib/baetyl/testcert/server.key
+listeners:
+  - address: tcp://0.0.0.0:1883
+  - address: ssl://0.0.0.0:1884
+    ca: example/var/lib/baetyl/testcert/ca.pem
+    key: example/var/lib/baetyl/testcert/server.key
+    cert: example/var/lib/baetyl/testcert/server.pem
+  - address: ws://0.0.0.0:8883/mqtt
+  - address: wss://0.0.0.0:8884/mqtt
+    ca: example/var/lib/baetyl/testcert/ca.pem
+    key: example/var/lib/baetyl/testcert/server.key
+    cert: example/var/lib/baetyl/testcert/server.pem
 principals:
   - username: test
     password: hahaha
