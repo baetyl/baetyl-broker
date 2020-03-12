@@ -7,9 +7,8 @@ github.com/BurntSushi/toml v0.3.1 h1:WXkYYl6Yr3qBf1K79EBnL4mak0OimBfB0XUf9Vl28OQ
 github.com/BurntSushi/toml v0.3.1/go.mod h1:xHWCNGjB5oqiDr8zfno3MHue2Ht5sIBksp03qcyfWMU=
 github.com/abiosoft/ishell v2.0.0+incompatible/go.mod h1:HQR9AqF2R3P4XXpMpI0NAzgHf/aS6+zVXRj14cVk9qg=
 github.com/abiosoft/readline v0.0.0-20180607040430-155bce2042db/go.mod h1:rB3B4rKii8V21ydCbIzH5hZiCQE7f5E9SzUb/ZZx530=
-github.com/baetyl/baetyl-go v0.0.0-20191215143427-8f7688de72d6 h1:rcJnaDgJEDPMMWXOaEK5yy8tWP6Fupfy/U/vCYxiRr0=
-github.com/baetyl/baetyl-go v0.1.12 h1:xeg8hY0HsG4AfoBuc3Maq1jcrDQhCIy8Np60MJPHaSs=
-github.com/baetyl/baetyl-go v0.1.12/go.mod h1:ZTOE/v5VvARimSBpLKtn7WU6qeEvhXcEWkAWp8M3/dU=
+github.com/baetyl/baetyl-go v0.1.14 h1:s16YZfbVbWs58UHtGkhXyID1rMnQV6ULIeXHHEHHpYA=
+github.com/baetyl/baetyl-go v0.1.14/go.mod h1:9Cz1wuZawVv4a8ezITuB7Ikax/Q+FfmQpAP27Muhhw0=
 github.com/beorn7/perks v0.0.0-20180321164747-3a771d992973/go.mod h1:Dwedo/Wpr24TaqPxmxbtue+5NUziq4I4S80YR8gNf3Q=
 github.com/census-instrumentation/opencensus-proto v0.2.1/go.mod h1:f6KPmirojxKA12rnyqOA5BBL4O983OfeGPqjHWSTneU=
 github.com/chzyer/logex v1.1.10/go.mod h1:+Ywpsq7O8HXn0nuIou7OrIPyXbp3wmkHB+jjWRnGsAI=
@@ -173,7 +172,6 @@ gopkg.in/validator.v2 v2.0.0-20191107172027-c3144fdedc21 h1:2QQcyaEBdpfjjYkF0MXc
 gopkg.in/validator.v2 v2.0.0-20191107172027-c3144fdedc21/go.mod h1:o4V0GXN9/CAmCsvJ0oXYZvrZOe7syiDZSN1GWGZTGzc=
 gopkg.in/yaml.v2 v2.2.2 h1:ZCJp+EgiOT7lHqUV2J862kp8Qj64Jo6az82+3Td9dZw=
 gopkg.in/yaml.v2 v2.2.2/go.mod h1:hI93XBmqTisBFMUTm0b8Fm+jr3Dg1NNxqwp+5A1VGuI=
-gotest.tools v2.2.0+incompatible/go.mod h1:DsYFclhRJ6vuDpmuTbkuFWG+y2sxOXAzmJt81HFBacw=
 honnef.co/go/tools v0.0.0-20190102054323-c2f93a96b099/go.mod h1:rf3lG4BRIbNafJWhAfAdb/ePZxsR/4RtNHQocxwk9r4=
 honnef.co/go/tools v0.0.0-20190523083050-ea95bdfd59fc/go.mod h1:rf3lG4BRIbNafJWhAfAdb/ePZxsR/4RtNHQocxwk9r4=
 honnef.co/go/tools v0.0.1-2019.2.3 h1:3JgtbtFHMiCmsznwGVTUWbgGov+pVqnlf1dEJTNAXeM=
