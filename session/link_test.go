@@ -20,7 +20,7 @@ func TestSessionLinkException(t *testing.T) {
 
 	// empty topic
 	go func() {
-		errs <- b.mgr.Talk(c)
+		errs <- b.ses.Talk(c)
 	}()
 	m := &link.Message{}
 	c.sendC2S(m)
@@ -29,7 +29,7 @@ func TestSessionLinkException(t *testing.T) {
 
 	// invalid topic
 	go func() {
-		errs <- b.mgr.Talk(c)
+		errs <- b.ses.Talk(c)
 	}()
 	m.Context.Topic = "$non-exist"
 	c.sendC2S(m)
@@ -38,7 +38,7 @@ func TestSessionLinkException(t *testing.T) {
 
 	// invalid message type
 	go func() {
-		errs <- b.mgr.Talk(c)
+		errs <- b.ses.Talk(c)
 	}()
 	m.Context.Type = 111
 	c.sendC2S(m)
@@ -47,7 +47,7 @@ func TestSessionLinkException(t *testing.T) {
 
 	// invalid message qos
 	go func() {
-		errs <- b.mgr.Talk(c)
+		errs <- b.ses.Talk(c)
 	}()
 	m.Context.Type = 0
 	m.Context.QOS = 111
@@ -62,12 +62,12 @@ func TestSessionLinkAllStates(t *testing.T) {
 
 	lid := "$link/c"
 	errs := make(chan error, 10)
-	queuePath := path.Join(b.mgr.cfg.Persistence.Location, "queue", utils.CalculateBase64(lid))
+	queuePath := path.Join(b.ses.cfg.Persistence.Location, "queue", utils.CalculateBase64(lid))
 
 	// c1 connects
 	c1 := newMockStream(t, "c")
 	go func() {
-		errs <- b.mgr.Talk(c1)
+		errs <- b.ses.Talk(c1)
 		c1.Close()
 	}()
 
@@ -104,7 +104,7 @@ func TestSessionLinkAllStates(t *testing.T) {
 	// c2 connects again
 	c2 := newMockStream(t, "c")
 	go func() {
-		errs <- b.mgr.Talk(c2)
+		errs <- b.ses.Talk(c2)
 		c2.Close()
 	}()
 
@@ -123,26 +123,26 @@ func TestSessionLinkMaxSessionsAndClients(t *testing.T) {
 	// c1 connect
 	c1 := newMockStream(t, "c1")
 	go func() {
-		errs <- b.mgr.Talk(c1)
+		errs <- b.ses.Talk(c1)
 		c1.Close()
 	}()
 	// c2 connect
 	c2 := newMockStream(t, "c2")
 	go func() {
-		errs <- b.mgr.Talk(c2)
+		errs <- b.ses.Talk(c2)
 		c2.Close()
 	}()
 	// c3 connect
 	c3 := newMockStream(t, "c3")
 	go func() {
-		errs <- b.mgr.Talk(c3)
+		errs <- b.ses.Talk(c3)
 		c3.Close()
 	}()
 
 	// c4 connect
 	c4 := newMockStream(t, "c4")
 	go func() {
-		errs <- b.mgr.Talk(c4)
+		errs <- b.ses.Talk(c4)
 		c4.Close()
 	}()
 
@@ -154,7 +154,7 @@ func TestSessionLinkMaxSessionsAndClients(t *testing.T) {
 	// c5 connect
 	c5 := newMockStream(t, lid)
 	go func() {
-		errs <- b.mgr.Talk(c5)
+		errs <- b.ses.Talk(c5)
 		c5.Close()
 	}()
 
@@ -165,7 +165,7 @@ func TestSessionLinkMaxSessionsAndClients(t *testing.T) {
 	// c6 connect
 	c6 := newMockStream(t, lid)
 	go func() {
-		errs <- b.mgr.Talk(c6)
+		errs <- b.ses.Talk(c6)
 		c6.Close()
 	}()
 
@@ -176,7 +176,7 @@ func TestSessionLinkMaxSessionsAndClients(t *testing.T) {
 
 func TestSessionLinkSendRecvBL(t *testing.T) {
 	b := newMockBroker(t, testConfDefault)
-	b.mgr.cfg.ResendInterval = time.Millisecond * 1000
+	b.ses.cfg.ResendInterval = time.Millisecond * 1000
 	defer b.closeAndClean()
 
 	errs := make(chan error, 10)
@@ -185,19 +185,19 @@ func TestSessionLinkSendRecvBL(t *testing.T) {
 	// pubc connect
 	pubc := newMockStream(t, "pubc")
 	go func() {
-		errs <- b.mgr.Talk(pubc)
+		errs <- b.ses.Talk(pubc)
 		pubc.Close()
 	}()
 	// subc1 connect with the same link id
 	subc1 := newMockStream(t, "subc")
 	go func() {
-		errs <- b.mgr.Talk(subc1)
+		errs <- b.ses.Talk(subc1)
 		subc1.Close()
 	}()
 	// subc2 connect with the same link id
 	subc2 := newMockStream(t, "subc")
 	go func() {
-		errs <- b.mgr.Talk(subc2)
+		errs <- b.ses.Talk(subc2)
 		subc2.Close()
 	}()
 
@@ -318,7 +318,7 @@ func TestSessionLinkSendRecvBL(t *testing.T) {
 
 	subc3 := newMockStream(t, "subc")
 	go func() {
-		errs <- b.mgr.Talk(subc3)
+		errs <- b.ses.Talk(subc3)
 		subc3.Close()
 	}()
 	subc3.assertS2CMessage("Context:<ID:3 QOS:1 Topic:\"$link/subc\" > Content:\">666<\" ")

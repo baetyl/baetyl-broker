@@ -10,12 +10,12 @@ import (
 	"testing"
 	"time"
 
+	"github.com/baetyl/baetyl-broker/listener"
 	"github.com/baetyl/baetyl-go/link"
 	"github.com/baetyl/baetyl-go/log"
 	"github.com/baetyl/baetyl-go/mqtt"
 	"github.com/baetyl/baetyl-go/utils"
 	"github.com/stretchr/testify/assert"
-	"google.golang.org/grpc"
 	"google.golang.org/grpc/metadata"
 )
 
@@ -58,31 +58,30 @@ principals:
 )
 
 type mockBroker struct {
-	t          *testing.T
-	cfg        Config
-	mgr        *Manager
-	trans      *mqtt.Transport
-	linkserver *grpc.Server
+	t   *testing.T
+	cfg Config
+	ses *Manager
+	lis *listener.Manager
 }
 
 func newMockBroker(t *testing.T, cfgStr string) *mockBroker {
-	log.Init(log.Config{Level: "debug", Format: "text"})
+	log.Init(log.Config{Level: "debug", Encoding: "console"})
 
 	var cfg Config
 	err := utils.UnmarshalYAML([]byte(cfgStr), &cfg)
 	assert.NoError(t, err)
 	b := &mockBroker{t: t, cfg: cfg}
-	b.mgr, err = NewManager(cfg)
+	b.ses, err = NewManager(cfg)
 	assert.NoError(t, err)
 	return b
 }
 
 func (b *mockBroker) assertSessionCount(expect int) {
-	assert.Equal(b.t, expect, b.mgr.sessions.count())
+	assert.Equal(b.t, expect, b.ses.sessions.count())
 }
 
 func (b *mockBroker) assertSessionStore(id string, expect string) {
-	s, err := b.mgr.sstore.Get(id)
+	s, err := b.ses.sstore.Get(id)
 	assert.NoError(b.t, err)
 	if expect == "" {
 		assert.Nil(b.t, s)
@@ -92,7 +91,7 @@ func (b *mockBroker) assertSessionStore(id string, expect string) {
 }
 
 func (b *mockBroker) assertSessionState(sid string, expect state) {
-	v, ok := b.mgr.sessions.load(sid)
+	v, ok := b.ses.sessions.load(sid)
 	assert.True(b.t, ok)
 	if !ok {
 		return
@@ -126,7 +125,7 @@ func (b *mockBroker) assertSessionState(sid string, expect state) {
 
 func (b *mockBroker) waitClientReady(sid string, cnt int) {
 	for {
-		v, ok := b.mgr.sessions.load(sid)
+		v, ok := b.ses.sessions.load(sid)
 		if !ok || v.(*Session).clients.count() != cnt {
 			time.Sleep(time.Millisecond * 100)
 			continue
@@ -137,18 +136,18 @@ func (b *mockBroker) waitClientReady(sid string, cnt int) {
 
 func (b *mockBroker) assertExchangeCount(expect int) {
 	count := 0
-	for _, bind := range b.mgr.exch.Bindings() {
+	for _, bind := range b.ses.exch.Bindings() {
 		count += bind.Count()
 	}
 	assert.Equal(b.t, expect, count)
 }
 
 func (b *mockBroker) close() {
-	if b.trans != nil {
-		b.trans.Close()
+	if b.lis != nil {
+		b.lis.Close()
 	}
-	if b.mgr != nil {
-		b.mgr.Close()
+	if b.ses != nil {
+		b.ses.Close()
 	}
 }
 

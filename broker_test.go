@@ -22,8 +22,7 @@ func TestBrokerMqttConnectErrorMissingAddress(t *testing.T) {
 
 	// for tcp connection
 	obs := newMockObserver(t)
-	cli, err := mqtt.NewClient(mqtt.ClientConfig{}, obs)
-	assert.NoError(t, err)
+	cli := mqtt.NewClient(mqtt.ClientOptions{Observer: obs})
 	assert.NotNil(t, cli)
 	defer cli.Close()
 
@@ -36,10 +35,10 @@ func TestBrokerMqttConnectErrorWrongAddress(t *testing.T) {
 
 	// for tcp connection
 	obs := newMockObserver(t)
-	cli, err := mqtt.NewClient(mqtt.ClientConfig{
-		Address: "tcp://127.0.0.1:2333",
-	}, obs)
-	assert.NoError(t, err)
+	cli := mqtt.NewClient(mqtt.ClientOptions{
+		Address:  "tcp://127.0.0.1:2333",
+		Observer: obs,
+	})
 	assert.NotNil(t, cli)
 	defer cli.Close()
 
@@ -52,13 +51,13 @@ func TestBrokerMqttConnectErrorMissingClinetID(t *testing.T) {
 
 	// for tcp connection
 	obs := newMockObserver(t)
-	cli, err := mqtt.NewClient(mqtt.ClientConfig{
+	cli := mqtt.NewClient(mqtt.ClientOptions{
 		Address:      "tcp://0.0.0.0:1883",
 		Username:     "test",
 		Password:     "hahaha",
 		CleanSession: false,
-	}, obs)
-	assert.NoError(t, err)
+		Observer:     obs,
+	})
 	assert.NotNil(t, cli)
 	defer cli.Close()
 
@@ -71,7 +70,7 @@ func TestBrokerMqttConnectErrorCertificate(t *testing.T) {
 
 	// for tcp connection
 	obs := newMockObserver(t)
-	cli, err := mqtt.NewClient(mqtt.ClientConfig{
+	cli := mqtt.NewClient(mqtt.ClientOptions{
 		Address:  "ssl://0.0.0.0:1884",
 		ClientID: "ssl-1",
 		Timeout:  time.Millisecond * 100,
@@ -81,8 +80,8 @@ func TestBrokerMqttConnectErrorCertificate(t *testing.T) {
 		// 	Key:                "./example/var/lib/baetyl/testcert/client.key",
 		// 	InsecureSkipVerify: true,
 		// },
-	}, obs)
-	assert.NoError(t, err)
+		Observer: obs,
+	})
 	assert.NotNil(t, cli)
 	defer cli.Close()
 
@@ -95,14 +94,14 @@ func TestBrokerMqttConnectErrorBadUsernameOrPassword1(t *testing.T) {
 
 	// for tcp connection
 	obs := newMockObserver(t)
-	cli, err := mqtt.NewClient(mqtt.ClientConfig{
+	cli := mqtt.NewClient(mqtt.ClientOptions{
 		Address:  "tcp://0.0.0.0:1883",
 		Username: "test",
 		// Password: "hahaha",
 		ClientID: "tcp-1",
 		Timeout:  time.Millisecond * 100,
-	}, obs)
-	assert.NoError(t, err)
+		Observer: obs,
+	})
 	assert.NotNil(t, cli)
 	defer cli.Close()
 
@@ -115,14 +114,14 @@ func TestBrokerMqttConnectErrorBadUsernameOrPassword2(t *testing.T) {
 
 	// for tcp connection
 	obs := newMockObserver(t)
-	cli, err := mqtt.NewClient(mqtt.ClientConfig{
+	cli := mqtt.NewClient(mqtt.ClientOptions{
 		Address: "tcp://0.0.0.0:1883",
 		// Username: "test",
 		Password: "hahaha",
 		ClientID: "tcp-1",
 		Timeout:  time.Millisecond * 100,
-	}, obs)
-	assert.NoError(t, err)
+		Observer: obs,
+	})
 	assert.NotNil(t, cli)
 	defer cli.Close()
 
@@ -135,14 +134,14 @@ func TestBrokerMqttConnectErrorBadUsernameOrPassword3(t *testing.T) {
 
 	// for tcp connection
 	obs := newMockObserver(t)
-	cli, err := mqtt.NewClient(mqtt.ClientConfig{
+	cli := mqtt.NewClient(mqtt.ClientOptions{
 		Address:  "tcp://0.0.0.0:1883",
 		Username: "temp",
 		Password: "hahaha",
 		ClientID: "tcp-1",
 		Timeout:  time.Millisecond * 100,
-	}, obs)
-	assert.NoError(t, err)
+		Observer: obs,
+	})
 	assert.NotNil(t, cli)
 	defer cli.Close()
 
@@ -155,13 +154,13 @@ func TestBrokerMqttConnectTCPNormal(t *testing.T) {
 
 	// for tcp connection, normal
 	obs := newMockObserver(t)
-	cli, err := mqtt.NewClient(mqtt.ClientConfig{
+	cli := mqtt.NewClient(mqtt.ClientOptions{
 		Address:  "tcp://127.0.0.1:1883",
 		Username: "test",
 		Password: "hahaha",
 		ClientID: "tcp-1",
-	}, obs)
-	assert.NoError(t, err)
+		Observer: obs,
+	})
 	assert.NotNil(t, cli)
 	assert.NoError(t, cli.Close())
 }
@@ -170,19 +169,23 @@ func TestBrokerMqttConnectSSLNormal(t *testing.T) {
 	b := initBroker(t)
 	defer b.Close()
 
+	tlsconfig, err := utils.NewTLSConfigClient(utils.Certificate{
+		CA:                 "./example/var/lib/baetyl/testcert/ca.pem",
+		Cert:               "./example/var/lib/baetyl/testcert/client.pem",
+		Key:                "./example/var/lib/baetyl/testcert/client.key",
+		InsecureSkipVerify: true,
+	})
+	assert.NoError(t, err)
+	assert.NotNil(t, tlsconfig)
+
 	// for ssl connection
 	obs := newMockObserver(t)
-	cli, err := mqtt.NewClient(mqtt.ClientConfig{
-		Address:  "ssl://0.0.0.0:1884",
-		ClientID: "ssl-1",
-		Certificate: utils.Certificate{
-			CA:                 "./example/var/lib/baetyl/testcert/ca.pem",
-			Cert:               "./example/var/lib/baetyl/testcert/client.pem",
-			Key:                "./example/var/lib/baetyl/testcert/client.key",
-			InsecureSkipVerify: true,
-		},
-	}, obs)
-	assert.NoError(t, err)
+	cli := mqtt.NewClient(mqtt.ClientOptions{
+		Address:   "ssl://0.0.0.0:1884",
+		ClientID:  "ssl-1",
+		TLSConfig: tlsconfig,
+		Observer:  obs,
+	})
 	assert.NotNil(t, cli)
 	assert.NoError(t, cli.Close())
 }
@@ -193,13 +196,13 @@ func TestBrokerMqttConnectWebsocketNormal(t *testing.T) {
 
 	// for websocket connection
 	obs := newMockObserver(t)
-	cli, err := mqtt.NewClient(mqtt.ClientConfig{
+	cli := mqtt.NewClient(mqtt.ClientOptions{
 		Address:  "ws://0.0.0.0:8883/mqtt",
 		Username: "test",
 		Password: "hahaha",
 		ClientID: "websocket-1",
-	}, obs)
-	assert.NoError(t, err)
+		Observer: obs,
+	})
 	assert.NotNil(t, cli)
 	assert.NoError(t, cli.Close())
 }
@@ -208,19 +211,23 @@ func TestBrokerMqttConnectWebSocketSSLNormal(t *testing.T) {
 	b := initBroker(t)
 	defer b.Close()
 
+	tlsconfig, err := utils.NewTLSConfigClient(utils.Certificate{
+		CA:                 "./example/var/lib/baetyl/testcert/ca.pem",
+		Cert:               "./example/var/lib/baetyl/testcert/client.pem",
+		Key:                "./example/var/lib/baetyl/testcert/client.key",
+		InsecureSkipVerify: true,
+	})
+	assert.NoError(t, err)
+	assert.NotNil(t, tlsconfig)
+
 	// for wss(websocket + ssl) connection
 	obs := newMockObserver(t)
-	cli, err := mqtt.NewClient(mqtt.ClientConfig{
-		Address:  "wss://0.0.0.0:8884/mqtt",
-		ClientID: "wss-1",
-		Certificate: utils.Certificate{
-			CA:                 "./example/var/lib/baetyl/testcert/ca.pem",
-			Cert:               "./example/var/lib/baetyl/testcert/client.pem",
-			Key:                "./example/var/lib/baetyl/testcert/client.key",
-			InsecureSkipVerify: true,
-		},
-	}, obs)
-	assert.NoError(t, err)
+	cli := mqtt.NewClient(mqtt.ClientOptions{
+		Address:   "wss://0.0.0.0:8884/mqtt",
+		ClientID:  "wss-1",
+		TLSConfig: tlsconfig,
+		Observer:  obs,
+	})
 	assert.NotNil(t, cli)
 	assert.NoError(t, cli.Close())
 }
