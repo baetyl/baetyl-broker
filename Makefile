@@ -37,10 +37,11 @@ build-static: $(SRC_FILES)
 	@env GO111MODULE=on GOPROXY=https://goproxy.cn CGO_ENABLED=1 go build -o $(MODULE) $(GO_FLAGS_STATIC) .
 
 .PHONY: image
-image: 
+image:
 	@echo "BUILDX: $(REGISTRY)$(MODULE):$(VERSION)"
 	@-docker buildx create --name baetyl
 	@docker buildx use baetyl
+	@docker run --rm --privileged multiarch/qemu-user-static --reset -p yes
 	docker buildx build $(XFLAGS) --platform $(XPLATFORMS) -t $(REGISTRY)$(MODULE):$(VERSION) -f Dockerfile .
 
 
