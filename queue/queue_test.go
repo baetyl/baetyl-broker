@@ -4,12 +4,12 @@ import (
 	"fmt"
 	"io/ioutil"
 	"os"
-	"path"
 	"sync"
 	"testing"
 	"time"
 
 	"github.com/baetyl/baetyl-broker/common"
+	"github.com/baetyl/baetyl-broker/database"
 	"github.com/baetyl/baetyl-go/link"
 	"github.com/baetyl/baetyl-go/utils"
 	"github.com/gogo/protobuf/proto"
@@ -48,23 +48,24 @@ func TestTemporaryQueue(t *testing.T) {
 }
 
 func TestPersistentQueue(t *testing.T) {
-	dir, err := ioutil.TempDir("", "")
+	dir, err := ioutil.TempDir("", t.Name())
 	assert.NoError(t, err)
 	defer os.RemoveAll(dir)
+
+	db, err := database.New(database.Conf{Driver: "boltdb", Source: dir})
+	defer db.Close()
+	assert.NoError(t, err)
+	assert.NotNil(t, db)
+
+	bucket, err := db.NewBucket(t.Name(), new(Encoder))
+	assert.NoError(t, err)
+	assert.NotNil(t, bucket)
 
 	var cfg Config
 	utils.SetDefaults(&cfg)
 	cfg.Name = t.Name()
-	cfg.Location = dir
-	be, err := NewBackend(cfg)
-	assert.NoError(t, err)
-	assert.NotNil(t, be)
-	// create queue data file successfully, queue data will be stored
-	p := path.Join(dir, "queue", cfg.Name)
-	ok := utils.FileExists(p)
-	assert.True(t, ok)
 
-	b := NewPersistence(cfg, be)
+	b := NewPersistence(cfg, bucket)
 	assert.NotNil(t, b)
 
 	m := new(link.Message)
@@ -88,22 +89,25 @@ func TestPersistentQueue(t *testing.T) {
 	assert.NoError(t, err)
 	assert.Equal(t, "Context:<ID:2 TS:123 QOS:1 Topic:\"t\" > Content:\"hi\" ", e2.String())
 
-	ms, err := be.Get(1, 10)
+	var ms []link.Message
+	err = bucket.Get(1, 10, &ms)
 	assert.NoError(t, err)
 	assert.Len(t, ms, 3)
 
 	e1.Done()
 	e2.Done()
 
-	ms, err = be.Get(1, 10)
+	var ms2 []link.Message
+	err = bucket.Get(1, 10, &ms2)
 	assert.NoError(t, err)
-	assert.Len(t, ms, 3)
+	assert.Len(t, ms2, 3)
 
 	time.Sleep(time.Millisecond * 600)
 
-	ms, err = be.Get(1, 10)
+	var ms3 []link.Message
+	err = bucket.Get(1, 10, &ms3)
 	assert.NoError(t, err)
-	assert.Len(t, ms, 1)
+	assert.Len(t, ms3, 1)
 
 	e3, err := b.Pop()
 	assert.NoError(t, err)
@@ -112,49 +116,34 @@ func TestPersistentQueue(t *testing.T) {
 	e3.Done()
 	time.Sleep(time.Millisecond * 600)
 
-	ms, err = be.Get(1, 10)
+	var ms4 []link.Message
+	err = bucket.Get(1, 10, &ms4)
 	assert.NoError(t, err)
-	assert.Len(t, ms, 0)
+	assert.Len(t, ms4, 0)
 
-	// persist queue close with cleanSession is false, queue data file cannot be deleted
-	b.Close(false)
-	p = path.Join(dir, "queue", cfg.Name)
-	ok = utils.FileExists(p)
-	assert.True(t, ok)
-
-	// persist queue close with cleanSession is true, queue data file will be deleted
-	cfg.Name = utils.CalculateBase64(t.Name())
-	be, err = NewBackend(cfg)
+	err = b.Close(false)
 	assert.NoError(t, err)
-	assert.NotNil(t, be)
-
-	p = path.Join(dir, "queue", cfg.Name)
-	ok = utils.FileExists(p)
-	assert.True(t, ok)
-
-	b = NewPersistence(cfg, be)
-	assert.NotNil(t, b)
-
-	b.Close(true)
-	p = path.Join(dir, "queue", cfg.Name)
-	ok = utils.FileExists(p)
-	assert.False(t, ok)
 }
 
 func BenchmarkPersistentQueue(b *testing.B) {
-	dir, err := ioutil.TempDir("", "")
+	dir, err := ioutil.TempDir("", b.Name())
 	assert.NoError(b, err)
 	defer os.RemoveAll(dir)
+
+	db, err := database.New(database.Conf{Driver: "boltdb", Source: dir})
+	defer db.Close()
+	assert.NoError(b, err)
+	assert.NotNil(b, db)
+
+	bucket, err := db.NewBucket(b.Name(), new(Encoder))
+	assert.NoError(b, err)
+	assert.NotNil(b, bucket)
 
 	var cfg Config
 	utils.SetDefaults(&cfg)
 	cfg.Name = b.Name()
-	cfg.Location = dir
-	be, err := NewBackend(cfg)
-	assert.NoError(b, err)
-	assert.NotNil(b, be)
 
-	q := NewPersistence(cfg, be)
+	q := NewPersistence(cfg, bucket)
 	assert.NotNil(b, q)
 	defer q.Close(false)
 
@@ -192,19 +181,26 @@ func BenchmarkPersistentQueue(b *testing.B) {
 }
 
 func BenchmarkPersistentQueueParallel(b *testing.B) {
-	dir, err := ioutil.TempDir("", "")
+	dir, err := ioutil.TempDir("", b.Name())
 	assert.NoError(b, err)
 	defer os.RemoveAll(dir)
+
+	db, err := database.New(database.Conf{Driver: "boltdb", Source: dir})
+	defer db.Close()
+	assert.NoError(b, err)
+	assert.NotNil(b, db)
+
+	bucket, err := db.NewBucket(b.Name(), new(Encoder))
+	assert.NoError(b, err)
+	assert.NotNil(b, bucket)
 
 	var cfg Config
 	utils.SetDefaults(&cfg)
 	cfg.Name = b.Name()
-	cfg.Location = dir
-	be, err := NewBackend(cfg)
 	assert.NoError(b, err)
-	assert.NotNil(b, be)
+	assert.NotNil(b, bucket)
 
-	q := NewPersistence(cfg, be)
+	q := NewPersistence(cfg, bucket)
 	assert.NotNil(b, q)
 	defer q.Close(false)
 

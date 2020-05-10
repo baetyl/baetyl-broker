@@ -39,7 +39,7 @@ func (m *syncmap) delete(k string) {
 func (m *syncmap) empty() []interface{} {
 	m.mut.Lock()
 	defer m.mut.Unlock()
-	res := []interface{}{}
+	var res []interface{}
 	for k, v := range m.data {
 		delete(m.data, k)
 		res = append(res, v)
@@ -63,7 +63,7 @@ func (m *syncmap) count() int {
 func (m *syncmap) copy() []interface{} {
 	m.mut.RLock()
 	defer m.mut.RUnlock()
-	res := []interface{}{}
+	var res []interface{}
 	for _, v := range m.data {
 		res = append(res, v)
 	}

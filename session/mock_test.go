@@ -29,8 +29,7 @@ session:
   maxSessions: 3
   maxClientsPerSession: 2
   resendInterval: 200ms
-  persistence:
-  location: testdata
+
 principals:
 - username: u1
   password: p1
@@ -65,10 +64,14 @@ type mockBroker struct {
 }
 
 func newMockBroker(t *testing.T, cfgStr string) *mockBroker {
+	err := os.MkdirAll("var/lib/baetyl", os.ModePerm)
+	defer os.Remove("var/lib/baetyl")
+	assert.NoError(t, err)
+
 	log.Init(log.Config{Level: "debug", Encoding: "console"})
 
 	var cfg Config
-	err := utils.UnmarshalYAML([]byte(cfgStr), &cfg)
+	err = utils.UnmarshalYAML([]byte(cfgStr), &cfg)
 	assert.NoError(t, err)
 	b := &mockBroker{t: t, cfg: cfg}
 	b.ses, err = NewManager(cfg)
@@ -80,13 +83,18 @@ func (b *mockBroker) assertSessionCount(expect int) {
 	assert.Equal(b.t, expect, b.ses.sessions.count())
 }
 
-func (b *mockBroker) assertSessionStore(id string, expect string) {
-	s, err := b.ses.sstore.Get(id)
-	assert.NoError(b.t, err)
-	if expect == "" {
-		assert.Nil(b.t, s)
+func (b *mockBroker) assertSessionStore(id string, expect string, hasErr error) {
+	var s Info
+	err := b.ses.sessionBucket.GetKV(id, &s)
+	if hasErr != nil {
+		assert.Error(b.t, err)
+		assert.Equal(b.t, err.Error(), hasErr.Error())
 	} else {
-		assert.Equal(b.t, expect, s.String())
+		if expect == "" {
+			assert.Nil(b.t, s)
+		} else {
+			assert.Equal(b.t, expect, s.String())
+		}
 	}
 }
 
