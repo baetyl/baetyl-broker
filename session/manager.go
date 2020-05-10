@@ -4,6 +4,7 @@ import (
 	"errors"
 	"sync/atomic"
 
+	"github.com/baetyl/baetyl-broker/database"
 	"github.com/baetyl/baetyl-broker/exchange"
 	"github.com/baetyl/baetyl-go/link"
 	"github.com/baetyl/baetyl-go/log"
@@ -48,15 +49,16 @@ type client interface {
 
 // Manager the manager of sessions
 type Manager struct {
-	cfg      Config
-	sessions *syncmap
-	checker  *mqtt.TopicChecker
-	sstore   *Backend       // session store to persist sessions
-	mstore   *RetainBackend // message store to retain messages
-	exch     *exchange.Exchange
-	auth     *Authenticator
-	log      *log.Logger
-	quit     int32 // if quit != 0, it means manager is closed
+	cfg           Config
+	db            database.DB
+	sessions      *syncmap
+	checker       *mqtt.TopicChecker
+	exch          *exchange.Exchange
+	auth          *Authenticator
+	sessionBucket database.Bucket
+	retainBucket  database.Bucket
+	log           *log.Logger
+	quit          int32 // if quit != 0, it means manager is closed
 }
 
 // NewManager create a new session manager
@@ -69,26 +71,30 @@ func NewManager(cfg Config) (m *Manager, err error) {
 		auth:     NewAuthenticator(cfg.Principals),
 		log:      log.With(log.Any("session", "manager")),
 	}
-	m.sstore, err = NewBackend(cfg)
+	m.db, err = database.New(cfg.DB)
+	if err != nil {
+		return nil, err
+	}
+	m.sessionBucket, err = m.db.NewBucket("session", nil)
 	if err != nil {
 		m.Close()
 		return
 	}
-	m.mstore, err = m.sstore.NewRetainBackend()
+	m.retainBucket, err = m.db.NewBucket("retain", nil)
 	if err != nil {
 		m.Close()
 		return
 	}
+	var ss []Info
 	// load stored sessions from backend database
-	ss, err := m.sstore.List()
+	err = m.sessionBucket.ListKV(&ss)
 	if err != nil {
 		m.Close()
 		return
 	}
 	for _, i := range ss {
-		si := i.(*Info)
-		m.checkSubscriptions(si)
-		_, _, err = m.initSession(*si)
+		m.checkSubscriptions(&i)
+		_, _, err = m.initSession(i)
 		if err != nil {
 			m.Close()
 			return
@@ -154,11 +160,14 @@ func (m *Manager) Close() error {
 	for _, v := range m.sessions.empty() {
 		v.(*Session).Close()
 	}
-	if m.mstore != nil {
-		m.mstore.Close()
+	if m.sessionBucket != nil {
+		m.sessionBucket.Close(false)
 	}
-	if m.sstore != nil {
-		m.sstore.Close()
+	if m.retainBucket != nil {
+		m.retainBucket.Close(false)
+	}
+	if m.db != nil {
+		m.db.Close()
 	}
 	return nil
 }
@@ -166,22 +175,22 @@ func (m *Manager) Close() error {
 // * retain message operations
 
 func (m *Manager) listRetainedMessages() ([]*link.Message, error) {
-	retains, err := m.mstore.List()
+	var retains []RetainMessage
+	err := m.retainBucket.ListKV(&retains)
 	if err != nil {
 		return nil, err
 	}
 	msgs := make([]*link.Message, 0)
 	for _, v := range retains {
-		msg := v.(*RetainMessage).Message
-		msgs = append(msgs, msg)
+		msgs = append(msgs, v.Message)
 	}
 	return msgs, nil
 }
 
 func (m *Manager) retainMessage(topic string, msg *link.Message) error {
-	return m.mstore.Set(&RetainMessage{Topic: msg.Context.Topic, Message: msg})
+	return m.retainBucket.SetKV(topic, &RetainMessage{Topic: msg.Context.Topic, Message: msg})
 }
 
 func (m *Manager) unretainMessage(topic string) error {
-	return m.mstore.Del(topic)
+	return m.retainBucket.DelKV(topic)
 }

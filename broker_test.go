@@ -234,6 +234,11 @@ func TestBrokerMqttConnectWebSocketSSLNormal(t *testing.T) {
 
 func initBroker(t *testing.T) *Broker {
 	os.RemoveAll("./var")
+
+	err := os.MkdirAll("var/lib/baetyl", os.ModePerm)
+	defer os.Remove("var/lib/baetyl")
+	assert.NoError(t, err)
+
 	var cfg Config
 	utils.LoadYAML(cfgFile, &cfg)
 	b, err := NewBroker(cfg)

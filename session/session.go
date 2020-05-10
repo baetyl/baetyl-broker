@@ -40,6 +40,12 @@ type Info struct {
 	CleanSession  bool                `json:"-"`
 }
 
+// RetainMessage retain message
+type RetainMessage struct {
+	Topic   string
+	Message *link.Message
+}
+
 func (i *Info) String() string {
 	d, _ := json.Marshal(i)
 	return string(d)
@@ -127,12 +133,12 @@ func (s *Session) createQOS1() error {
 	if s.qos1 != nil {
 		return nil
 	}
-	qc := s.mgr.cfg.Persistence
+	qc := s.mgr.cfg.Queue
 	qc.Name = utils.CalculateBase64(s.info.ID)
 	qc.BatchSize = s.mgr.cfg.MaxInflightQOS1Messages
-	qbk, err := queue.NewBackend(qc)
+	qbk, err := s.mgr.db.NewBucket(qc.Name, new(queue.Encoder))
 	if err != nil {
-		s.log.Error("failed to create queue backend", log.Error(err))
+		s.log.Error("failed to create queue bucket", log.Error(err))
 		return err
 	}
 	s.qos1 = queue.NewPersistence(qc, qbk)
@@ -335,12 +341,12 @@ func (s *Session) updateInfo(si *Info, add []mqtt.Subscription, del []string, au
 	}
 
 	if s.info.CleanSession {
-		err := s.mgr.sstore.Del(s.info.ID)
+		err := s.mgr.sessionBucket.DelKV(s.info.ID)
 		if err != nil {
 			s.log.Error("failed to delete session", log.Error(err))
 		}
 	} else {
-		err := s.mgr.sstore.Set(&s.info)
+		err := s.mgr.sessionBucket.SetKV(s.info.ID, &s.info)
 		if err != nil {
 			s.log.Error("failed to persist session", log.Error(err))
 		}

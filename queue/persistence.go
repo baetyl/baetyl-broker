@@ -5,33 +5,44 @@ import (
 	"time"
 
 	"github.com/baetyl/baetyl-broker/common"
+	"github.com/baetyl/baetyl-broker/database"
 	"github.com/baetyl/baetyl-go/link"
 	"github.com/baetyl/baetyl-go/log"
 	"github.com/baetyl/baetyl-go/utils"
 )
 
+// Config queue config
+type Config struct {
+	Name          string        `yaml:"name" json:"name"`
+	BatchSize     int           `yaml:"batchSize" json:"batchSize" default:"10"`
+	ExpireTime    time.Duration `yaml:"expireTime" json:"expireTime" default:"168h"`
+	CleanInterval time.Duration `yaml:"cleanInterval" json:"cleanInterval" default:"1h"`
+	WriteTimeout  time.Duration `yaml:"writeTimeout" json:"writeTimeout" default:"100ms"`
+	DeleteTimeout time.Duration `yaml:"deleteTimeout" json:"deleteTimeout" default:"500ms"`
+}
+
 // Persistence is a persistent queue
 type Persistence struct {
-	backend *Backend
-	cfg     Config
-	input   chan *common.Event
-	output  chan *common.Event
-	edel    chan uint64 // del events with message id
-	eget    chan bool   // get events
-	log     *log.Logger
+	cfg    Config
+	input  chan *common.Event
+	output chan *common.Event
+	edel   chan uint64 // del events with message id
+	eget   chan bool   // get events
+	bucket database.Bucket
+	log    *log.Logger
 	utils.Tomb
 }
 
 // NewPersistence creates a new persistent queue
-func NewPersistence(cfg Config, backend *Backend) Queue {
+func NewPersistence(cfg Config, bucket database.Bucket) Queue {
 	q := &Persistence{
-		backend: backend,
-		cfg:     cfg,
-		input:   make(chan *common.Event, cfg.BatchSize),
-		output:  make(chan *common.Event, cfg.BatchSize),
-		edel:    make(chan uint64, cfg.BatchSize),
-		eget:    make(chan bool, 3),
-		log:     log.With(log.Any("queue", "persist"), log.Any("id", cfg.Name)),
+		bucket: bucket,
+		cfg:    cfg,
+		input:  make(chan *common.Event, cfg.BatchSize),
+		output: make(chan *common.Event, cfg.BatchSize),
+		edel:   make(chan uint64, cfg.BatchSize),
+		eget:   make(chan bool, 3),
+		log:    log.With(log.Any("queue", "persist"), log.Any("id", cfg.Name)),
 	}
 	// to read persistent message
 	q.trigger()
@@ -48,9 +59,7 @@ func (q *Persistence) Chan() <-chan *common.Event {
 func (q *Persistence) Pop() (*common.Event, error) {
 	select {
 	case e := <-q.output:
-		if ent := q.log.Check(log.DebugLevel, "queue poped a message"); ent != nil {
-			ent.Write(log.Any("message", e.String()))
-		}
+		q.log.Debug("queue poped a message", log.Any("message", e.String()))
 		return e, nil
 	case <-q.Dying():
 		return nil, ErrQueueClosed
@@ -61,9 +70,7 @@ func (q *Persistence) Pop() (*common.Event, error) {
 func (q *Persistence) Push(e *common.Event) (err error) {
 	select {
 	case q.input <- e:
-		if ent := q.log.Check(log.DebugLevel, "queue pushed a message"); ent != nil {
-			ent.Write(log.Any("message", e.String()))
-		}
+		q.log.Debug("queue pushed a message", log.Any("message", e.String()))
 		return nil
 	case <-q.Dying():
 		return ErrQueueClosed
@@ -83,9 +90,7 @@ func (q *Persistence) writing() error {
 	for {
 		select {
 		case e := <-q.input:
-			if ent := q.log.Check(log.DebugLevel, "queue received a message"); ent != nil {
-				ent.Write(log.Any("event", e.String()))
-			}
+			q.log.Debug("queue received a message", log.Any("event", e.String()))
 			buf = append(buf, e)
 			if len(buf) == max {
 				buf = q.add(buf)
@@ -184,13 +189,14 @@ func (q *Persistence) deleting() error {
 func (q *Persistence) get(offset uint64, length int) ([]*common.Event, error) {
 	start := time.Now()
 
-	msgs, err := q.backend.Get(offset, length)
+	var msgs []*link.Message
+	err := q.bucket.Get(offset, length, &msgs)
 	if err != nil {
 		return nil, err
 	}
 	var events []*common.Event
 	for _, m := range msgs {
-		events = append(events, common.NewEvent(m.(*link.Message), 1, q.acknowledge))
+		events = append(events, common.NewEvent(m, 1, q.acknowledge))
 	}
 
 	if ent := q.log.Check(log.DebugLevel, "queue has read message from backend"); ent != nil {
@@ -211,7 +217,7 @@ func (q *Persistence) add(buf []*common.Event) []*common.Event {
 	for _, e := range buf {
 		msgs = append(msgs, e.Message)
 	}
-	err := q.backend.Put(msgs)
+	err := q.bucket.Put(msgs)
 	if err == nil {
 		// new message arrives
 		q.trigger()
@@ -232,7 +238,7 @@ func (q *Persistence) delete(buf []uint64) []uint64 {
 
 	defer utils.Trace(q.log.Debug, "queue has deleted message from backend", log.Any("count", len(buf)))()
 
-	err := q.backend.Del(buf)
+	err := q.bucket.Del(buf)
 	if err != nil {
 		q.log.Error("failed to delete messages from backend database", log.Any("count", len(buf)), log.Error(err))
 	}
@@ -242,7 +248,7 @@ func (q *Persistence) delete(buf []uint64) []uint64 {
 // clean expired messages
 func (q *Persistence) clean() {
 	defer utils.Trace(q.log.Debug, "queue has cleaned expired messages from backend")
-	err := q.backend.DelBefore(time.Now().Add(-q.cfg.ExpireTime))
+	err := q.bucket.DelBefore(time.Now().Add(-q.cfg.ExpireTime))
 	if err != nil {
 		q.log.Error("failed to clean expired messages from backend", log.Error(err))
 	}
@@ -271,5 +277,5 @@ func (q *Persistence) Close(clean bool) error {
 
 	q.Kill(nil)
 	q.Wait()
-	return q.backend.Close(clean)
+	return q.bucket.Close(clean)
 }
