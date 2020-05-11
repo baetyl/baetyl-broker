@@ -1,7 +1,6 @@
 package database
 
 import (
-	"bytes"
 	"encoding/binary"
 	"errors"
 	"path"
@@ -104,15 +103,17 @@ func (d *boltBucket) Get(offset uint64, length int, results interface{}) error {
 		for tp.Kind() == reflect.Ptr {
 			tp = tp.Elem()
 		}
+		for i := offset; i < offset+uint64(length); i++ {
+			gk := make([]byte, 8)
+			binary.LittleEndian.PutUint64(gk, i)
 
-		max, c := offset+uint64(length), b.Cursor()
-		gk := make([]byte, 8)
-		binary.LittleEndian.PutUint64(gk, offset)
-		gmax := make([]byte, 8)
-		binary.LittleEndian.PutUint64(gmax, max)
-		for k, v := c.Seek(gk); k != nil && bytes.Compare(k, gmax) < 0; k, v = c.Next() {
+			v := b.Get(gk)
+			if len(v) == 0 {
+				continue
+			}
+
 			val := reflect.New(tp)
-			err := d.encoder.Decode(v, val.Interface(), binary.LittleEndian.Uint64(k))
+			err := d.encoder.Decode(v, val.Interface(), i)
 			if err != nil {
 				return err
 			}

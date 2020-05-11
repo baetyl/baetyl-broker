@@ -133,6 +133,101 @@ func TestDatabaseBoltDB(t *testing.T) {
 	}
 }
 
+func TestDatabaseBoltDBLarge(t *testing.T) {
+	dir, err := ioutil.TempDir("", t.Name())
+	assert.NoError(t, err)
+	defer os.RemoveAll(dir)
+
+	db, err := New(Conf{Driver: "boltdb", Source: dir})
+	defer db.Close()
+	assert.NoError(t, err)
+	assert.NotNil(t, db)
+
+	encoders := []Encoder{new(mockEncoder), nil}
+	for _, encoder := range encoders {
+		bucket, err := db.NewBucket(t.Name(), encoder)
+		assert.NoError(t, err)
+		assert.NotNil(t, bucket)
+
+		count := 10000
+		var iis []interface{}
+		for i := 1; i < count; i++ {
+			iis = append(iis, mockStruct{
+				ID:    i,
+				Dummy: "aa",
+			})
+		}
+		err = bucket.Put(iis)
+		assert.NoError(t, err)
+
+		var values []mockStruct
+		err = bucket.Get(1, count, &values)
+		assert.NoError(t, err)
+		assert.Len(t, values, count-1)
+		for i := range values {
+			assert.Equal(t, values[i], iis[i])
+		}
+
+		var nums []uint64
+		for i := 1; i < count; i++ {
+			nums = append(nums, uint64(i))
+		}
+		err = bucket.Del(nums)
+		assert.NoError(t, err)
+
+		var values2 []mockStruct
+		err = bucket.Get(1, count, &values2)
+		assert.NoError(t, err)
+		assert.Len(t, values2, 0)
+
+		count = 20000
+		var iis2 []interface{}
+		for i := 10000; i < count; i++ {
+			iis2 = append(iis2, mockStruct{
+				ID:    i,
+				Dummy: "aa",
+			})
+		}
+		err = bucket.Put(iis2)
+		assert.NoError(t, err)
+
+		var values3 []mockStruct
+		err = bucket.Get(10000, count, &values3)
+		assert.NoError(t, err)
+		assert.Len(t, values, count-10001)
+		for i := range values3 {
+			assert.Equal(t, values3[i], iis2[i])
+		}
+
+		var values4 []mockStruct
+		err = bucket.Get(1, count, &values4)
+		assert.NoError(t, err)
+		assert.Len(t, values, count-10001)
+		for i := range values4 {
+			assert.Equal(t, values4[i], iis2[i])
+		}
+
+		var nums2 []uint64
+		for i := 10000; i < count; i++ {
+			nums2 = append(nums2, uint64(i))
+		}
+		err = bucket.Del(nums2)
+		assert.NoError(t, err)
+
+		var values5 []mockStruct
+		err = bucket.Get(10000, count, &values5)
+		assert.NoError(t, err)
+		assert.Len(t, values5, 0)
+
+		var values6 []mockStruct
+		err = bucket.Get(0, count, &values6)
+		assert.NoError(t, err)
+		assert.Len(t, values6, 0)
+
+		bucket.Close(true)
+	}
+}
+
 func TestDatabaseBoltDBKV(t *testing.T) {
 	dir, err := ioutil.TempDir("", t.Name())
 	assert.NoError(t, err)
