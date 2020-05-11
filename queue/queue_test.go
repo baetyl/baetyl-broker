@@ -147,37 +147,31 @@ func BenchmarkPersistentQueue(b *testing.B) {
 	assert.NotNil(b, q)
 	defer q.Close(false)
 
-	m := new(link.Message)
-	m.Content = []byte("hi")
-	m.Context.ID = 111
-	m.Context.TS = 123
-	m.Context.QOS = 1
-	m.Context.Topic = "b"
-	e := common.NewEvent(m, 0, nil)
-
 	b.ResetTimer()
 	b.Run("Push", func(b *testing.B) {
 		for i := 0; i < b.N; i++ {
-			q.Push(e)
+			q.Push(newMockEvent(uint64(i)))
 		}
 	})
-	b.Run("Pop", func(b *testing.B) {
-		for i := 0; i < b.N; i++ {
-			q.Push(e)
-		}
-		b.ResetTimer()
-		for i := 0; i < b.N; i++ {
-			q.Pop()
-		}
-	})
+
 	b.Run("PushPop", func(b *testing.B) {
 		for i := 0; i < b.N; i++ {
-			q.Push(e)
+			q.Push(newMockEvent(uint64(i)))
 		}
 		for i := 0; i < b.N; i++ {
 			q.Pop()
 		}
 	})
+}
+
+func newMockEvent(i uint64) *common.Event {
+	m := new(link.Message)
+	m.Content = []byte("hi")
+	m.Context.ID = i
+	m.Context.TS = 123
+	m.Context.QOS = 1
+	m.Context.Topic = "b"
+	return common.NewEvent(m, 0, nil)
 }
 
 func BenchmarkPersistentQueueParallel(b *testing.B) {
