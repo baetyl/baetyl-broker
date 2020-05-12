@@ -1,9 +1,10 @@
-package database
+package store
 
 import (
 	"encoding/json"
 	"io/ioutil"
 	"os"
+	"path"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -32,7 +33,7 @@ func TestDatabaseBoltDB(t *testing.T) {
 	assert.NoError(t, err)
 	defer os.RemoveAll(dir)
 
-	db, err := New(Conf{Driver: "boltdb", Source: dir})
+	db, err := New(Conf{Driver: "boltdb", Source: path.Join(dir, t.Name())})
 	defer db.Close()
 	assert.NoError(t, err)
 	assert.NotNil(t, db)
@@ -138,7 +139,7 @@ func TestDatabaseBoltDBLarge(t *testing.T) {
 	assert.NoError(t, err)
 	defer os.RemoveAll(dir)
 
-	db, err := New(Conf{Driver: "boltdb", Source: dir})
+	db, err := New(Conf{Driver: "boltdb", Source: path.Join(dir, t.Name())})
 	defer db.Close()
 	assert.NoError(t, err)
 	assert.NotNil(t, db)
@@ -233,7 +234,7 @@ func TestDatabaseBoltDBKV(t *testing.T) {
 	assert.NoError(t, err)
 	defer os.RemoveAll(dir)
 
-	db, err := New(Conf{Driver: "boltdb", Source: dir})
+	db, err := New(Conf{Driver: "boltdb", Source: path.Join(dir, t.Name())})
 	defer db.Close()
 	assert.NoError(t, err)
 	assert.NotNil(t, db)
@@ -325,7 +326,7 @@ func TestDatabaseBoltDBReopen(t *testing.T) {
 	assert.NoError(t, err)
 	defer os.RemoveAll(dir)
 
-	db, err := New(Conf{Driver: "boltdb", Source: dir})
+	db, err := New(Conf{Driver: "boltdb", Source: path.Join(dir, t.Name())})
 	assert.NoError(t, err)
 	assert.NotNil(t, db)
 
@@ -391,7 +392,7 @@ func TestDatabaseBoltDBReopen(t *testing.T) {
 	assert.NoError(t, err)
 
 	// Test Reopen
-	db, err = New(Conf{Driver: "boltdb", Source: dir})
+	db, err = New(Conf{Driver: "boltdb", Source: path.Join(dir, t.Name())})
 	assert.NoError(t, err)
 	assert.NotNil(t, db)
 
@@ -413,7 +414,7 @@ func TestDatabaseBoltDBReopen(t *testing.T) {
 	assert.NoError(t, err)
 
 	// Test Reopen
-	db, err = New(Conf{Driver: "boltdb", Source: dir})
+	db, err = New(Conf{Driver: "boltdb", Source: path.Join(dir, t.Name())})
 	defer db.Close()
 	assert.NoError(t, err)
 	assert.NotNil(t, db)
@@ -434,7 +435,7 @@ func BenchmarkDatabaseBoltDB(b *testing.B) {
 	assert.NoError(b, err)
 	defer os.RemoveAll(dir)
 
-	db, err := New(Conf{Driver: "boltdb", Source: dir})
+	db, err := New(Conf{Driver: "boltdb", Source: path.Join(dir, b.Name())})
 	assert.NoError(b, err)
 	assert.NotNil(b, db)
 	defer db.Close()

@@ -1,9 +1,9 @@
-package database
+package store
 
 import (
+	"bytes"
 	"encoding/binary"
 	"errors"
-	"path"
 	"reflect"
 	"time"
 
@@ -11,7 +11,7 @@ import (
 )
 
 func init() {
-	Factories["boltdb"] = _newBoltDB
+	Factories["boltdb"] = newBoltDB
 }
 
 // boltDB the backend BoltDB to persist values
@@ -28,8 +28,8 @@ type boltBucket struct {
 }
 
 // New creates a new boltDB database
-func _newBoltDB(conf Conf) (DB, error) {
-	db, err := bolt.Open(path.Join(conf.Source, "broker.db"), 0600, &bolt.Options{Timeout: time.Second})
+func newBoltDB(conf Conf) (DB, error) {
+	db, err := bolt.Open(conf.Source, 0600, &bolt.Options{Timeout: 30 * time.Second})
 	if err != nil {
 		return nil, err
 	}
@@ -69,8 +69,7 @@ func (d *boltBucket) Put(values []interface{}) error {
 			if err != nil {
 				return err
 			}
-			gk := make([]byte, 8)
-			binary.LittleEndian.PutUint64(gk, index)
+			gk := U64ToByte(index)
 			gv, err := d.encoder.Encode(values[i])
 			if err != nil {
 				return err
@@ -103,17 +102,11 @@ func (d *boltBucket) Get(offset uint64, length int, results interface{}) error {
 		for tp.Kind() == reflect.Ptr {
 			tp = tp.Elem()
 		}
-		for i := offset; i < offset+uint64(length); i++ {
-			gk := make([]byte, 8)
-			binary.LittleEndian.PutUint64(gk, i)
 
-			v := b.Get(gk)
-			if len(v) == 0 {
-				continue
-			}
-
+		gk, gmax, c := U64ToByte(offset), U64ToByte(offset+uint64(length)), b.Cursor()
+		for k, v := c.Seek(gk); k != nil && bytes.Compare(k, gmax) < 0; k, v = c.Next() {
 			val := reflect.New(tp)
-			err := d.encoder.Decode(v, val.Interface(), i)
+			err := d.encoder.Decode(v, val.Interface(), binary.BigEndian.Uint64(k))
 			if err != nil {
 				return err
 			}
@@ -139,8 +132,7 @@ func (d *boltBucket) Del(ids []uint64) error {
 			return errors.New("bucket doesn't exist")
 		}
 		for _, v := range ids {
-			gk := make([]byte, 8)
-			binary.LittleEndian.PutUint64(gk, v)
+			gk := U64ToByte(v)
 			if err := b.Delete(gk); err != nil {
 				return err
 			}

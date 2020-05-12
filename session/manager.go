@@ -4,8 +4,8 @@ import (
 	"errors"
 	"sync/atomic"
 
-	"github.com/baetyl/baetyl-broker/database"
 	"github.com/baetyl/baetyl-broker/exchange"
+	"github.com/baetyl/baetyl-broker/store"
 	"github.com/baetyl/baetyl-go/link"
 	"github.com/baetyl/baetyl-go/log"
 	"github.com/baetyl/baetyl-go/mqtt"
@@ -50,13 +50,13 @@ type client interface {
 // Manager the manager of sessions
 type Manager struct {
 	cfg           Config
-	db            database.DB
+	store         store.DB
 	sessions      *syncmap
 	checker       *mqtt.TopicChecker
 	exch          *exchange.Exchange
 	auth          *Authenticator
-	sessionBucket database.Bucket
-	retainBucket  database.Bucket
+	sessionBucket store.Bucket
+	retainBucket  store.Bucket
 	log           *log.Logger
 	quit          int32 // if quit != 0, it means manager is closed
 }
@@ -71,16 +71,16 @@ func NewManager(cfg Config) (m *Manager, err error) {
 		auth:     NewAuthenticator(cfg.Principals),
 		log:      log.With(log.Any("session", "manager")),
 	}
-	m.db, err = database.New(cfg.DB)
+	m.store, err = store.New(cfg.DB)
 	if err != nil {
 		return nil, err
 	}
-	m.sessionBucket, err = m.db.NewBucket("session", nil)
+	m.sessionBucket, err = m.store.NewBucket("session", nil)
 	if err != nil {
 		m.Close()
 		return
 	}
-	m.retainBucket, err = m.db.NewBucket("retain", nil)
+	m.retainBucket, err = m.store.NewBucket("retain", nil)
 	if err != nil {
 		m.Close()
 		return
@@ -166,8 +166,8 @@ func (m *Manager) Close() error {
 	if m.retainBucket != nil {
 		m.retainBucket.Close(false)
 	}
-	if m.db != nil {
-		m.db.Close()
+	if m.store != nil {
+		m.store.Close()
 	}
 	return nil
 }
@@ -175,20 +175,16 @@ func (m *Manager) Close() error {
 // * retain message operations
 
 func (m *Manager) listRetainedMessages() ([]*link.Message, error) {
-	var retains []RetainMessage
-	err := m.retainBucket.ListKV(&retains)
+	msgs := make([]*link.Message, 0)
+	err := m.retainBucket.ListKV(&msgs)
 	if err != nil {
 		return nil, err
-	}
-	msgs := make([]*link.Message, 0)
-	for _, v := range retains {
-		msgs = append(msgs, v.Message)
 	}
 	return msgs, nil
 }
 
 func (m *Manager) retainMessage(topic string, msg *link.Message) error {
-	return m.retainBucket.SetKV(topic, &RetainMessage{Topic: msg.Context.Topic, Message: msg})
+	return m.retainBucket.SetKV(topic, msg)
 }
 
 func (m *Manager) unretainMessage(topic string) error {
