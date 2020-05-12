@@ -2,7 +2,6 @@ package store
 
 import (
 	"bytes"
-	"encoding/binary"
 	"errors"
 	"reflect"
 	"time"
@@ -106,7 +105,7 @@ func (d *boltBucket) Get(offset uint64, length int, results interface{}) error {
 		gk, gmax, c := U64ToByte(offset), U64ToByte(offset+uint64(length)), b.Cursor()
 		for k, v := c.Seek(gk); k != nil && bytes.Compare(k, gmax) < 0; k, v = c.Next() {
 			val := reflect.New(tp)
-			err := d.encoder.Decode(v, val.Interface(), binary.BigEndian.Uint64(k))
+			err := d.encoder.Decode(v, val.Interface(), ByteToU64(k))
 			if err != nil {
 				return err
 			}

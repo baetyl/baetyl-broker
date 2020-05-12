@@ -139,7 +139,7 @@ func TestBrokerMqttConnectErrorBadUsernameOrPassword3(t *testing.T) {
 		Username: "temp",
 		Password: "hahaha",
 		ClientID: "tcp-1",
-		Timeout:  time.Millisecond * 100,
+		Timeout:  time.Millisecond * 1000,
 		Observer: obs,
 	})
 	assert.NotNil(t, cli)

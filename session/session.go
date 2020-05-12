@@ -127,7 +127,7 @@ func (s *Session) createQOS1() error {
 	if s.qos1 != nil {
 		return nil
 	}
-	qc := s.mgr.cfg.Persistence
+	qc := s.mgr.cfg.Persistence.Queue
 	qc.Name = utils.CalculateBase64(s.info.ID)
 	qc.BatchSize = s.mgr.cfg.MaxInflightQOS1Messages
 	qbk, err := s.mgr.store.NewBucket(qc.Name, new(queue.Encoder))
