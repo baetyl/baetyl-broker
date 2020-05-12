@@ -19,3 +19,6 @@
 baetyl-broker
 var/**
 /**/var
+coverage.txt
+coverage.out
+coverage.html

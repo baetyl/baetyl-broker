@@ -10,7 +10,7 @@ VERSION:=$(if $(GIT_TAG),$(GIT_TAG),$(GIT_REV))
 
 GO_FLAGS?=-ldflags '-X "github.com/baetyl/baetyl-go/utils.REVISION=$(GIT_REV)" -X "github.com/baetyl/baetyl-go/utils.VERSION=$(VERSION)"'
 GO_FLAGS_STATIC?=-ldflags '-X "github.com/baetyl/baetyl-go/utils.REVISION=$(GIT_REV)" -X "github.com/baetyl/baetyl-go/utils.VERSION=$(VERSION)" -linkmode external -w -extldflags "-static"'
-GO_TEST_FLAGS?=-race
+GO_TEST_FLAGS?=-race -short -covermode=atomic -coverprofile=coverage.txt
 GO_TEST_PKGS?=$(shell go list ./...)
 ifndef PLATFORMS
 	GO_OS:=$(shell go env GOOS)
@@ -49,8 +49,8 @@ image:
 
 .PHONY: test
 test: fmt
-	@go test ${GO_TEST_FLAGS} -coverprofile=coverage.out ${GO_TEST_PKGS}
-	@go tool cover -func=coverage.out | grep total
+	@go test ${GO_TEST_FLAGS} ${GO_TEST_PKGS}
+	@go tool cover -func=coverage.txt | grep total
 
 .PHONY: fmt
 fmt:
