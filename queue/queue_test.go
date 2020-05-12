@@ -4,12 +4,13 @@ import (
 	"fmt"
 	"io/ioutil"
 	"os"
+	"path"
 	"sync"
 	"testing"
 	"time"
 
 	"github.com/baetyl/baetyl-broker/common"
-	"github.com/baetyl/baetyl-broker/database"
+	"github.com/baetyl/baetyl-broker/store"
 	"github.com/baetyl/baetyl-go/link"
 	"github.com/baetyl/baetyl-go/utils"
 	"github.com/gogo/protobuf/proto"
@@ -52,7 +53,7 @@ func TestPersistentQueue(t *testing.T) {
 	assert.NoError(t, err)
 	defer os.RemoveAll(dir)
 
-	db, err := database.New(database.Conf{Driver: "boltdb", Source: dir})
+	db, err := store.New(store.Conf{Driver: "boltdb", Source: path.Join(dir, t.Name())})
 	defer db.Close()
 	assert.NoError(t, err)
 	assert.NotNil(t, db)
@@ -130,7 +131,7 @@ func BenchmarkPersistentQueue(b *testing.B) {
 	assert.NoError(b, err)
 	defer os.RemoveAll(dir)
 
-	db, err := database.New(database.Conf{Driver: "boltdb", Source: dir})
+	db, err := store.New(store.Conf{Driver: "boltdb", Source: path.Join(dir, b.Name())})
 	defer db.Close()
 	assert.NoError(b, err)
 	assert.NotNil(b, db)
@@ -179,7 +180,7 @@ func BenchmarkPersistentQueueParallel(b *testing.B) {
 	assert.NoError(b, err)
 	defer os.RemoveAll(dir)
 
-	db, err := database.New(database.Conf{Driver: "boltdb", Source: dir})
+	db, err := store.New(store.Conf{Driver: "boltdb", Source: path.Join(dir, b.Name())})
 	defer db.Close()
 	assert.NoError(b, err)
 	assert.NotNil(b, db)

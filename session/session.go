@@ -40,12 +40,6 @@ type Info struct {
 	CleanSession  bool                `json:"-"`
 }
 
-// RetainMessage retain message
-type RetainMessage struct {
-	Topic   string
-	Message *link.Message
-}
-
 func (i *Info) String() string {
 	d, _ := json.Marshal(i)
 	return string(d)
@@ -133,10 +127,10 @@ func (s *Session) createQOS1() error {
 	if s.qos1 != nil {
 		return nil
 	}
-	qc := s.mgr.cfg.Queue
+	qc := s.mgr.cfg.Persistence
 	qc.Name = utils.CalculateBase64(s.info.ID)
 	qc.BatchSize = s.mgr.cfg.MaxInflightQOS1Messages
-	qbk, err := s.mgr.db.NewBucket(qc.Name, new(queue.Encoder))
+	qbk, err := s.mgr.store.NewBucket(qc.Name, new(queue.Encoder))
 	if err != nil {
 		s.log.Error("failed to create queue bucket", log.Error(err))
 		return err

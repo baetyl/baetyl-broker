@@ -1,4 +1,4 @@
-package database
+package store
 
 import (
 	"errors"
@@ -12,7 +12,7 @@ var Factories = map[string]func(conf Conf) (DB, error){}
 // Conf the configuration of database
 type Conf struct {
 	Driver string `yaml:"driver" json:"driver" default:"boltdb"`
-	Source string `yaml:"source" json:"source" default:"var/lib/baetyl"`
+	Source string `yaml:"source" json:"source" default:"var/lib/baetyl/broker.db"`
 }
 
 // Encoder value encode/decode interface

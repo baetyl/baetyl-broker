@@ -5,7 +5,7 @@ import (
 	"time"
 
 	"github.com/baetyl/baetyl-broker/common"
-	"github.com/baetyl/baetyl-broker/database"
+	"github.com/baetyl/baetyl-broker/store"
 	"github.com/baetyl/baetyl-go/link"
 	"github.com/baetyl/baetyl-go/log"
 	"github.com/baetyl/baetyl-go/utils"
@@ -28,13 +28,13 @@ type Persistence struct {
 	output chan *common.Event
 	edel   chan uint64 // del events with message id
 	eget   chan bool   // get events
-	bucket database.Bucket
+	bucket store.Bucket
 	log    *log.Logger
 	utils.Tomb
 }
 
 // NewPersistence creates a new persistent queue
-func NewPersistence(cfg Config, bucket database.Bucket) Queue {
+func NewPersistence(cfg Config, bucket store.Bucket) Queue {
 	q := &Persistence{
 		bucket: bucket,
 		cfg:    cfg,
@@ -59,7 +59,9 @@ func (q *Persistence) Chan() <-chan *common.Event {
 func (q *Persistence) Pop() (*common.Event, error) {
 	select {
 	case e := <-q.output:
-		q.log.Debug("queue poped a message", log.Any("message", e.String()))
+		if ent := q.log.Check(log.DebugLevel, "queue poped a message"); ent != nil {
+			ent.Write(log.Any("message", e.String()))
+		}
 		return e, nil
 	case <-q.Dying():
 		return nil, ErrQueueClosed
@@ -70,7 +72,9 @@ func (q *Persistence) Pop() (*common.Event, error) {
 func (q *Persistence) Push(e *common.Event) (err error) {
 	select {
 	case q.input <- e:
-		q.log.Debug("queue pushed a message", log.Any("message", e.String()))
+		if ent := q.log.Check(log.DebugLevel, "queue pushed a message"); ent != nil {
+			ent.Write(log.Any("message", e.String()))
+		}
 		return nil
 	case <-q.Dying():
 		return ErrQueueClosed
@@ -90,7 +94,9 @@ func (q *Persistence) writing() error {
 	for {
 		select {
 		case e := <-q.input:
-			q.log.Debug("queue received a message", log.Any("event", e.String()))
+			if ent := q.log.Check(log.DebugLevel, "queue received a message"); ent != nil {
+				ent.Write(log.Any("event", e.String()))
+			}
 			buf = append(buf, e)
 			if len(buf) == max {
 				buf = q.add(buf)

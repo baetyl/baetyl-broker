@@ -3,14 +3,13 @@ package session
 import (
 	"errors"
 	"fmt"
-	"github.com/baetyl/baetyl-go/mqtt"
-	"github.com/baetyl/baetyl-go/utils"
-	"github.com/stretchr/testify/assert"
 	"math/rand"
 	"os"
 	"testing"
 
-	_ "github.com/mattn/go-sqlite3"
+	"github.com/baetyl/baetyl-go/mqtt"
+	"github.com/baetyl/baetyl-go/utils"
+	"github.com/stretchr/testify/assert"
 )
 
 func TestSessionMqttConnect(t *testing.T) {
