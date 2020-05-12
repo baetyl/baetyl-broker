@@ -71,7 +71,7 @@ func NewManager(cfg Config) (m *Manager, err error) {
 		auth:     NewAuthenticator(cfg.Principals),
 		log:      log.With(log.Any("session", "manager")),
 	}
-	m.store, err = store.New(cfg.DB)
+	m.store, err = store.New(cfg.Persistence.Store)
 	if err != nil {
 		return nil, err
 	}
@@ -183,8 +183,8 @@ func (m *Manager) listRetainedMessages() ([]*link.Message, error) {
 	return msgs, nil
 }
 
-func (m *Manager) retainMessage(topic string, msg *link.Message) error {
-	return m.retainBucket.SetKV(topic, msg)
+func (m *Manager) retainMessage(msg *link.Message) error {
+	return m.retainBucket.SetKV(msg.Context.Topic, msg)
 }
 
 func (m *Manager) unretainMessage(topic string) error {

@@ -131,7 +131,7 @@ func (c *ClientMQTT) retainMessage(msg *link.Message) error {
 	if len(msg.Content) == 0 {
 		return c.mgr.unretainMessage(msg.Context.Topic)
 	}
-	return c.mgr.retainMessage(msg.Context.Topic, msg)
+	return c.mgr.retainMessage(msg)
 }
 
 // SendRetainMessage sends retain message
