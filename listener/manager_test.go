@@ -1,19 +1,15 @@
 package listener
 
 import (
-	"context"
 	"fmt"
 	"sync/atomic"
 	"testing"
 	"time"
 
-	"github.com/baetyl/baetyl-go/link"
 	"github.com/baetyl/baetyl-go/mqtt"
 	"github.com/baetyl/baetyl-go/utils"
 	"github.com/stretchr/testify/assert"
 )
-
-// TODO: add link test
 
 type mockHandler struct {
 	t      *testing.T
@@ -40,17 +36,10 @@ func (m *mockHandler) Handle(conn mqtt.Connection) {
 	}
 }
 
-func (m *mockHandler) Talk(_ link.Link_TalkServer) error {
-	return nil
-}
-func (m *mockHandler) Call(_ context.Context, msg *link.Message) (*link.Message, error) {
-	return msg, nil
-}
-
 func TestMqttTcp(t *testing.T) {
 	cfg := []Listener{
-		Listener{Address: "tcp://:0"},
-		Listener{Address: "tcp://127.0.0.1:0"},
+		{Address: "tcp://:0"},
+		{Address: "tcp://127.0.0.1:0"},
 	}
 	m, err := NewManager(cfg, newMockHandler(t))
 	assert.NoError(t, err)
@@ -104,7 +93,7 @@ func TestMqttTcpTls(t *testing.T) {
 	}
 
 	cfg := []Listener{
-		Listener{
+		{
 			Address: "ssl://localhost:0",
 			Certificate: utils.Certificate{
 				CA:   "../example/var/lib/baetyl/testcert/ca.pem", // ca.pem is a certificate chain
@@ -155,8 +144,8 @@ func TestMqttTcpTls(t *testing.T) {
 
 func TestMqttWebSocket(t *testing.T) {
 	cfg := []Listener{
-		Listener{Address: "ws://localhost:0"},
-		Listener{Address: "ws://127.0.0.1:0/mqtt"},
+		{Address: "ws://localhost:0"},
+		{Address: "ws://127.0.0.1:0/mqtt"},
 	}
 	m, err := NewManager(cfg, newMockHandler(t))
 	assert.NoError(t, err)
@@ -211,7 +200,7 @@ func TestMqttWebSocketTls(t *testing.T) {
 		assert.NoError(t, err)
 	}
 	cfg := []Listener{
-		Listener{
+		{
 			Address: "wss://localhost:0/mqtt",
 			Certificate: utils.Certificate{
 				CA:   "../example/var/lib/baetyl/testcert/ca.pem", // ca.pem is a certificate chain
@@ -262,8 +251,8 @@ func TestMqttWebSocketTls(t *testing.T) {
 
 func TestServerException(t *testing.T) {
 	cfg := []Listener{
-		Listener{Address: "tcp://:28767"},
-		Listener{Address: "tcp://:28767"},
+		{Address: "tcp://:28767"},
+		{Address: "tcp://:28767"},
 	}
 	_, err := NewManager(cfg, newMockHandler(t))
 	switch err.Error() {
@@ -274,22 +263,22 @@ func TestServerException(t *testing.T) {
 	}
 
 	cfg = []Listener{
-		Listener{Address: "tcp://:28767"},
-		Listener{Address: "ssl://:28767"},
+		{Address: "tcp://:28767"},
+		{Address: "ssl://:28767"},
 	}
 	_, err = NewManager(cfg, newMockHandler(t))
 	assert.EqualError(t, err, "tls: neither Certificates nor GetCertificate set in Config")
 
 	cfg = []Listener{
-		Listener{Address: "ws://:28767/v1"},
-		Listener{Address: "wss://:28767/v2"},
+		{Address: "ws://:28767/v1"},
+		{Address: "wss://:28767/v2"},
 	}
 	_, err = NewManager(cfg, newMockHandler(t))
 	assert.EqualError(t, err, "tls: neither Certificates nor GetCertificate set in Config")
 
 	cfg = []Listener{
-		Listener{Address: "ws://:28767/v1"},
-		Listener{Address: "ws://:28767/v1"},
+		{Address: "ws://:28767/v1"},
+		{Address: "ws://:28767/v1"},
 	}
 	_, err = NewManager(cfg, newMockHandler(t))
 	switch err.Error() {

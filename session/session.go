@@ -6,7 +6,6 @@ import (
 
 	"github.com/baetyl/baetyl-broker/common"
 	"github.com/baetyl/baetyl-broker/queue"
-	"github.com/baetyl/baetyl-go/link"
 	"github.com/baetyl/baetyl-go/log"
 	"github.com/baetyl/baetyl-go/mqtt"
 	"github.com/baetyl/baetyl-go/utils"
@@ -22,20 +21,10 @@ const (
 	STATE2              // has sub but no client, need to prepare qos1 and subs
 )
 
-// kind: session kind
-type kind string
-
-//  all session kinds
-const (
-	MQTT kind = "mqtt"
-	LINK kind = "link"
-)
-
 // Info session information
 type Info struct {
 	ID            string              `json:"id,omitempty"`
-	Kind          kind                `json:"kind,omitempty"`
-	WillMessage   *link.Message       `json:"will,omitempty"`
+	WillMessage   *mqtt.Message       `json:"will,omitempty"`
 	Subscriptions map[string]mqtt.QOS `json:"subs,omitempty"`
 	CleanSession  bool                `json:"-"`
 }
@@ -251,7 +240,7 @@ func (s *Session) id() string {
 	return s.info.ID
 }
 
-func (s *Session) will() *link.Message {
+func (s *Session) will() *mqtt.Message {
 	s.mut.RLock()
 	defer s.mut.RUnlock()
 	return s.info.WillMessage
@@ -299,7 +288,6 @@ func (s *Session) updateInfo(si *Info, add []mqtt.Subscription, del []string, au
 
 	if si != nil {
 		s.info.ID = si.ID
-		s.info.Kind = si.Kind
 		s.info.WillMessage = si.WillMessage
 		s.info.CleanSession = si.CleanSession
 		for topic, qos := range si.Subscriptions {

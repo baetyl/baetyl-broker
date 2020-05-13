@@ -2,7 +2,7 @@ package queue
 
 import (
 	"errors"
-	"github.com/baetyl/baetyl-go/link"
+	"github.com/baetyl/baetyl-go/mqtt"
 	"github.com/gogo/protobuf/proto"
 )
 
@@ -10,7 +10,7 @@ type Encoder struct{}
 
 // Encode encodes the message to byte array
 func (b *Encoder) Encode(value interface{}) (data []byte, err error) {
-	return proto.Marshal(value.(*link.Message))
+	return proto.Marshal(value.(*mqtt.Message))
 }
 
 // Decode decode the message from byte array
@@ -18,7 +18,7 @@ func (b *Encoder) Decode(data []byte, value interface{}, args ...interface{}) er
 	if len(args) != 1 {
 		return errors.New("the length of others must be 1")
 	}
-	v := value.(*link.Message)
+	v := value.(*mqtt.Message)
 	err := proto.Unmarshal(data, v)
 	if err != nil {
 		return err

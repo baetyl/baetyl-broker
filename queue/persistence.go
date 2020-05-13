@@ -6,8 +6,8 @@ import (
 
 	"github.com/baetyl/baetyl-broker/common"
 	"github.com/baetyl/baetyl-broker/store"
-	"github.com/baetyl/baetyl-go/link"
 	"github.com/baetyl/baetyl-go/log"
+	"github.com/baetyl/baetyl-go/mqtt"
 	"github.com/baetyl/baetyl-go/utils"
 )
 
@@ -195,7 +195,7 @@ func (q *Persistence) deleting() error {
 func (q *Persistence) get(offset uint64, length int) ([]*common.Event, error) {
 	start := time.Now()
 
-	var msgs []*link.Message
+	var msgs []*mqtt.Message
 	err := q.bucket.Get(offset, length, &msgs)
 	if err != nil {
 		return nil, err

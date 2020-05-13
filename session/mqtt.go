@@ -7,7 +7,6 @@ import (
 	"sync"
 
 	"github.com/baetyl/baetyl-broker/common"
-	"github.com/baetyl/baetyl-go/link"
 	"github.com/baetyl/baetyl-go/log"
 	"github.com/baetyl/baetyl-go/mqtt"
 	"github.com/baetyl/baetyl-go/utils"
@@ -40,7 +39,6 @@ func (m *Manager) Handle(conn mqtt.Connection) {
 	}
 	si := Info{
 		ID:           id,
-		Kind:         MQTT,
 		CleanSession: true, // always true for random client
 	}
 	s, _, err := m.initSession(si)
@@ -116,18 +114,18 @@ func (c *ClientMQTT) sendWillMessage() {
 	if msg == nil {
 		return
 	}
-	if msg.Retain() {
+	if msg.Context.Flags&0x1 == 0x1 {
 		err := c.retainMessage(msg)
 		if err != nil {
 			c.log.Error("failed to retain will message", log.Any("topic", msg.Context.Topic))
 		}
 	}
 	// change to normal message before exchange
-	msg.Context.Type = link.Msg
+	msg.Context.Flags &^= 0x1
 	c.mgr.exch.Route(msg, c.callback)
 }
 
-func (c *ClientMQTT) retainMessage(msg *link.Message) error {
+func (c *ClientMQTT) retainMessage(msg *mqtt.Message) error {
 	if len(msg.Content) == 0 {
 		return c.mgr.unretainMessage(msg.Context.Topic)
 	}
@@ -263,7 +261,6 @@ func (c *ClientMQTT) receiving() error {
 func (c *ClientMQTT) onConnect(p *mqtt.Connect) error {
 	si := Info{
 		ID:           p.ClientID,
-		Kind:         MQTT,
 		CleanSession: p.CleanSession,
 	}
 	if p.Version != mqtt.Version31 && p.Version != mqtt.Version311 {
@@ -359,13 +356,13 @@ func (c *ClientMQTT) onPublish(p *mqtt.Publish) error {
 		return ErrSessionMessageTopicNotPermitted
 	}
 	msg := common.NewMessage(p)
-	if msg.Retain() {
+	if msg.Context.Flags&0x1 == 0x1 {
 		err := c.retainMessage(msg)
 		if err != nil {
 			return err
 		}
 		// change to normal message before exch
-		msg.Context.Type = link.Msg
+		msg.Context.Flags &^= 0x1
 	}
 	cb := c.callback
 	if p.Message.QOS == 0 {

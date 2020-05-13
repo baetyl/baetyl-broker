@@ -29,14 +29,8 @@ func newDispatcher(s *Session) *dispatcher {
 		queue:    make(chan *eventWrapper, s.mgr.cfg.MaxInflightQOS1Messages),
 		log:      s.log.With(log.Any("session", "dispatcher"), log.Any("id", s.info.ID)),
 	}
-	if s.info.Kind == MQTT {
-		d.wrap = func(m *common.Event) *eventWrapper {
-			return newEventWrapper(uint64(s.cnt.NextID()), 1, m)
-		}
-	} else {
-		d.wrap = func(m *common.Event) *eventWrapper {
-			return newEventWrapper(m.Context.ID, 1, m)
-		}
+	d.wrap = func(m *common.Event) *eventWrapper {
+		return newEventWrapper(uint64(s.cnt.NextID()), 1, m)
 	}
 	d.tomb.Go(d.resending, d.sending)
 	return d

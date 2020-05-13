@@ -6,7 +6,6 @@ import (
 
 	"github.com/baetyl/baetyl-broker/exchange"
 	"github.com/baetyl/baetyl-broker/store"
-	"github.com/baetyl/baetyl-go/link"
 	"github.com/baetyl/baetyl-go/log"
 	"github.com/baetyl/baetyl-go/mqtt"
 )
@@ -35,7 +34,6 @@ var (
 	ErrSessionWillMessageTopicInvalid            = errors.New("will topic is invalid")
 	ErrSessionWillMessageTopicNotPermitted       = errors.New("will topic is not permitted")
 	ErrSessionWillMessagePayloadSizeExceedsLimit = errors.New("will message payload exceeds the max limit")
-	ErrSessionLinkIDNotSet                       = errors.New("link id is not set")
 	ErrSessionAbnormal                           = errors.New("session is abnormal")
 )
 
@@ -174,8 +172,8 @@ func (m *Manager) Close() error {
 
 // * retain message operations
 
-func (m *Manager) listRetainedMessages() ([]*link.Message, error) {
-	msgs := make([]*link.Message, 0)
+func (m *Manager) listRetainedMessages() ([]*mqtt.Message, error) {
+	msgs := make([]*mqtt.Message, 0)
 	err := m.retainBucket.ListKV(&msgs)
 	if err != nil {
 		return nil, err
@@ -183,7 +181,7 @@ func (m *Manager) listRetainedMessages() ([]*link.Message, error) {
 	return msgs, nil
 }
 
-func (m *Manager) retainMessage(msg *link.Message) error {
+func (m *Manager) retainMessage(msg *mqtt.Message) error {
 	return m.retainBucket.SetKV(msg.Context.Topic, msg)
 }
 

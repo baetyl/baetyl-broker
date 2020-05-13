@@ -5,7 +5,6 @@ import (
 	// _ "net/http/pprof"
 
 	"github.com/baetyl/baetyl-go/context"
-	_ "github.com/mattn/go-sqlite3"
 )
 
 func main() {
