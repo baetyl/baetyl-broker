@@ -4,7 +4,6 @@ import (
 	"strings"
 
 	"github.com/baetyl/baetyl-broker/common"
-	"github.com/baetyl/baetyl-go/link"
 	"github.com/baetyl/baetyl-go/log"
 	"github.com/baetyl/baetyl-go/mqtt"
 )
@@ -64,7 +63,7 @@ func (b *Exchange) UnbindAll(queue common.Queue) {
 }
 
 // Route routes message to binding queues
-func (b *Exchange) Route(msg *link.Message, cb func(uint64)) {
+func (b *Exchange) Route(msg *mqtt.Message, cb func(uint64)) {
 	var sss []interface{}
 	parts := strings.SplitN(msg.Context.Topic, "/", 2)
 	if bind, ok := b.bindings[parts[0]]; ok {

@@ -11,7 +11,6 @@ import (
 	"time"
 
 	"github.com/baetyl/baetyl-broker/listener"
-	"github.com/baetyl/baetyl-go/link"
 	"github.com/baetyl/baetyl-go/log"
 	"github.com/baetyl/baetyl-go/mqtt"
 	"github.com/baetyl/baetyl-go/utils"
@@ -265,8 +264,8 @@ func (c *mockConn) assertClosed(expect bool) {
 type mockStream struct {
 	t      *testing.T
 	md     metadata.MD
-	c2s    chan *link.Message
-	s2c    chan *link.Message
+	c2s    chan *mqtt.Message
+	s2c    chan *mqtt.Message
 	err    chan error
 	closed bool
 	sync.RWMutex
@@ -276,13 +275,13 @@ func newMockStream(t *testing.T, linkid string) *mockStream {
 	return &mockStream{
 		t:   t,
 		md:  metadata.New(map[string]string{"linkid": linkid}),
-		c2s: make(chan *link.Message, 100),
-		s2c: make(chan *link.Message, 100),
+		c2s: make(chan *mqtt.Message, 100),
+		s2c: make(chan *mqtt.Message, 100),
 		err: make(chan error, 100),
 	}
 }
 
-func (c *mockStream) Send(msg *link.Message) error {
+func (c *mockStream) Send(msg *mqtt.Message) error {
 	select {
 	case c.s2c <- msg:
 		// default:
@@ -291,7 +290,7 @@ func (c *mockStream) Send(msg *link.Message) error {
 	return nil
 }
 
-func (c *mockStream) Recv() (*link.Message, error) {
+func (c *mockStream) Recv() (*mqtt.Message, error) {
 	select {
 	case msg := <-c.c2s:
 		return msg, nil
@@ -323,7 +322,7 @@ func (c *mockStream) isClosed() bool {
 	return c.closed
 }
 
-func (c *mockStream) sendC2S(msg *link.Message) error {
+func (c *mockStream) sendC2S(msg *mqtt.Message) error {
 	select {
 	case c.c2s <- msg:
 		return nil
@@ -333,7 +332,7 @@ func (c *mockStream) sendC2S(msg *link.Message) error {
 	}
 }
 
-func (c *mockStream) receiveS2C() *link.Message {
+func (c *mockStream) receiveS2C() *mqtt.Message {
 	select {
 	case msg := <-c.s2c:
 		return msg

@@ -11,10 +11,9 @@ import (
 
 	"github.com/baetyl/baetyl-broker/common"
 	"github.com/baetyl/baetyl-broker/store"
-	"github.com/baetyl/baetyl-go/link"
+	"github.com/baetyl/baetyl-go/mqtt"
 	"github.com/baetyl/baetyl-go/utils"
 	"github.com/gogo/protobuf/proto"
-	_ "github.com/mattn/go-sqlite3"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -23,7 +22,7 @@ func TestTemporaryQueue(t *testing.T) {
 	assert.NotNil(t, b)
 	defer b.Close(true)
 
-	m := new(link.Message)
+	m := new(mqtt.Message)
 	m.Content = []byte("hi")
 	m.Context.ID = 111
 	m.Context.TS = 123
@@ -69,7 +68,7 @@ func TestPersistentQueue(t *testing.T) {
 	b := NewPersistence(cfg, bucket)
 	assert.NotNil(t, b)
 
-	m := new(link.Message)
+	m := new(mqtt.Message)
 	m.Content = []byte("hi")
 	m.Context.ID = 111
 	m.Context.TS = 123
@@ -90,7 +89,7 @@ func TestPersistentQueue(t *testing.T) {
 	assert.NoError(t, err)
 	assert.Equal(t, "Context:<ID:2 TS:123 QOS:1 Topic:\"t\" > Content:\"hi\" ", e2.String())
 
-	var ms []link.Message
+	var ms []mqtt.Message
 	err = bucket.Get(1, 10, &ms)
 	assert.NoError(t, err)
 	assert.Len(t, ms, 3)
@@ -98,14 +97,14 @@ func TestPersistentQueue(t *testing.T) {
 	e1.Done()
 	e2.Done()
 
-	var ms2 []link.Message
+	var ms2 []mqtt.Message
 	err = bucket.Get(1, 10, &ms2)
 	assert.NoError(t, err)
 	assert.Len(t, ms2, 3)
 
 	time.Sleep(time.Millisecond * 600)
 
-	var ms3 []link.Message
+	var ms3 []mqtt.Message
 	err = bucket.Get(1, 10, &ms3)
 	assert.NoError(t, err)
 	assert.Len(t, ms3, 1)
@@ -117,7 +116,7 @@ func TestPersistentQueue(t *testing.T) {
 	e3.Done()
 	time.Sleep(time.Millisecond * 600)
 
-	var ms4 []link.Message
+	var ms4 []mqtt.Message
 	err = bucket.Get(1, 10, &ms4)
 	assert.NoError(t, err)
 	assert.Len(t, ms4, 0)
@@ -166,7 +165,7 @@ func BenchmarkPersistentQueue(b *testing.B) {
 }
 
 func newMockEvent(i uint64) *common.Event {
-	m := new(link.Message)
+	m := new(mqtt.Message)
 	m.Content = []byte("hi")
 	m.Context.ID = i
 	m.Context.TS = 123
@@ -199,7 +198,7 @@ func BenchmarkPersistentQueueParallel(b *testing.B) {
 	assert.NotNil(b, q)
 	defer q.Close(false)
 
-	m := new(link.Message)
+	m := new(mqtt.Message)
 	m.Content = []byte("hi")
 	m.Context.ID = 111
 	m.Context.TS = 123
@@ -221,7 +220,7 @@ func BenchmarkTemporaryQueueParallel(b *testing.B) {
 	assert.NotNil(b, q)
 	defer q.Close(false)
 
-	m := new(link.Message)
+	m := new(mqtt.Message)
 	m.Content = []byte("hi")
 	m.Context.ID = 111
 	m.Context.TS = 123
@@ -248,7 +247,7 @@ func BenchmarkTimer(b *testing.B) {
 }
 
 func BenchmarkUnmarshal(b *testing.B) {
-	m := new(link.Message)
+	m := new(mqtt.Message)
 	m.Content = []byte("hi")
 	m.Context.ID = 111
 	m.Context.TS = 123

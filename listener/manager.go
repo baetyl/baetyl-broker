@@ -4,13 +4,10 @@ import (
 	"crypto/tls"
 	"fmt"
 	"io"
-	"strings"
 
-	"github.com/baetyl/baetyl-go/link"
 	"github.com/baetyl/baetyl-go/log"
 	"github.com/baetyl/baetyl-go/mqtt"
 	"github.com/baetyl/baetyl-go/utils"
-	"google.golang.org/grpc"
 )
 
 // Config listener config
@@ -28,14 +25,12 @@ type Listener struct {
 
 // Handler listener handler
 type Handler interface {
-	link.LinkServer
 	Handle(mqtt.Connection)
 }
 
 // Manager listener manager
 type Manager struct {
 	mqtts []mqtt.Server
-	links []*link.Server
 	log   *log.Logger
 }
 
@@ -43,7 +38,6 @@ type Manager struct {
 func NewManager(cfg []Listener, handler Handler) (*Manager, error) {
 	m := &Manager{
 		mqtts: make([]mqtt.Server, 0),
-		links: make([]*grpc.Server, 0),
 		log:   log.With(log.Any("listener", "manager")),
 	}
 	var err error
@@ -60,28 +54,14 @@ func NewManager(cfg []Listener, handler Handler) (*Manager, error) {
 				}
 			}
 		}
-		if strings.HasPrefix(c.Address, "link") {
-			svr, err := link.Launch(link.ServerOptions{
-				Address:              c.Address,
-				TLSConfig:            tlsconfig,
-				LinkServer:           handler,
-				MaxMessageSize:       c.MaxMessageSize,
-				MaxConcurrentStreams: c.MaxConcurrentStreams,
-			})
-			if err != nil {
-				m.Close()
-				return nil, err
-			}
-			m.links = append(m.links, svr)
-		} else {
-			svr, err := m.launchMQTTServer(c.Address, tlsconfig, handler)
-			if err != nil {
-				m.Close()
-				return nil, err
-			}
-			m.mqtts = append(m.mqtts, svr)
-			m.log.Info("listener has initialized", log.Any("listener", svr.Addr()))
+
+		svr, err := m.launchMQTTServer(c.Address, tlsconfig, handler)
+		if err != nil {
+			m.Close()
+			return nil, err
 		}
+		m.mqtts = append(m.mqtts, svr)
+		m.log.Info("listener has initialized", log.Any("listener", svr.Addr()))
 	}
 	return m, nil
 }
@@ -116,9 +96,6 @@ func (m *Manager) Close() error {
 	for _, svr := range m.mqtts {
 		svr.Close()
 		m.log.Info("listener has stopped", log.Any("listener", svr.Addr()))
-	}
-	for _, svr := range m.links {
-		svr.Stop()
 	}
 	return nil
 }
