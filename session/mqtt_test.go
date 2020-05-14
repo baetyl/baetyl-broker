@@ -4,7 +4,6 @@ import (
 	"errors"
 	"fmt"
 	"math/rand"
-	"os"
 	"testing"
 
 	"github.com/baetyl/baetyl-go/mqtt"
@@ -885,10 +884,6 @@ session:
  - $link
  - $baidu
 `
-	err := os.MkdirAll("var/lib/baetyl", os.ModePerm)
-	defer os.Remove("var/lib/baetyl")
-	assert.NoError(t, err)
-
 	b := newMockBroker(t, testSessionConf)
 
 	sub := newMockConn(t)
