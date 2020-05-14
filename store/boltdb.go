@@ -1,7 +1,6 @@
 package store
 
 import (
-	"bytes"
 	"errors"
 	"os"
 	"path"
@@ -15,7 +14,7 @@ func init() {
 	Factories["boltdb"] = newBoltDB
 }
 
-// boltDB the backend BoltDB to persist values
+// boltDB BoltDB to persist values
 type boltDB struct {
 	*bolt.DB
 	conf Conf
@@ -108,8 +107,8 @@ func (d *boltBucket) Get(offset uint64, length int, results interface{}) error {
 			tp = tp.Elem()
 		}
 
-		gk, gmax, c := U64ToByte(offset), U64ToByte(offset+uint64(length)), b.Cursor()
-		for k, v := c.Seek(gk); k != nil && bytes.Compare(k, gmax) < 0; k, v = c.Next() {
+		gk, i, c := U64ToByte(offset), 0, b.Cursor()
+		for k, v := c.Seek(gk); k != nil && i < length; k, v = c.Next() {
 			val := reflect.New(tp)
 			err := d.encoder.Decode(v, val.Interface(), ByteToU64(k))
 			if err != nil {
@@ -123,6 +122,7 @@ func (d *boltBucket) Get(offset uint64, length int, results interface{}) error {
 				rowValue = val.Elem()
 			}
 			sliceVal = reflect.Append(sliceVal, rowValue)
+			i++
 		}
 		resultVal.Elem().Set(sliceVal.Slice(0, sliceVal.Len()))
 		return nil

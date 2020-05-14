@@ -70,10 +70,11 @@ func (d *dispatcher) sending() error {
 	d.log.Info("dispatcher starts to send messages")
 	defer d.log.Info("dispatcher has stopped sending messages")
 
-	var msg *eventWrapper
+	var msgs []*eventWrapper
 	var clis []interface{}
-	qos0 := d.session.qos0.Chan()
-	qos1 := d.session.qos1.Chan()
+	qos0 := d.session.qos0
+	qos1 := d.session.qos1
+
 	for {
 		clis = d.session.clients.copy()
 		if len(clis) == 0 {
@@ -82,7 +83,9 @@ func (d *dispatcher) sending() error {
 		}
 	LB:
 		for _, c := range clis {
-			if msg != nil {
+			for len(msgs) != 0 {
+				msg := msgs[0]
+				msgs = msgs[1:]
 				if err := c.(client).sendEvent(msg, false); err != nil {
 					d.log.Debug("failed to send message", log.Error(err), log.Any("cid", c.(client).getID()))
 					continue LB
@@ -96,18 +99,35 @@ func (d *dispatcher) sending() error {
 				}
 			}
 			select {
-			case evt := <-qos0:
-				if ent := d.log.Check(log.DebugLevel, "queue popped a message as qos 0"); ent != nil {
-					ent.Write(log.Any("message", evt.String()))
+			case <-qos0.Chan():
+				buf, err := qos0.Pop()
+				if err != nil {
+					d.log.Error("failed to pop messages from qos0 queue", log.Error(err))
+					continue
 				}
-				msg = newEventWrapper(0, 0, evt)
-			case evt := <-qos1:
-				if ent := d.log.Check(log.DebugLevel, "queue popped a message as qos 1"); ent != nil {
-					ent.Write(log.Any("message", evt.String()))
+
+				for _, evt := range buf {
+					if ent := d.log.Check(log.DebugLevel, "queue popped a message as qos 0"); ent != nil {
+						ent.Write(log.Any("message", evt.String()))
+					}
+					msgs = append(msgs, newEventWrapper(0, 0, evt))
 				}
-				msg = d.wrap(evt)
-				if err := d.store(msg); err != nil {
-					d.log.Error(err.Error())
+			case <-qos1.Chan():
+				buf, err := qos1.Pop()
+				if err != nil {
+					d.log.Error("failed to pop messages from qos1 queue", log.Error(err))
+					continue
+				}
+
+				for _, evt := range buf {
+					if ent := d.log.Check(log.DebugLevel, "queue popped a message as qos 1"); ent != nil {
+						ent.Write(log.Any("message", evt.String()))
+					}
+					wrap := d.wrap(evt)
+					if err := d.store(wrap); err != nil {
+						d.log.Error(err.Error())
+					}
+					msgs = append(msgs, wrap)
 				}
 			case <-d.tomb.Dying():
 				return nil

@@ -17,34 +17,128 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-func TestTemporaryQueue(t *testing.T) {
+func TestTemporaryQueueSimple(t *testing.T) {
 	b := NewTemporary(t.Name(), 100, true)
 	assert.NotNil(t, b)
 	defer b.Close(true)
 
-	m := new(mqtt.Message)
-	m.Content = []byte("hi")
-	m.Context.ID = 111
-	m.Context.TS = 123
-	m.Context.QOS = 1
-	m.Context.Topic = "t"
-	e := common.NewEvent(m, 0, nil)
-	err := b.Push(e)
+	e1 := newMockEvent(uint64(1))
+	err := b.Push(e1)
 	assert.NoError(t, err)
-	err = b.Push(e)
+	e2 := newMockEvent(uint64(2))
+	err = b.Push(e2)
 	assert.NoError(t, err)
-	err = b.Push(e)
+	e3 := newMockEvent(uint64(3))
+	err = b.Push(e3)
 	assert.NoError(t, err)
 
-	e, err = b.Pop()
+	es, err := b.Pop()
 	assert.NoError(t, err)
-	assert.Equal(t, "Context:<ID:111 TS:123 QOS:1 Topic:\"t\" > Content:\"hi\" ", e.String())
-	e, err = b.Pop()
+	fmt.Println(es)
+	assert.Len(t, es, 3)
+	assert.Equal(t, es[0], e1)
+	assert.Equal(t, es[1], e2)
+	assert.Equal(t, es[2], e3)
+}
+
+func TestTemporaryQueue(t *testing.T) {
+	b := NewTemporary(t.Name(), 100000, true)
+	assert.NotNil(t, b)
+	defer b.Close(true)
+
+	count := 1000
+	var es []*common.Event
+	for i := 0; i < count; i++ {
+		e := newMockEvent(uint64(i))
+		err := b.Push(e)
+		assert.NoError(t, err)
+		es = append(es, e)
+	}
+
+	esr, err := b.Pop()
 	assert.NoError(t, err)
-	assert.Equal(t, "Context:<ID:111 TS:123 QOS:1 Topic:\"t\" > Content:\"hi\" ", e.String())
-	e, err = b.Pop()
+	assert.Len(t, esr, count)
+	for i := 0; i < count; i++ {
+		assert.Equal(t, es[i], esr[i])
+	}
+
+	var es2 []*common.Event
+	for i := 0; i < 2*count; i++ {
+		e := newMockEvent(uint64(i))
+		err := b.Push(e)
+		assert.NoError(t, err)
+		es2 = append(es2, e)
+	}
+
+	es2r, err := b.Pop()
 	assert.NoError(t, err)
-	assert.Equal(t, "Context:<ID:111 TS:123 QOS:1 Topic:\"t\" > Content:\"hi\" ", e.String())
+	assert.Len(t, es2r, 2*count)
+	for i := 0; i < 2*count; i++ {
+		assert.Equal(t, es2[i], es2r[i])
+	}
+
+	var es3 []*common.Event
+	for i := 0; i < 3*count; i++ {
+		e := newMockEvent(uint64(i))
+		err := b.Push(e)
+		assert.NoError(t, err)
+		es3 = append(es3, e)
+	}
+
+	var es4 []*common.Event
+	for i := 0; i < 4*count; i++ {
+		e := newMockEvent(uint64(i))
+		err := b.Push(e)
+		assert.NoError(t, err)
+		es4 = append(es4, e)
+	}
+
+	es3r, err := b.Pop()
+	assert.NoError(t, err)
+	assert.Len(t, es3r, 7*count)
+	for i := 0; i < 3*count; i++ {
+		assert.Equal(t, es3[i], es3r[i])
+	}
+	for i := 3 * count; i < 7*count; i++ {
+		assert.Equal(t, es4[i-3*count], es3r[i])
+	}
+}
+
+func TestPersistentQueueSimple(t *testing.T) {
+	dir, err := ioutil.TempDir("", t.Name())
+	assert.NoError(t, err)
+	defer os.RemoveAll(dir)
+
+	db, err := store.New(store.Conf{Driver: "boltdb", Source: path.Join(dir, t.Name())})
+	defer db.Close()
+	assert.NoError(t, err)
+	assert.NotNil(t, db)
+
+	bucket, err := db.NewBucket(t.Name(), new(Encoder))
+	assert.NoError(t, err)
+	assert.NotNil(t, bucket)
+
+	var cfg Config
+	utils.SetDefaults(&cfg)
+	cfg.Name = t.Name()
+
+	b := NewPersistence(cfg, bucket)
+	assert.NotNil(t, b)
+
+	e1 := newMockEvent(uint64(1))
+	err = b.Push(e1)
+	assert.NoError(t, err)
+	e2 := newMockEvent(uint64(2))
+	err = b.Push(e2)
+	e3 := newMockEvent(uint64(3))
+	err = b.Push(e3)
+
+	time.Sleep(time.Second)
+
+	var ms []mqtt.Message
+	err = bucket.Get(1, 10, &ms)
+	assert.NoError(t, err)
+	assert.Len(t, ms, 3)
 }
 
 func TestPersistentQueue(t *testing.T) {
@@ -68,61 +162,192 @@ func TestPersistentQueue(t *testing.T) {
 	b := NewPersistence(cfg, bucket)
 	assert.NotNil(t, b)
 
-	m := new(mqtt.Message)
-	m.Content = []byte("hi")
-	m.Context.ID = 111
-	m.Context.TS = 123
-	m.Context.QOS = 1
-	m.Context.Topic = "t"
-	e := common.NewEvent(m, 0, nil)
-	err = b.Push(e)
-	assert.NoError(t, err)
-	err = b.Push(e)
-	assert.NoError(t, err)
-	err = b.Push(e)
-	assert.NoError(t, err)
+	count := 1000
+	var es []*common.Event
+	for i := 1; i <= count; i++ {
+		e := newMockEvent(uint64(i))
+		err := b.Push(e)
+		assert.NoError(t, err)
+		es = append(es, e)
+	}
 
-	e1, err := b.Pop()
-	assert.NoError(t, err)
-	assert.Equal(t, "Context:<ID:1 TS:123 QOS:1 Topic:\"t\" > Content:\"hi\" ", e1.String())
-	e2, err := b.Pop()
-	assert.NoError(t, err)
-	assert.Equal(t, "Context:<ID:2 TS:123 QOS:1 Topic:\"t\" > Content:\"hi\" ", e2.String())
+	time.Sleep(time.Second)
 
 	var ms []mqtt.Message
-	err = bucket.Get(1, 10, &ms)
+	err = bucket.Get(1, 100000, &ms)
 	assert.NoError(t, err)
-	assert.Len(t, ms, 3)
+	assert.Len(t, ms, count)
 
-	e1.Done()
-	e2.Done()
+	var esr []*common.Event
+	esri, err := b.Pop()
+	assert.NoError(t, err)
+	for len(esri) != 0 {
+		esr = append(esr, esri...)
+		esri, err = b.Pop()
+		assert.NoError(t, err)
+	}
+	assert.Len(t, esr, count)
+	for i := 0; i < count; i++ {
+		assert.Equal(t, es[i].Context, esr[i].Context)
+		assert.Equal(t, es[i].Content, esr[i].Content)
+	}
+
+	for i := 0; i < count; i++ {
+		esr[i].Done()
+	}
+
+	time.Sleep(time.Second)
 
 	var ms2 []mqtt.Message
-	err = bucket.Get(1, 10, &ms2)
+	err = bucket.Get(1, 100000, &ms2)
 	assert.NoError(t, err)
-	assert.Len(t, ms2, 3)
+	assert.Len(t, ms2, 0)
 
-	time.Sleep(time.Millisecond * 600)
+	var es2 []*common.Event
+	for i := count + 1; i <= 2*count; i++ {
+		e := newMockEvent(uint64(i))
+		err := b.Push(e)
+		assert.NoError(t, err)
+		es2 = append(es2, e)
+	}
+
+	time.Sleep(time.Second)
 
 	var ms3 []mqtt.Message
-	err = bucket.Get(1, 10, &ms3)
+	err = bucket.Get(1, 100000, &ms3)
 	assert.NoError(t, err)
-	assert.Len(t, ms3, 1)
-
-	e3, err := b.Pop()
-	assert.NoError(t, err)
-	assert.Equal(t, "Context:<ID:3 TS:123 QOS:1 Topic:\"t\" > Content:\"hi\" ", e3.String())
-
-	e3.Done()
-	time.Sleep(time.Millisecond * 600)
-
-	var ms4 []mqtt.Message
-	err = bucket.Get(1, 10, &ms4)
-	assert.NoError(t, err)
-	assert.Len(t, ms4, 0)
+	assert.Len(t, ms3, count)
 
 	err = b.Close(false)
 	assert.NoError(t, err)
+
+	bucket2, err := db.NewBucket(t.Name(), new(Encoder))
+	assert.NoError(t, err)
+	assert.NotNil(t, bucket2)
+
+	b2 := NewPersistence(cfg, bucket2)
+	assert.NotNil(t, b2)
+
+	var ms4 []mqtt.Message
+	err = bucket2.Get(1, 100000, &ms4)
+	assert.NoError(t, err)
+	assert.Len(t, ms4, count)
+
+	var esr4 []*common.Event
+	esri4, err := b2.Pop()
+	assert.NoError(t, err)
+	for len(esri4) != 0 {
+		esr4 = append(esr4, esri4...)
+		esri4, err = b2.Pop()
+		assert.NoError(t, err)
+	}
+	assert.Len(t, esr4, count)
+	for i := 0; i < count; i++ {
+		assert.Equal(t, es2[i].Context, esr4[i].Context)
+		assert.Equal(t, es2[i].Content, esr4[i].Content)
+	}
+
+	err = b.Close(true)
+	assert.NoError(t, err)
+
+	bucket3, err := db.NewBucket(t.Name(), new(Encoder))
+	assert.NoError(t, err)
+	assert.NotNil(t, bucket3)
+
+	b3 := NewPersistence(cfg, bucket3)
+	assert.NotNil(t, b3)
+
+	var ms5 []mqtt.Message
+	err = bucket3.Get(1, 100000, &ms5)
+	assert.NoError(t, err)
+	assert.Len(t, ms5, 0)
+}
+
+func TestPersistentQueueReopen(t *testing.T) {
+	dir, err := ioutil.TempDir("", t.Name())
+	assert.NoError(t, err)
+	defer os.RemoveAll(dir)
+
+	db, err := store.New(store.Conf{Driver: "boltdb", Source: path.Join(dir, t.Name())})
+	assert.NoError(t, err)
+	assert.NotNil(t, db)
+
+	bucket, err := db.NewBucket(t.Name(), new(Encoder))
+	assert.NoError(t, err)
+	assert.NotNil(t, bucket)
+
+	var cfg Config
+	utils.SetDefaults(&cfg)
+	cfg.Name = t.Name()
+
+	b := NewPersistence(cfg, bucket)
+	assert.NotNil(t, b)
+
+	count := 1000
+	var es []*common.Event
+	for i := 1; i <= count; i++ {
+		e := newMockEvent(uint64(i))
+		err := b.Push(e)
+		assert.NoError(t, err)
+		es = append(es, e)
+	}
+
+	time.Sleep(time.Second)
+
+	var ms []mqtt.Message
+	err = bucket.Get(1, 100000, &ms)
+	assert.NoError(t, err)
+	assert.Len(t, ms, count)
+
+	var esr []*common.Event
+	esri, err := b.Pop()
+	assert.NoError(t, err)
+	for len(esri) != 0 {
+		esr = append(esr, esri...)
+		esri, err = b.Pop()
+		assert.NoError(t, err)
+	}
+	assert.Len(t, esr, count)
+	for i := 0; i < count; i++ {
+		assert.Equal(t, es[i].Context, esr[i].Context)
+		assert.Equal(t, es[i].Content, esr[i].Content)
+	}
+
+	err = b.Close(false)
+	assert.NoError(t, err)
+
+	err = db.Close()
+	assert.NoError(t, err)
+
+	db2, err := store.New(store.Conf{Driver: "boltdb", Source: path.Join(dir, t.Name())})
+	assert.NoError(t, err)
+	assert.NotNil(t, db2)
+
+	bucket2, err := db2.NewBucket(t.Name(), new(Encoder))
+	assert.NoError(t, err)
+	assert.NotNil(t, bucket2)
+
+	b2 := NewPersistence(cfg, bucket2)
+	assert.NotNil(t, b2)
+
+	var ms2 []mqtt.Message
+	err = bucket2.Get(1, 100000, &ms2)
+	assert.NoError(t, err)
+	assert.Len(t, ms2, count)
+
+	var esr2 []*common.Event
+	esri2, err := b2.Pop()
+	assert.NoError(t, err)
+	for len(esri2) != 0 {
+		esr2 = append(esr2, esri2...)
+		esri2, err = b2.Pop()
+		assert.NoError(t, err)
+	}
+	assert.Len(t, esr2, count)
+	for i := 0; i < count; i++ {
+		assert.Equal(t, es[i].Context, esr2[i].Context)
+		assert.Equal(t, es[i].Content, esr2[i].Content)
+	}
 }
 
 func BenchmarkPersistentQueue(b *testing.B) {
@@ -162,16 +387,6 @@ func BenchmarkPersistentQueue(b *testing.B) {
 			q.Pop()
 		}
 	})
-}
-
-func newMockEvent(i uint64) *common.Event {
-	m := new(mqtt.Message)
-	m.Content = []byte("hi")
-	m.Context.ID = i
-	m.Context.TS = 123
-	m.Context.QOS = 1
-	m.Context.Topic = "b"
-	return common.NewEvent(m, 0, nil)
 }
 
 func BenchmarkPersistentQueueParallel(b *testing.B) {
@@ -300,4 +515,14 @@ func TestChannelLB(t *testing.T) {
 	time.Sleep(time.Second * 10)
 	close(quit)
 	wg.Wait()
+}
+
+func newMockEvent(i uint64) *common.Event {
+	m := new(mqtt.Message)
+	m.Content = []byte("hi")
+	m.Context.ID = i
+	m.Context.TS = 123
+	m.Context.QOS = 1
+	m.Context.Topic = "b"
+	return common.NewEvent(m, 0, nil)
 }

@@ -26,7 +26,7 @@ type DB interface {
 	io.Closer
 }
 
-// Bucket the backend database
+// Bucket the database bucket
 type Bucket interface {
 	Put([]interface{}) error
 	Get(offset uint64, length int, results interface{}) error

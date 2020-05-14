@@ -25,11 +25,11 @@ type Config struct {
 type Persistence struct {
 	cfg    Config
 	input  chan *common.Event
-	output chan *common.Event
 	edel   chan uint64 // del events with message id
 	eget   chan bool   // get events
 	bucket store.Bucket
 	log    *log.Logger
+	offset uint64
 	utils.Tomb
 }
 
@@ -39,33 +39,45 @@ func NewPersistence(cfg Config, bucket store.Bucket) Queue {
 		bucket: bucket,
 		cfg:    cfg,
 		input:  make(chan *common.Event, cfg.BatchSize),
-		output: make(chan *common.Event, cfg.BatchSize),
 		edel:   make(chan uint64, cfg.BatchSize),
-		eget:   make(chan bool, 3),
+		eget:   make(chan bool, 1),
+		offset: uint64(1),
 		log:    log.With(log.Any("queue", "persist"), log.Any("id", cfg.Name)),
 	}
 	// to read persistent message
 	q.trigger()
-	q.Go(q.writing, q.reading, q.deleting)
+	q.Go(q.writing, q.deleting)
 	return q
 }
 
 // Chan returns message channel
-func (q *Persistence) Chan() <-chan *common.Event {
-	return q.output
+func (q *Persistence) Chan() <-chan bool {
+	return q.eget
 }
 
-// Pop pops a message from queue
-func (q *Persistence) Pop() (*common.Event, error) {
-	select {
-	case e := <-q.output:
-		if ent := q.log.Check(log.DebugLevel, "queue poped a message"); ent != nil {
-			ent.Write(log.Any("message", e.String()))
-		}
-		return e, nil
-	case <-q.Dying():
-		return nil, ErrQueueClosed
+// Pop pops messages from queue
+func (q *Persistence) Pop() ([]*common.Event, error) {
+	start := time.Now()
+
+	var msgs []*mqtt.Message
+	err := q.bucket.Get(q.offset, q.cfg.BatchSize, &msgs)
+	if err != nil {
+		return nil, err
 	}
+	var events []*common.Event
+	for _, m := range msgs {
+		events = append(events, common.NewEvent(m, 1, q.acknowledge))
+	}
+	length := len(events)
+	if length == 0 {
+		return events, nil
+	}
+	q.offset = events[length-1].Context.ID + 1
+	q.trigger()
+	if ent := q.log.Check(log.DebugLevel, "queue has poped messages from storage"); ent != nil {
+		ent.Write(log.Any("count", len(msgs)), log.Any("cost", time.Since(start)))
+	}
+	return events, nil
 }
 
 // Push pushes a message into queue
@@ -82,7 +94,7 @@ func (q *Persistence) Push(e *common.Event) (err error) {
 }
 
 func (q *Persistence) writing() error {
-	q.log.Info("queue starts to write messages into backend in batch mode")
+	q.log.Info("queue starts to write messages into storage in batch mode")
 	defer utils.Trace(q.log.Info, "queue has stopped writing messages")()
 
 	var buf []*common.Event
@@ -104,58 +116,18 @@ func (q *Persistence) writing() error {
 			//  if receive timeout to add messages in buffer
 			timer.Reset(q.cfg.WriteTimeout)
 		case <-timer.C:
-			q.log.Debug("queue writes message to backend when timeout")
+			q.log.Debug("queue writes message to storage when timeout")
 			buf = q.add(buf)
 		case <-q.Dying():
-			q.log.Debug("queue writes message to backend during closing")
+			q.log.Debug("queue writes message to storage during closing")
 			buf = q.add(buf)
-			return nil
-		}
-	}
-}
-
-func (q *Persistence) reading() error {
-	q.log.Info("queue starts to read messages from backend in batch mode")
-	defer utils.Trace(q.log.Info, "queue has stopped reading messages")()
-
-	var err error
-	var buf []*common.Event
-	length := 0
-	offset := uint64(1)
-	max := cap(q.output)
-
-	for {
-		select {
-		case <-q.eget:
-			q.log.Debug("queue received a get event")
-			buf, err = q.get(offset, max)
-			if err != nil {
-				q.log.Error("failed to get message from backend database", log.Error(err))
-				continue
-			}
-			length = len(buf)
-			if length == 0 {
-				continue
-			}
-			for _, e := range buf {
-				select {
-				case q.output <- e:
-				case <-q.Dying():
-					return nil
-				}
-			}
-			// set next message id
-			offset = buf[length-1].Context.ID + 1
-			// keep reading if any message is read
-			q.trigger()
-		case <-q.Dying():
 			return nil
 		}
 	}
 }
 
 func (q *Persistence) deleting() error {
-	q.log.Info("queue starts to delete messages from backend in batch mode")
+	q.log.Info("queue starts to delete messages from storage in batch mode")
 	defer utils.Trace(q.log.Info, "queue has stopped deleting messages")()
 
 	var buf []uint64
@@ -177,47 +149,27 @@ func (q *Persistence) deleting() error {
 			}
 			timer.Reset(q.cfg.DeleteTimeout)
 		case <-timer.C:
-			q.log.Debug("queue deletes message from backend when timeout")
+			q.log.Debug("queue deletes message from storage when timeout")
 			buf = q.delete(buf)
 		case <-cleanTimer.C:
-			q.log.Debug("queue starts to clean expired messages from backend")
+			q.log.Debug("queue starts to clean expired messages from storage")
 			q.clean()
-			q.log.Info(fmt.Sprintf("queue state: input size %d, output size %d, deletion size %d", len(q.input), len(q.output), len(q.edel)))
+			q.log.Info(fmt.Sprintf("queue state: input size %d, deletion size %d", len(q.input), len(q.edel)))
 		case <-q.Dying():
-			q.log.Debug("queue deletes message from backend during closing")
+			q.log.Debug("queue deletes message from storage during closing")
 			buf = q.delete(buf)
 			return nil
 		}
 	}
 }
 
-// get gets messages from backend database in batch mode
-func (q *Persistence) get(offset uint64, length int) ([]*common.Event, error) {
-	start := time.Now()
-
-	var msgs []*mqtt.Message
-	err := q.bucket.Get(offset, length, &msgs)
-	if err != nil {
-		return nil, err
-	}
-	var events []*common.Event
-	for _, m := range msgs {
-		events = append(events, common.NewEvent(m, 1, q.acknowledge))
-	}
-
-	if ent := q.log.Check(log.DebugLevel, "queue has read message from backend"); ent != nil {
-		ent.Write(log.Any("count", len(msgs)), log.Any("cost", time.Since(start)))
-	}
-	return events, nil
-}
-
-// add all buffered messages to backend database in batch mode
+// add all buffered messages to storage in batch mode
 func (q *Persistence) add(buf []*common.Event) []*common.Event {
 	if len(buf) == 0 {
 		return buf
 	}
 
-	defer utils.Trace(q.log.Debug, "queue has written message to backend", log.Any("count", len(buf)))()
+	defer utils.Trace(q.log.Debug, "queue has written message to storage", log.Any("count", len(buf)))()
 
 	var msgs []interface{}
 	for _, e := range buf {
@@ -231,36 +183,36 @@ func (q *Persistence) add(buf []*common.Event) []*common.Event {
 			e.Done()
 		}
 	} else {
-		q.log.Error("failed to add messages to backend database", log.Error(err))
+		q.log.Error("failed to add messages to storage", log.Error(err))
 	}
 	return []*common.Event{}
 }
 
-// deletes all acknowledged message from backend database in batch mode
+// deletes all acknowledged message from storage in batch mode
 func (q *Persistence) delete(buf []uint64) []uint64 {
 	if len(buf) == 0 {
 		return buf
 	}
 
-	defer utils.Trace(q.log.Debug, "queue has deleted message from backend", log.Any("count", len(buf)))()
+	defer utils.Trace(q.log.Debug, "queue has deleted message from storage", log.Any("count", len(buf)))()
 
 	err := q.bucket.Del(buf)
 	if err != nil {
-		q.log.Error("failed to delete messages from backend database", log.Any("count", len(buf)), log.Error(err))
+		q.log.Error("failed to delete messages from storage", log.Any("count", len(buf)), log.Error(err))
 	}
 	return []uint64{}
 }
 
 // clean expired messages
 func (q *Persistence) clean() {
-	defer utils.Trace(q.log.Debug, "queue has cleaned expired messages from backend")
+	defer utils.Trace(q.log.Debug, "queue has cleaned expired messages from storage")
 	err := q.bucket.DelBefore(time.Now().Add(-q.cfg.ExpireTime))
 	if err != nil {
-		q.log.Error("failed to clean expired messages from backend", log.Error(err))
+		q.log.Error("failed to clean expired messages from storage", log.Error(err))
 	}
 }
 
-// triggers an event to get message from backend database in batch mode
+// triggers an event to get message from storage in batch mode
 func (q *Persistence) trigger() {
 	select {
 	case q.eget <- true:
@@ -268,7 +220,7 @@ func (q *Persistence) trigger() {
 	}
 }
 
-// acknowledge all acknowledged message from backend database in batch mode
+// acknowledge all acknowledged message from storage in batch mode
 func (q *Persistence) acknowledge(id uint64) {
 	select {
 	case q.edel <- id:

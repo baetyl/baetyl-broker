@@ -113,7 +113,7 @@ func TestDatabaseBoltDB(t *testing.T) {
 		var values3 []mockStruct
 		err = bucket.Get(0, 3, &values3)
 		assert.NoError(t, err)
-		assert.Len(t, values3, 0)
+		assert.Len(t, values3, 1)
 
 		var values4 []mockStruct
 		err = bucket.Get(3, 1, &values4)

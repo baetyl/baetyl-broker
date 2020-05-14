@@ -84,7 +84,7 @@ func NewManager(cfg Config) (m *Manager, err error) {
 		return
 	}
 	var ss []Info
-	// load stored sessions from backend database
+	// load stored sessions from storage database
 	err = m.sessionBucket.ListKV(&ss)
 	if err != nil {
 		m.Close()
