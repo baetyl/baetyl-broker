@@ -3,6 +3,8 @@ package store
 import (
 	"bytes"
 	"errors"
+	"os"
+	"path"
 	"reflect"
 	"time"
 
@@ -28,6 +30,10 @@ type boltBucket struct {
 
 // New creates a new boltDB database
 func newBoltDB(conf Conf) (DB, error) {
+	err := os.MkdirAll(path.Dir(conf.Source), 0755)
+	if err != nil {
+		return nil, err
+	}
 	db, err := bolt.Open(conf.Source, 0600, &bolt.Options{Timeout: 30 * time.Second})
 	if err != nil {
 		return nil, err

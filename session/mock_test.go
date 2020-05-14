@@ -63,14 +63,10 @@ type mockBroker struct {
 }
 
 func newMockBroker(t *testing.T, cfgStr string) *mockBroker {
-	err := os.MkdirAll("var/lib/baetyl", os.ModePerm)
-	defer os.Remove("var/lib/baetyl")
-	assert.NoError(t, err)
-
 	log.Init(log.Config{Level: "debug", Encoding: "console"})
 
 	var cfg Config
-	err = utils.UnmarshalYAML([]byte(cfgStr), &cfg)
+	err := utils.UnmarshalYAML([]byte(cfgStr), &cfg)
 	assert.NoError(t, err)
 	b := &mockBroker{t: t, cfg: cfg}
 	b.ses, err = NewManager(cfg)
