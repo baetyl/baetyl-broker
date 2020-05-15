@@ -25,8 +25,8 @@ type Config struct {
 type Persistence struct {
 	cfg    Config
 	input  chan *common.Event
-	edel   chan uint64 // del events with message id
-	eget   chan bool   // get events
+	edel   chan uint64        // del events with message id
+	eget   chan *common.Event // get events
 	bucket store.Bucket
 	log    *log.Logger
 	offset uint64
@@ -40,7 +40,7 @@ func NewPersistence(cfg Config, bucket store.Bucket) Queue {
 		cfg:    cfg,
 		input:  make(chan *common.Event, cfg.BatchSize),
 		edel:   make(chan uint64, cfg.BatchSize),
-		eget:   make(chan bool, 1),
+		eget:   make(chan *common.Event, 1),
 		offset: uint64(1),
 		log:    log.With(log.Any("queue", "persist"), log.Any("id", cfg.Name)),
 	}
@@ -51,12 +51,12 @@ func NewPersistence(cfg Config, bucket store.Bucket) Queue {
 }
 
 // Chan returns message channel
-func (q *Persistence) Chan() <-chan bool {
+func (q *Persistence) Chan() <-chan *common.Event {
 	return q.eget
 }
 
-// Pop pops messages from queue
-func (q *Persistence) Pop() ([]*common.Event, error) {
+// Fetch fetch messages from queue
+func (q *Persistence) Fetch() ([]*common.Event, error) {
 	start := time.Now()
 
 	var msgs []*mqtt.Message
@@ -215,7 +215,7 @@ func (q *Persistence) clean() {
 // triggers an event to get message from storage in batch mode
 func (q *Persistence) trigger() {
 	select {
-	case q.eget <- true:
+	case q.eget <- &common.Event{}:
 	default:
 	}
 }

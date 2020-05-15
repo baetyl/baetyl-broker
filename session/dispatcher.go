@@ -99,21 +99,13 @@ func (d *dispatcher) sending() error {
 				}
 			}
 			select {
-			case <-qos0.Chan():
-				buf, err := qos0.Pop()
-				if err != nil {
-					d.log.Error("failed to pop messages from qos0 queue", log.Error(err))
-					continue
+			case evt := <-qos0.Chan():
+				if ent := d.log.Check(log.DebugLevel, "queue popped a message as qos 0"); ent != nil {
+					ent.Write(log.Any("message", evt.String()))
 				}
-
-				for _, evt := range buf {
-					if ent := d.log.Check(log.DebugLevel, "queue popped a message as qos 0"); ent != nil {
-						ent.Write(log.Any("message", evt.String()))
-					}
-					msgs = append(msgs, newEventWrapper(0, 0, evt))
-				}
+				msgs = append(msgs, newEventWrapper(0, 0, evt))
 			case <-qos1.Chan():
-				buf, err := qos1.Pop()
+				buf, err := qos1.Fetch()
 				if err != nil {
 					d.log.Error("failed to pop messages from qos1 queue", log.Error(err))
 					continue
