@@ -92,17 +92,20 @@ func NewManager(cfg Config) (m *Manager, err error) {
 	}
 	for _, i := range ss {
 		m.checkSubscriptions(&i)
-		_, _, err = m.initSession(i)
-		if err != nil {
+		var s *Session
+		if s, _, err = m.getSession(i); err != nil {
 			m.Close()
 			return
+		}
+		if err = s.init(&i, nil); err != nil {
+			return nil, err
 		}
 	}
 	m.log.Info("session manager has initialized")
 	return m, nil
 }
 
-func (m *Manager) initSession(si Info) (s *Session, exists bool, err error) {
+func (m *Manager) getSession(si Info) (s *Session, exists bool, err error) {
 	if err = m.checkQuitState(); err != nil {
 		return
 	}
@@ -110,17 +113,14 @@ func (m *Manager) initSession(si Info) (s *Session, exists bool, err error) {
 	var v interface{}
 	if v, exists = m.sessions.load(si.ID); exists {
 		s = v.(*Session)
-	} else {
-		s = newSession(si, m)
-		err = m.sessions.store(si.ID, s)
-		if err != nil {
-			s.log.Error("number of sessions exceeds the limit", log.Any("max", s.mgr.cfg.MaxSessions))
-			return
-		}
+		return
 	}
 
-	s.updateInfo(&si, nil, nil, nil)
-	err = s.updateState()
+	s = newSession(si, m)
+	err = m.sessions.store(si.ID, s)
+	if err != nil {
+		s.log.Error("number of sessions exceeds the limit", log.Any("max", s.mgr.cfg.MaxSessions))
+	}
 	return
 }
 

@@ -1,6 +1,7 @@
 package queue
 
 import (
+	"encoding/json"
 	"fmt"
 	"io/ioutil"
 	"os"
@@ -102,7 +103,7 @@ func TestPersistentQueue(t *testing.T) {
 	assert.NoError(t, err)
 	assert.Len(t, ms2, 3)
 
-	time.Sleep(time.Millisecond * 600)
+	time.Sleep(time.Second)
 
 	var ms3 []mqtt.Message
 	err = bucket.Get(1, 10, &ms3)
@@ -114,7 +115,7 @@ func TestPersistentQueue(t *testing.T) {
 	assert.Equal(t, "Context:<ID:3 TS:123 QOS:1 Topic:\"t\" > Content:\"hi\" ", e3.String())
 
 	e3.Done()
-	time.Sleep(time.Millisecond * 600)
+	time.Sleep(time.Second)
 
 	var ms4 []mqtt.Message
 	err = bucket.Get(1, 10, &ms4)
@@ -246,6 +247,19 @@ func BenchmarkTimer(b *testing.B) {
 	}
 }
 
+type mockMessageContext struct {
+	ID    uint64
+	TS    uint64
+	QOS   uint32
+	Flags uint32
+	Topic string
+}
+
+type mockMessage struct {
+	Context mockMessageContext
+	Content []byte
+}
+
 func BenchmarkUnmarshal(b *testing.B) {
 	m := new(mqtt.Message)
 	m.Content = []byte("hi")
@@ -256,9 +270,26 @@ func BenchmarkUnmarshal(b *testing.B) {
 	d, err := proto.Marshal(m)
 	assert.NoError(b, err)
 	b.ResetTimer()
-	for index := 0; index < b.N; index++ {
-		proto.Unmarshal(d, m)
-	}
+	b.Run("Proto", func(b *testing.B) {
+		for i := 0; i < b.N; i++ {
+			proto.Unmarshal(d, m)
+		}
+	})
+
+	mm := new(mockMessage)
+	mm.Content = []byte("hi")
+	mm.Context.ID = 111
+	mm.Context.TS = 123
+	mm.Context.QOS = 1
+	mm.Context.Topic = "b"
+	d2, err := json.Marshal(mm)
+	assert.NoError(b, err)
+	b.ResetTimer()
+	b.Run("Json", func(b *testing.B) {
+		for i := 0; i < b.N; i++ {
+			json.Unmarshal(d2, mm)
+		}
+	})
 }
 
 func TestChannelLB(t *testing.T) {

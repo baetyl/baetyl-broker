@@ -6,6 +6,7 @@ import (
 	"io"
 	"net"
 	"os"
+	"path"
 	"sync"
 	"testing"
 	"time"
@@ -26,7 +27,6 @@ session:
   - $link
   - $baidu
   maxSessions: 3
-  maxClientsPerSession: 2
   resendInterval: 200ms
 
 principals:
@@ -63,6 +63,19 @@ type mockBroker struct {
 }
 
 func newMockBroker(t *testing.T, cfgStr string) *mockBroker {
+	log.Init(log.Config{Level: "debug", Encoding: "console"})
+
+	var cfg Config
+	err := utils.UnmarshalYAML([]byte(cfgStr), &cfg)
+	assert.NoError(t, err)
+	os.RemoveAll(path.Dir(cfg.Persistence.Store.Source))
+	b := &mockBroker{t: t, cfg: cfg}
+	b.ses, err = NewManager(cfg)
+	assert.NoError(t, err)
+	return b
+}
+
+func newMockBrokerNotClean(t *testing.T, cfgStr string) *mockBroker {
 	log.Init(log.Config{Level: "debug", Encoding: "console"})
 
 	var cfg Config
@@ -113,27 +126,31 @@ func (b *mockBroker) assertSessionState(sid string, expect state) {
 		assert.NotNil(b.t, s.disp)
 		assert.NotNil(b.t, s.qos0)
 		assert.NotNil(b.t, s.qos1)
-		assert.NotZero(b.t, s.clients.count())
+		assert.NotNil(b.t, s.client)
 		assert.NotZero(b.t, s.subs.Count())
 		assert.NotZero(b.t, len(s.info.Subscriptions))
 	} else if expect == STATE2 {
 		assert.Nil(b.t, s.disp)
 		assert.Nil(b.t, s.qos0)
 		assert.NotNil(b.t, s.qos1)
-		assert.Zero(b.t, s.clients.count())
+		assert.Nil(b.t, s.client)
 		assert.NotZero(b.t, s.subs.Count())
 		assert.NotZero(b.t, len(s.info.Subscriptions))
 	}
 }
 
-func (b *mockBroker) waitClientReady(sid string, cnt int) {
+func (b *mockBroker) waitClientReady(sid string, isNil bool) {
 	for {
 		v, ok := b.ses.sessions.load(sid)
-		if !ok || v.(*Session).clients.count() != cnt {
-			time.Sleep(time.Millisecond * 100)
-			continue
+		if ok {
+			if isNil && v.(*Session).client == nil {
+				return
+			}
+			if !isNil && v.(*Session).client != nil {
+				return
+			}
 		}
-		return
+		time.Sleep(time.Millisecond * 100)
 	}
 }
 

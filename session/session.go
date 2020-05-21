@@ -36,29 +36,41 @@ func (i *Info) String() string {
 
 // Session session of a client
 type Session struct {
-	info    Info
-	stat    state
-	mgr     *Manager
-	qos0    queue.Queue // queue for qos0
-	qos1    queue.Queue // queue for qos1
-	clients *syncmap
-	subs    *mqtt.Trie
-	cnt     *mqtt.Counter
-	disp    *dispatcher
-	log     *log.Logger
-	mut     sync.RWMutex // mutex for session
-	once    sync.Once
+	info   Info
+	stat   state
+	mgr    *Manager
+	qos0   queue.Queue // queue for qos0
+	qos1   queue.Queue // queue for qos1
+	client client
+	subs   *mqtt.Trie
+	cnt    *mqtt.Counter
+	disp   *dispatcher
+	log    *log.Logger
+	mut    sync.RWMutex // mutex for session
 }
 
 func newSession(i Info, m *Manager) *Session {
 	return &Session{
-		info:    i,
-		mgr:     m,
-		subs:    mqtt.NewTrie(),
-		cnt:     mqtt.NewCounter(),
-		clients: newSyncMap(m.cfg.MaxClientsPerSession),
-		log:     m.log.With(log.Any("id", i.ID)),
+		info: i,
+		mgr:  m,
+		subs: mqtt.NewTrie(),
+		cnt:  mqtt.NewCounter(),
+		log:  m.log.With(log.Any("id", i.ID)),
 	}
+}
+
+func (s *Session) init(si *Info, c client) (err error) {
+	s.mut.Lock()
+	defer s.mut.Unlock()
+
+	s.updateInfo(si, nil, nil, nil)
+	if err = s.updateState(); err != nil {
+		return
+	}
+	if c != nil {
+		err = s.addClient(c)
+	}
+	return
 }
 
 func (s *Session) gotoState0() {
@@ -80,6 +92,9 @@ func (s *Session) gotoState0() {
 
 func (s *Session) gotoState1() error {
 	s.log.Info("go to state1")
+	if s.qos1 != nil {
+		s.qos1.Close(s.info.CleanSession)
+	}
 	err := s.createQOS1()
 	if err != nil {
 		return err
@@ -87,9 +102,10 @@ func (s *Session) gotoState1() error {
 	if s.qos0 == nil {
 		s.qos0 = queue.NewTemporary(s.info.ID, s.mgr.cfg.MaxInflightQOS0Messages, true)
 	}
-	if s.disp == nil {
-		s.disp = newDispatcher(s)
+	if s.disp != nil {
+		s.disp.close()
 	}
+	s.disp = newDispatcher(s)
 	s.stat = STATE1
 	return nil
 }
@@ -104,18 +120,17 @@ func (s *Session) gotoState2() error {
 		s.qos0.Close(s.info.CleanSession)
 		s.qos0 = nil
 	}
-	err := s.createQOS1()
-	if err != nil {
-		return err
+	if s.qos1 == nil {
+		err := s.createQOS1()
+		if err != nil {
+			return err
+		}
 	}
 	s.stat = STATE2
 	return nil
 }
 
 func (s *Session) createQOS1() error {
-	if s.qos1 != nil {
-		return nil
-	}
 	qc := s.mgr.cfg.Persistence.Queue
 	qc.Name = utils.CalculateBase64(s.info.ID)
 	qc.BatchSize = s.mgr.cfg.MaxInflightQOS1Messages
@@ -134,35 +149,36 @@ func (s *Session) close() {
 	s.mgr.exch.UnbindAll(s)
 	s.mgr.sessions.delete(s.info.ID)
 	s.gotoState0()
-	for _, v := range s.clients.empty() {
-		v.(client).close()
+
+	if s.client != nil {
+		s.client.close()
 	}
 }
 
 // * client operations
 
-func (s *Session) addClient(c client, exclusive bool) error {
-	if exclusive {
-		for _, prevClient := range s.clients.empty() {
-			prevClient.(client).close()
-		}
+func (s *Session) addClient(c client) error {
+	if prev := s.client; prev != nil {
+		prev.close()
 	}
-	c.setSession(s.id(), s)
-	err := s.clients.store(c.getID(), c)
-	if err != nil {
-		s.log.Error("number of session clients exceeds the limit", log.Any("max", s.mgr.cfg.MaxClientsPerSession))
-		return err
-	}
-
+	c.setSession(s.info.ID, s)
+	s.client = c
 	s.updateInfo(nil, nil, nil, c.authorize)
-	return s.updateState()
+	err := s.updateState()
+	return err
 }
 
-func (s *Session) delClient(c client) {
-	s.clients.delete(c.getID())
-	if !s.closeIfNeed() {
-		s.updateState()
+func (s *Session) delClient() {
+	s.mut.Lock()
+	defer s.mut.Unlock()
+
+	if s.info.CleanSession {
+		s.close()
+		s.log.Info("remove session whose cleansession flag is true when all clients are closed")
+		return
 	}
+	s.client = nil
+	s.updateState()
 }
 
 // * the following operations are only used by mqtt client
@@ -172,6 +188,9 @@ func (s *Session) subscribe(subs []mqtt.Subscription) error {
 		return nil
 	}
 
+	s.mut.Lock()
+	defer s.mut.Unlock()
+
 	s.updateInfo(nil, subs, nil, nil)
 	return s.updateState()
 }
@@ -180,6 +199,9 @@ func (s *Session) unsubscribe(topics []string) error {
 	if len(topics) == 0 {
 		return nil
 	}
+
+	s.mut.Lock()
+	defer s.mut.Unlock()
 
 	s.updateInfo(nil, nil, topics, nil)
 	return s.updateState()
@@ -234,12 +256,6 @@ func (s *Session) Close() {
 	s.close()
 }
 
-func (s *Session) id() string {
-	s.mut.RLock()
-	defer s.mut.RUnlock()
-	return s.info.ID
-}
-
 func (s *Session) will() *mqtt.Message {
 	s.mut.RLock()
 	defer s.mut.RUnlock()
@@ -252,25 +268,10 @@ func (s *Session) matchQOS(topic string) (bool, uint32) {
 	return mqtt.MatchTopicQOS(s.subs, topic)
 }
 
-func (s *Session) closeIfNeed() bool {
-	s.mut.Lock()
-	defer s.mut.Unlock()
-
-	if s.info.CleanSession && s.clients.count() == 0 {
-		s.close()
-		s.log.Info("remove session whose cleansession flag is true when all clients are closed")
-		return true
-	}
-	return false
-}
-
 func (s *Session) updateState() (err error) {
-	s.mut.Lock()
-	defer s.mut.Unlock()
-
 	if len(s.info.Subscriptions) == 0 {
 		s.gotoState0()
-	} else if s.clients.count() == 0 {
+	} else if s.client == nil {
 		err = s.gotoState2()
 	} else {
 		err = s.gotoState1()
@@ -279,9 +280,6 @@ func (s *Session) updateState() (err error) {
 }
 
 func (s *Session) updateInfo(si *Info, add []mqtt.Subscription, del []string, auth func(action, topic string) bool) {
-	s.mut.Lock()
-	defer s.mut.Unlock()
-
 	if s.info.Subscriptions == nil {
 		s.info.Subscriptions = map[string]mqtt.QOS{}
 	}

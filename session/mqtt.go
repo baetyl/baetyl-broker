@@ -37,17 +37,9 @@ func (m *Manager) Handle(conn mqtt.Connection) {
 		conn: conn,
 		log:  log.With(log.Any("type", "mqtt"), log.Any("id", id)),
 	}
-	si := Info{
-		ID:           id,
-		CleanSession: true, // always true for random client
-	}
-	s, _, err := m.initSession(si)
-	if err != nil {
-		conn.Close()
-		return
-	}
-	err = s.addClient(c, true)
-	if err != nil {
+	max := m.cfg.MaxSessions
+	if max > 0 && m.sessions.count() >= max {
+		c.log.Error("number of sessions exceeds the limit", log.Any("max", m.cfg.MaxSessions))
 		conn.Close()
 		return
 	}
@@ -87,7 +79,9 @@ func (c *ClientMQTT) die(msg string, err error) {
 	c.log.Info("client is dying")
 	defer c.log.Info("client has died")
 	c.tomb.Kill(err)
-	c.session.delClient(c)
+	if c.session != nil {
+		c.session.delClient()
+	}
 	if err != nil {
 		if err == io.EOF {
 			c.log.Info("client disconnected", log.Error(err))
@@ -263,6 +257,13 @@ func (c *ClientMQTT) onConnect(p *mqtt.Connect) error {
 		ID:           p.ClientID,
 		CleanSession: p.CleanSession,
 	}
+	if si.ID == "" {
+		if si.CleanSession == false {
+			c.sendConnack(mqtt.IdentifierRejected, false)
+			return ErrConnectionRefuse
+		}
+		si.ID = c.id
+	}
 	if p.Version != mqtt.Version31 && p.Version != mqtt.Version311 {
 		c.sendConnack(mqtt.InvalidProtocolVersion, false)
 		return ErrSessionProtocolVersionInvalid
@@ -315,24 +316,14 @@ func (c *ClientMQTT) onConnect(p *mqtt.Connect) error {
 		si.WillMessage = common.NewMessage(&mqtt.Publish{Message: *p.Will})
 	}
 
-	var err error
-	var exists bool
-	var s *Session
-	if si.ID != "" {
-		// clean previous session
-		if c.session != nil {
-			c.session.delClient(c)
-		}
-		//  init new session
-		s, exists, err = c.mgr.initSession(si)
-		if err != nil {
-			return err
-		}
-		err = s.addClient(c, true)
-		if err != nil {
-			return err
-		}
+	s, exists, err := c.mgr.getSession(si)
+	if err != nil {
+		return err
 	}
+	if err = s.init(&si, c); err != nil {
+		return err
+	}
+
 	err = c.sendConnack(mqtt.ConnectionAccepted, exists)
 	if err != nil {
 		return err

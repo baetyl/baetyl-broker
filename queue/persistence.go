@@ -41,7 +41,7 @@ func NewPersistence(cfg Config, bucket store.Bucket) Queue {
 		input:  make(chan *common.Event, cfg.BatchSize),
 		output: make(chan *common.Event, cfg.BatchSize),
 		edel:   make(chan uint64, cfg.BatchSize),
-		eget:   make(chan bool, 3),
+		eget:   make(chan bool, 1),
 		log:    log.With(log.Any("queue", "persist"), log.Any("id", cfg.Name)),
 	}
 	// to read persistent message
