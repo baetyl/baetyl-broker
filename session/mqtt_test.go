@@ -18,11 +18,10 @@ func TestSessionMqttConnect(t *testing.T) {
 	// connect
 	c := newMockConn(t)
 	b.ses.Handle(c)
-	b.assertSessionCount(1)
 
 	c.sendC2S(&mqtt.Connect{ClientID: t.Name(), Version: 3})
 	c.assertS2CPacket("<Connack SessionPresent=false ReturnCode=0>")
-	b.waitClientReady(t.Name(), 1)
+	b.waitClientReady(t.Name(), false)
 	b.assertSessionStore(t.Name(), "{\"id\":\""+t.Name()+"\"}", nil)
 	b.assertSessionState(t.Name(), STATE0)
 	b.assertSessionCount(1)
@@ -31,7 +30,7 @@ func TestSessionMqttConnect(t *testing.T) {
 	c.sendC2S(&mqtt.Disconnect{})
 	c.assertS2CPacketTimeout()
 	c.assertClosed(true)
-	b.waitClientReady(t.Name(), 0)
+	b.waitClientReady(t.Name(), true)
 	b.assertSessionStore(t.Name(), "{\"id\":\""+t.Name()+"\"}", nil)
 	b.assertSessionState(t.Name(), STATE0)
 	b.assertSessionCount(1)
@@ -42,7 +41,7 @@ func TestSessionMqttConnect(t *testing.T) {
 
 	c.sendC2S(&mqtt.Connect{ClientID: t.Name(), Version: 3})
 	c.assertS2CPacket("<Connack SessionPresent=true ReturnCode=0>")
-	b.waitClientReady(t.Name(), 1)
+	b.waitClientReady(t.Name(), false)
 	b.assertSessionStore(t.Name(), "{\"id\":\""+t.Name()+"\"}", nil)
 	b.assertSessionState(t.Name(), STATE0)
 	b.assertSessionCount(1)
@@ -51,7 +50,7 @@ func TestSessionMqttConnect(t *testing.T) {
 	c.sendC2S(&mqtt.Connect{ClientID: t.Name(), Version: 3})
 	c.assertS2CPacketTimeout()
 	c.assertClosed(true)
-	b.waitClientReady(t.Name(), 0)
+	b.waitClientReady(t.Name(), true)
 	b.assertSessionState(t.Name(), STATE0)
 	b.assertSessionCount(1)
 
@@ -61,7 +60,7 @@ func TestSessionMqttConnect(t *testing.T) {
 
 	c.sendC2S(&mqtt.Connect{ClientID: t.Name(), CleanSession: true, Version: 3})
 	c.assertS2CPacket("<Connack SessionPresent=true ReturnCode=0>")
-	b.waitClientReady(t.Name(), 1)
+	b.waitClientReady(t.Name(), false)
 	b.assertSessionStore(t.Name(), "", errors.New("No data found for this key"))
 	b.assertSessionState(t.Name(), STATE0)
 	b.assertSessionCount(1)
@@ -73,6 +72,22 @@ func TestSessionMqttConnect(t *testing.T) {
 	c.assertClosed(true)
 	b.assertSessionStore(t.Name(), "", errors.New("No data found for this key"))
 	b.assertSessionCount(0)
+
+	// connect
+	c2 := newMockConn(t)
+	b.ses.Handle(c2)
+
+	c2.sendC2S(&mqtt.Connect{CleanSession: true, Version: 3})
+	c2.assertS2CPacket("<Connack SessionPresent=false ReturnCode=0>")
+	b.assertSessionCount(1)
+
+	// connect
+	c3 := newMockConn(t)
+	b.ses.Handle(c3)
+
+	c3.sendC2S(&mqtt.Connect{CleanSession: false, Version: 3})
+	c3.assertS2CPacket("<Connack SessionPresent=false ReturnCode=2>")
+	b.assertSessionCount(1)
 }
 
 func TestSessionMqttConnectSameClientID(t *testing.T) {
@@ -84,7 +99,7 @@ func TestSessionMqttConnectSameClientID(t *testing.T) {
 	b.ses.Handle(pub)
 	pub.sendC2S(&mqtt.Connect{ClientID: "pub", Version: 3})
 	pub.assertS2CPacket("<Connack SessionPresent=false ReturnCode=0>")
-	b.waitClientReady("pub", 1)
+	b.waitClientReady("pub", false)
 	b.assertSessionCount(1)
 	b.assertExchangeCount(0)
 
@@ -95,7 +110,7 @@ func TestSessionMqttConnectSameClientID(t *testing.T) {
 	c1.assertS2CPacket("<Connack SessionPresent=false ReturnCode=0>")
 	c1.sendC2S(&mqtt.Subscribe{ID: 1, Subscriptions: []mqtt.Subscription{{Topic: "test", QOS: 0}}})
 	c1.assertS2CPacket("<Suback ID=1 ReturnCodes=[0]>")
-	b.waitClientReady(t.Name(), 1)
+	b.waitClientReady(t.Name(), false)
 	b.assertSessionStore(t.Name(), "{\"id\":\""+t.Name()+"\",\"subs\":{\"test\":0}}", nil)
 	b.assertSessionCount(2)
 	b.assertExchangeCount(1)
@@ -104,7 +119,7 @@ func TestSessionMqttConnectSameClientID(t *testing.T) {
 	pktpub.Message.Topic = "test"
 	pktpub.Message.Payload = []byte("hi")
 	pub.sendC2S(pktpub)
-	c1.assertS2CPacket("<Publish ID=0 Message=<Message Topic=\"test\" QOS=0 Retain=false Payload=[104 105]> Dup=false>")
+	c1.assertS2CPacket("<Publish ID=0 Message=<Message Topic=\"test\" QOS=0 Retain=false Payload=6869> Dup=false>")
 
 	// client 2
 	c2 := newMockConn(t)
@@ -113,13 +128,13 @@ func TestSessionMqttConnectSameClientID(t *testing.T) {
 	c2.assertS2CPacket("<Connack SessionPresent=true ReturnCode=0>")
 	c2.sendC2S(&mqtt.Subscribe{ID: 1, Subscriptions: []mqtt.Subscription{{Topic: "test", QOS: 0}}})
 	c2.assertS2CPacket("<Suback ID=1 ReturnCodes=[0]>")
-	b.waitClientReady(t.Name(), 1)
+	b.waitClientReady(t.Name(), false)
 	b.assertSessionStore(t.Name(), "{\"id\":\""+t.Name()+"\",\"subs\":{\"test\":0}}", nil)
 	b.assertSessionCount(2)
 	b.assertExchangeCount(1)
 
 	pub.sendC2S(pktpub)
-	c2.assertS2CPacket("<Publish ID=0 Message=<Message Topic=\"test\" QOS=0 Retain=false Payload=[104 105]> Dup=false>")
+	c2.assertS2CPacket("<Publish ID=0 Message=<Message Topic=\"test\" QOS=0 Retain=false Payload=6869> Dup=false>")
 
 	// 'c1' is closed during 'c2' connecting
 	c1.assertClosed(true)
@@ -133,7 +148,6 @@ func TestSessionMqttConnectException(t *testing.T) {
 	// connect again with wrong version
 	c := newMockConn(t)
 	b.ses.Handle(c)
-	b.assertSessionCount(1)
 
 	c.sendC2S(&mqtt.Connect{ClientID: t.Name(), Username: "u1", Password: "p1", Version: 0})
 	c.assertS2CPacket("<Connack SessionPresent=false ReturnCode=1>")
@@ -144,7 +158,6 @@ func TestSessionMqttConnectException(t *testing.T) {
 	// connect again with wrong client id
 	c = newMockConn(t)
 	b.ses.Handle(c)
-	b.assertSessionCount(1)
 
 	c.sendC2S(&mqtt.Connect{ClientID: "~!@#$%^&*()_+", Username: "u1", Password: "p1", Version: 3})
 	c.assertS2CPacket("<Connack SessionPresent=false ReturnCode=2>")
@@ -155,7 +168,6 @@ func TestSessionMqttConnectException(t *testing.T) {
 	// connect again with wrong password
 	c = newMockConn(t)
 	b.ses.Handle(c)
-	b.assertSessionCount(1)
 
 	c.sendC2S(&mqtt.Connect{ClientID: t.Name(), Username: "u1", Password: "p1x", Version: 3})
 	c.assertS2CPacket("<Connack SessionPresent=false ReturnCode=4>")
@@ -166,7 +178,6 @@ func TestSessionMqttConnectException(t *testing.T) {
 	// connect again with empty username
 	c = newMockConn(t)
 	b.ses.Handle(c)
-	b.assertSessionCount(1)
 
 	c.sendC2S(&mqtt.Connect{ClientID: t.Name(), Password: "p1", Version: 3})
 	c.assertS2CPacket("<Connack SessionPresent=false ReturnCode=4>")
@@ -177,7 +188,6 @@ func TestSessionMqttConnectException(t *testing.T) {
 	// connect again with empty password
 	c = newMockConn(t)
 	b.ses.Handle(c)
-	b.assertSessionCount(1)
 
 	c.sendC2S(&mqtt.Connect{ClientID: t.Name(), Username: "u1", Version: 3})
 	c.assertS2CPacket("<Connack SessionPresent=false ReturnCode=4>")
@@ -194,61 +204,60 @@ func TestSessionMqttMaxSessions(t *testing.T) {
 
 	c1 := newMockConn(t)
 	b.ses.Handle(c1)
-	b.assertSessionCount(1)
 	c1.assertClosed(false)
-
-	c2 := newMockConn(t)
-	b.ses.Handle(c2)
-	b.assertSessionCount(2)
-	c2.assertClosed(false)
-
-	c3 := newMockConn(t)
-	b.ses.Handle(c3)
-	b.assertSessionCount(3)
-	c3.assertClosed(false)
-
-	c4 := newMockConn(t)
-	b.ses.Handle(c4)
-	b.assertSessionCount(3)
-	c4.assertClosed(true)
 
 	// c1 sends connect with cleansession=false
 	c1.sendC2S(&mqtt.Connect{ClientID: t.Name(), Username: "u1", Password: "p1", Version: 3})
 	c1.assertS2CPacket("<Connack SessionPresent=false ReturnCode=0>")
 	b.assertSessionStore(t.Name(), "{\"id\":\""+t.Name()+"\"}", nil)
-	b.assertSessionCount(3)
+	b.assertSessionCount(1)
 
 	// c1 sends disconnect, but session still exists
 	c1.sendC2S(&mqtt.Disconnect{})
 	c1.assertS2CPacketTimeout()
 	c1.assertClosed(true)
 	b.assertSessionStore(t.Name(), "{\"id\":\""+t.Name()+"\"}", nil)
-	b.assertSessionCount(3)
+	b.assertSessionCount(1)
 
-	// c4 connects again, but it is refused
-	c4 = newMockConn(t)
-	b.ses.Handle(c4)
-	b.assertSessionCount(3)
-	c4.assertClosed(true)
+	c2 := newMockConn(t)
+	b.ses.Handle(c2)
+	c2.assertClosed(false)
 
 	// c2 sends connect with cleansession=true
 	c2.sendC2S(&mqtt.Connect{ClientID: "c2", CleanSession: true, Username: "u1", Password: "p1", Version: 3})
 	c2.assertS2CPacket("<Connack SessionPresent=false ReturnCode=0>")
 	b.assertSessionStore("c2", "", errors.New("No data found for this key"))
+	b.assertSessionCount(2)
+
+	c3 := newMockConn(t)
+	b.ses.Handle(c3)
+	c3.assertClosed(false)
+
+	// c3 sends connect with cleansession=true
+	c3.sendC2S(&mqtt.Connect{ClientID: "c3", CleanSession: true, Username: "u1", Password: "p1", Version: 3})
+	c3.assertS2CPacket("<Connack SessionPresent=false ReturnCode=0>")
+	b.assertSessionStore("c3", "", errors.New("No data found for this key"))
 	b.assertSessionCount(3)
 
-	// c1 sends disconnect, but session still exists
+	c4 := newMockConn(t)
+	b.ses.Handle(c4)
+	c4.assertClosed(true)
+
+	// c2 sends disconnect
 	c2.sendC2S(&mqtt.Disconnect{})
 	c2.assertS2CPacketTimeout()
 	c2.assertClosed(true)
-	b.assertSessionStore("c2", "", errors.New("No data found for this key"))
 	b.assertSessionCount(2)
 
-	// c4 connects again
-	c4 = newMockConn(t)
-	b.ses.Handle(c4)
+	c5 := newMockConn(t)
+	b.ses.Handle(c5)
+	c5.assertClosed(false)
+
+	// c5 sends connect with cleansession=true
+	c5.sendC2S(&mqtt.Connect{ClientID: "c5", CleanSession: true, Username: "u1", Password: "p1", Version: 3})
+	c5.assertS2CPacket("<Connack SessionPresent=false ReturnCode=0>")
+	b.assertSessionStore("c5", "", errors.New("No data found for this key"))
 	b.assertSessionCount(3)
-	c4.assertClosed(false)
 }
 
 func TestSessionMqttSubscribe(t *testing.T) {
@@ -321,7 +330,7 @@ func TestSessionMqttSubscribe(t *testing.T) {
 	c.sendC2S(&mqtt.Disconnect{})
 	c.assertS2CPacketTimeout()
 	c.assertClosed(true)
-	b.waitClientReady(t.Name(), 0)
+	b.waitClientReady(t.Name(), true)
 	b.assertSessionState(t.Name(), STATE2)
 	b.assertSessionCount(1)
 	b.assertExchangeCount(3)
@@ -331,7 +340,7 @@ func TestSessionMqttSubscribe(t *testing.T) {
 	b.ses.Handle(c)
 	c.sendC2S(&mqtt.Connect{ClientID: t.Name(), Version: 3})
 	c.assertS2CPacket("<Connack SessionPresent=true ReturnCode=0>")
-	b.waitClientReady(t.Name(), 1)
+	b.waitClientReady(t.Name(), false)
 	b.assertSessionState(t.Name(), STATE1)
 	b.assertSessionCount(1)
 	b.assertExchangeCount(3)
@@ -363,7 +372,7 @@ func TestSessionMqttPublish(t *testing.T) {
 	pktpub.Message.Topic = "test"
 	pktpub.Message.Payload = []byte("hi")
 	c.sendC2S(pktpub)
-	c.assertS2CPacket("<Publish ID=0 Message=<Message Topic=\"test\" QOS=0 Retain=false Payload=[104 105]> Dup=false>")
+	c.assertS2CPacket("<Publish ID=0 Message=<Message Topic=\"test\" QOS=0 Retain=false Payload=6869> Dup=false>")
 
 	fmt.Println("--> publish topic test qos 1 <--")
 
@@ -373,8 +382,8 @@ func TestSessionMqttPublish(t *testing.T) {
 	pktpub.Message.Payload = []byte("hi")
 	c.sendC2S(pktpub)
 	c.assertS2CPacket("<Puback ID=2>")
-	c.assertS2CPacket("<Publish ID=1 Message=<Message Topic=\"test\" QOS=1 Retain=false Payload=[104 105]> Dup=false>")
-	c.assertS2CPacket("<Publish ID=1 Message=<Message Topic=\"test\" QOS=1 Retain=false Payload=[104 105]> Dup=true>")
+	c.assertS2CPacket("<Publish ID=1 Message=<Message Topic=\"test\" QOS=1 Retain=false Payload=6869> Dup=false>")
+	c.assertS2CPacket("<Publish ID=1 Message=<Message Topic=\"test\" QOS=1 Retain=false Payload=6869> Dup=true>")
 	c.sendC2S(&mqtt.Puback{ID: 1})
 	c.assertS2CPacketTimeout()
 
@@ -386,8 +395,8 @@ func TestSessionMqttPublish(t *testing.T) {
 	pktpub.Message.Payload = []byte("baidu iot test")
 	c.sendC2S(pktpub)
 	c.assertS2CPacket("<Puback ID=3>")
-	c.assertS2CPacket("<Publish ID=2 Message=<Message Topic=\"$baidu/iot\" QOS=1 Retain=false Payload=[98 97 105 100 117 32 105 111 116 32 116 101 115 116]> Dup=false>")
-	c.assertS2CPacket("<Publish ID=2 Message=<Message Topic=\"$baidu/iot\" QOS=1 Retain=false Payload=[98 97 105 100 117 32 105 111 116 32 116 101 115 116]> Dup=true>")
+	c.assertS2CPacket("<Publish ID=2 Message=<Message Topic=\"$baidu/iot\" QOS=1 Retain=false Payload=626169647520696f742074657374> Dup=false>")
+	c.assertS2CPacket("<Publish ID=2 Message=<Message Topic=\"$baidu/iot\" QOS=1 Retain=false Payload=626169647520696f742074657374> Dup=true>")
 	c.sendC2S(&mqtt.Puback{ID: 2})
 	c.assertS2CPacketTimeout()
 
@@ -397,7 +406,7 @@ func TestSessionMqttPublish(t *testing.T) {
 	pktpub.Message.Topic = "$link/data"
 	pktpub.Message.Payload = []byte("module link test")
 	c.sendC2S(pktpub)
-	c.assertS2CPacket("<Publish ID=0 Message=<Message Topic=\"$link/data\" QOS=0 Retain=false Payload=[109 111 100 117 108 101 32 108 105 110 107 32 116 101 115 116]> Dup=false>")
+	c.assertS2CPacket("<Publish ID=0 Message=<Message Topic=\"$link/data\" QOS=0 Retain=false Payload=6d6f64756c65206c696e6b2074657374> Dup=false>")
 
 	// publish with wrong qos
 	pktpub.Message.QOS = 2
@@ -447,9 +456,9 @@ func TestSessionMqttCleanSession(t *testing.T) {
 	pub.sendC2S(pktpub0)
 	pub.sendC2S(pktpub1)
 	pub.assertS2CPacket("<Puback ID=1>")
-	sub.assertS2CPacket("<Publish ID=0 Message=<Message Topic=\"test\" QOS=0 Retain=false Payload=[104 105 48]> Dup=false>")
-	sub.assertS2CPacket("<Publish ID=1 Message=<Message Topic=\"test\" QOS=1 Retain=false Payload=[104 105 49]> Dup=false>")
-	sub.sendC2S(&mqtt.Suback{ID: 1})
+	sub.assertS2CPacket("<Publish ID=0 Message=<Message Topic=\"test\" QOS=0 Retain=false Payload=686930> Dup=false>")
+	sub.assertS2CPacket("<Publish ID=1 Message=<Message Topic=\"test\" QOS=1 Retain=false Payload=686931> Dup=false>")
+	sub.sendC2S(&mqtt.Puback{ID: 1})
 	sub.sendC2S(&mqtt.Disconnect{})
 	sub.assertS2CPacketTimeout()
 	sub.assertClosed(true)
@@ -466,11 +475,11 @@ func TestSessionMqttCleanSession(t *testing.T) {
 	b.assertExchangeCount(1)
 
 	pub.sendC2S(pktpub0)
+	sub.assertS2CPacket("<Publish ID=0 Message=<Message Topic=\"test\" QOS=0 Retain=false Payload=686930> Dup=false>")
 	pub.sendC2S(pktpub1)
 	pub.assertS2CPacket("<Puback ID=1>")
-	sub.assertS2CPacket("<Publish ID=0 Message=<Message Topic=\"test\" QOS=0 Retain=false Payload=[104 105 48]> Dup=false>")
-	sub.assertS2CPacket("<Publish ID=2 Message=<Message Topic=\"test\" QOS=1 Retain=false Payload=[104 105 49]> Dup=false>")
-	sub.sendC2S(&mqtt.Suback{ID: 1})
+	sub.assertS2CPacket("<Publish ID=2 Message=<Message Topic=\"test\" QOS=1 Retain=false Payload=686931> Dup=false>")
+	sub.sendC2S(&mqtt.Puback{ID: 1})
 	sub.sendC2S(&mqtt.Disconnect{})
 	sub.assertS2CPacketTimeout()
 	sub.assertClosed(true)
@@ -488,9 +497,9 @@ func TestSessionMqttCleanSession(t *testing.T) {
 	pub.sendC2S(pktpub0)
 	pub.sendC2S(pktpub1)
 	pub.assertS2CPacket("<Puback ID=1>")
-	sub.assertS2CPacket("<Publish ID=0 Message=<Message Topic=\"test\" QOS=0 Retain=false Payload=[104 105 48]> Dup=false>")
-	sub.assertS2CPacket("<Publish ID=3 Message=<Message Topic=\"test\" QOS=1 Retain=false Payload=[104 105 49]> Dup=false>")
-	sub.sendC2S(&mqtt.Suback{ID: 1})
+	sub.assertS2CPacket("<Publish ID=0 Message=<Message Topic=\"test\" QOS=0 Retain=false Payload=686930> Dup=false>")
+	sub.assertS2CPacket("<Publish ID=3 Message=<Message Topic=\"test\" QOS=1 Retain=false Payload=686931> Dup=false>")
+	sub.sendC2S(&mqtt.Puback{ID: 1})
 	sub.sendC2S(&mqtt.Disconnect{})
 	sub.assertS2CPacketTimeout()
 	sub.assertClosed(true)
@@ -519,9 +528,9 @@ func TestSessionMqttCleanSession(t *testing.T) {
 	pub.sendC2S(pktpub0)
 	pub.sendC2S(pktpub1)
 	pub.assertS2CPacket("<Puback ID=1>")
-	sub.assertS2CPacket("<Publish ID=0 Message=<Message Topic=\"test\" QOS=0 Retain=false Payload=[104 105 48]> Dup=false>")
-	sub.assertS2CPacket("<Publish ID=1 Message=<Message Topic=\"test\" QOS=1 Retain=false Payload=[104 105 49]> Dup=false>")
-	sub.sendC2S(&mqtt.Suback{ID: 1})
+	sub.assertS2CPacket("<Publish ID=0 Message=<Message Topic=\"test\" QOS=0 Retain=false Payload=686930> Dup=false>")
+	sub.assertS2CPacket("<Publish ID=1 Message=<Message Topic=\"test\" QOS=1 Retain=false Payload=686931> Dup=false>")
+	sub.sendC2S(&mqtt.Puback{ID: 1})
 	sub.sendC2S(&mqtt.Disconnect{})
 	sub.assertS2CPacketTimeout()
 	sub.assertClosed(true)
@@ -544,7 +553,7 @@ func TestSessionMqttCleanSession(t *testing.T) {
 	sub.sendC2S(&mqtt.Disconnect{})
 	sub.assertS2CPacketTimeout()
 	sub.assertClosed(true)
-	b.waitClientReady("sub", 0)
+	b.waitClientReady("sub", true)
 	b.assertSessionState("sub", STATE2)
 	b.assertExchangeCount(1)
 
@@ -557,14 +566,14 @@ func TestSessionMqttCleanSession(t *testing.T) {
 	b.ses.Handle(sub)
 	sub.sendC2S(&mqtt.Connect{ClientID: "sub", Version: 3})
 	sub.assertS2CPacket("<Connack SessionPresent=true ReturnCode=0>")
-	b.waitClientReady("sub", 1)
+	b.waitClientReady("sub", false)
 	b.assertSessionState("sub", STATE1)
 	b.assertSessionStore("sub", "{\"id\":\"sub\",\"subs\":{\"test\":1}}", nil)
 	b.assertExchangeCount(1)
 
 	// 'sub' can only receive offline message with qos 1 when cleanession=false
-	sub.assertS2CPacket("<Publish ID=1 Message=<Message Topic=\"test\" QOS=1 Retain=false Payload=[104 105 49]> Dup=false>")
-	sub.sendC2S(&mqtt.Suback{ID: 1})
+	sub.assertS2CPacket("<Publish ID=1 Message=<Message Topic=\"test\" QOS=1 Retain=false Payload=686931> Dup=false>")
+	sub.sendC2S(&mqtt.Puback{ID: 1})
 	sub.sendC2S(&mqtt.Disconnect{})
 	sub.assertS2CPacketTimeout()
 	sub.assertClosed(true)
@@ -618,7 +627,7 @@ func TestSessionMqttAllStates(t *testing.T) {
 	b.close()
 
 	// broker restarts, persisted session will be started in state2
-	b = newMockBroker(t, testConfDefault)
+	b = newMockBrokerNotClean(t, testConfDefault)
 	b.assertSessionState(t.Name(), STATE2)
 	b.assertSessionStore(t.Name(), "{\"id\":\""+t.Name()+"\",\"subs\":{\"test\":1}}", nil)
 
@@ -723,7 +732,7 @@ func TestSessionMqttPubSubQOS(t *testing.T) {
 	pktpub.Message.Payload = []byte("hi")
 	pub.sendC2S(pktpub)
 	pub.assertS2CPacket("<Puback ID=1>")
-	sub.assertS2CPacket("<Publish ID=1 Message=<Message Topic=\"test\" QOS=1 Retain=false Payload=[104 105]> Dup=false>")
+	sub.assertS2CPacket("<Publish ID=1 Message=<Message Topic=\"test\" QOS=1 Retain=false Payload=6869> Dup=false>")
 	sub.sendC2S(&mqtt.Puback{ID: 1})
 	sub.assertS2CPacketTimeout()
 
@@ -732,7 +741,7 @@ func TestSessionMqttPubSubQOS(t *testing.T) {
 	pktpub.ID = 0
 	pktpub.Message.QOS = 0
 	pub.sendC2S(pktpub)
-	sub.assertS2CPacket("<Publish ID=0 Message=<Message Topic=\"test\" QOS=0 Retain=false Payload=[104 105]> Dup=false>")
+	sub.assertS2CPacket("<Publish ID=0 Message=<Message Topic=\"test\" QOS=0 Retain=false Payload=6869> Dup=false>")
 	sub.assertS2CPacketTimeout()
 
 	fmt.Println("--> pub qos 0 --> sub qos 0 <--")
@@ -743,7 +752,7 @@ func TestSessionMqttPubSubQOS(t *testing.T) {
 	b.assertExchangeCount(1)
 
 	pub.sendC2S(pktpub)
-	sub.assertS2CPacket("<Publish ID=0 Message=<Message Topic=\"test\" QOS=0 Retain=false Payload=[104 105]> Dup=false>")
+	sub.assertS2CPacket("<Publish ID=0 Message=<Message Topic=\"test\" QOS=0 Retain=false Payload=6869> Dup=false>")
 	sub.assertS2CPacketTimeout()
 
 	fmt.Println("--> pub qos 1 --> sub qos 0 <--")
@@ -752,7 +761,7 @@ func TestSessionMqttPubSubQOS(t *testing.T) {
 	pktpub.Message.QOS = 1
 	pub.sendC2S(pktpub)
 	pub.assertS2CPacket("<Puback ID=2>")
-	sub.assertS2CPacket("<Publish ID=0 Message=<Message Topic=\"test\" QOS=0 Retain=false Payload=[104 105]> Dup=false>")
+	sub.assertS2CPacket("<Publish ID=0 Message=<Message Topic=\"test\" QOS=0 Retain=false Payload=6869> Dup=false>")
 	sub.assertS2CPacketTimeout()
 }
 
@@ -790,7 +799,7 @@ func TestSessionMqttSystemTopicIsolation(t *testing.T) {
 	pktpub.Message.Payload = []byte("hi")
 	pubc.sendC2S(pktpub)
 	pubc.assertS2CPacket("<Puback ID=1>")
-	subc.assertS2CPacket("<Publish ID=0 Message=<Message Topic=\"test\" QOS=0 Retain=false Payload=[104 105]> Dup=false>")
+	subc.assertS2CPacket("<Publish ID=0 Message=<Message Topic=\"test\" QOS=0 Retain=false Payload=6869> Dup=false>")
 	subc.assertS2CPacketTimeout()
 
 	fmt.Println("\n--> pubc publish message with topic $link/data, subc will not receive message <--")
@@ -853,7 +862,7 @@ func TestSessionMqttSystemTopicIsolation(t *testing.T) {
 	pktpub.Message.Payload = []byte("hello")
 	pubc.sendC2S(pktpub)
 	pubc.assertS2CPacket("<Puback ID=5>")
-	subc.assertS2CPacket("<Publish ID=0 Message=<Message Topic=\"$link/data\" QOS=0 Retain=false Payload=[104 101 108 108 111]> Dup=false>")
+	subc.assertS2CPacket("<Publish ID=0 Message=<Message Topic=\"$link/data\" QOS=0 Retain=false Payload=68656c6c6f> Dup=false>")
 	subc.assertS2CPacketTimeout()
 
 	fmt.Println("\n--> pubc publish message with topic $SYS/data (not configured),  pubc will be closed<--")
@@ -901,7 +910,7 @@ session:
 	b.close()
 
 	// broker restart with new configuration
-	b = newMockBroker(t, testConfDefault)
+	b = newMockBrokerNotClean(t, testConfDefault)
 	defer b.closeAndClean()
 
 	// load the stored session
@@ -949,7 +958,7 @@ principals:
   - action: pub
     permit: [test, talks, '$baidu/iot', '$link/data']
 `
-	b = newMockBroker(t, testSessionConf)
+	b = newMockBrokerNotClean(t, testSessionConf)
 	defer b.closeAndClean()
 
 	// load the stored session
@@ -1029,7 +1038,7 @@ func TestSessionMqttWill(t *testing.T) {
 	b.assertSessionStore("pub-will-retain-false-1", "{\"id\":\"pub-will-retain-false-1\",\"will\":{\"Context\":{\"Topic\":\"test\"},\"Content\":\"d2lsbCByZXRhaW4gaXMgZmFsc2U=\"}}", nil)
 
 	// sub client received Will message
-	sub.assertS2CPacket("<Publish ID=0 Message=<Message Topic=\"test\" QOS=0 Retain=false Payload=[119 105 108 108 32 114 101 116 97 105 110 32 105 115 32 102 97 108 115 101]> Dup=false>")
+	sub.assertS2CPacket("<Publish ID=0 Message=<Message Topic=\"test\" QOS=0 Retain=false Payload=77696c6c2072657461696e2069732066616c7365> Dup=false>")
 
 	// pub client connect with will message, retain is true
 	pub2 := newMockConn(t)
@@ -1069,7 +1078,7 @@ func TestSessionMqttWill(t *testing.T) {
 	b.assertSessionStore("pub-will-retain-true-1", "{\"id\":\"pub-will-retain-true-1\",\"will\":{\"Context\":{\"Flags\":1,\"Topic\":\"test\"},\"Content\":\"d2lsbCByZXRhaW4gaXMgdHJ1ZQ==\"}}", nil)
 
 	// sub client received Will message
-	sub.assertS2CPacket("<Publish ID=0 Message=<Message Topic=\"test\" QOS=0 Retain=false Payload=[119 105 108 108 32 114 101 116 97 105 110 32 105 115 32 116 114 117 101]> Dup=false>")
+	sub.assertS2CPacket("<Publish ID=0 Message=<Message Topic=\"test\" QOS=0 Retain=false Payload=77696c6c2072657461696e2069732074727565> Dup=false>")
 
 	// sub client disconnect normally
 	sub.sendC2S(&mqtt.Disconnect{})
@@ -1091,7 +1100,7 @@ func TestSessionMqttWill(t *testing.T) {
 	b.assertSessionStore("sub", "{\"id\":\"sub\",\"subs\":{\"test\":0}}", nil)
 
 	// sub client receive message("will retain is true"), retain flag is true
-	sub.assertS2CPacket("<Publish ID=0 Message=<Message Topic=\"test\" QOS=0 Retain=true Payload=[119 105 108 108 32 114 101 116 97 105 110 32 105 115 32 116 114 117 101]> Dup=false>")
+	sub.assertS2CPacket("<Publish ID=0 Message=<Message Topic=\"test\" QOS=0 Retain=true Payload=77696c6c2072657461696e2069732074727565> Dup=false>")
 }
 
 func TestSessionMqttRetain(t *testing.T) {
@@ -1152,7 +1161,7 @@ func TestSessionMqttRetain(t *testing.T) {
 	b.assertSessionStore("sub1", "{\"id\":\"sub1\",\"subs\":{\"test\":1}}", nil)
 
 	// client2 to receive message
-	sub1.assertS2CPacket("<Publish ID=1 Message=<Message Topic=\"test\" QOS=1 Retain=true Payload=[111 110 108 105 110 101]> Dup=false>")
+	sub1.assertS2CPacket("<Publish ID=1 Message=<Message Topic=\"test\" QOS=1 Retain=true Payload=6f6e6c696e65> Dup=false>")
 	sub1.sendC2S(&mqtt.Puback{ID: 1})
 	sub1.assertS2CPacketTimeout()
 
@@ -1167,7 +1176,7 @@ func TestSessionMqttRetain(t *testing.T) {
 	pub.assertS2CPacketTimeout()
 
 	// client2 to receive message of topic test as normal message, because it is already subscribed
-	sub1.assertS2CPacket("<Publish ID=2 Message=<Message Topic=\"test\" QOS=1 Retain=false Payload=[111 102 102 108 105 110 101]> Dup=false>")
+	sub1.assertS2CPacket("<Publish ID=2 Message=<Message Topic=\"test\" QOS=1 Retain=false Payload=6f66666c696e65> Dup=false>")
 	sub1.sendC2S(&mqtt.Puback{ID: 2})
 
 	fmt.Println("\n--> 3. client1 republish topic 'test' with retain is ture --> client2 receive message of topic 'test' <--")
@@ -1180,7 +1189,7 @@ func TestSessionMqttRetain(t *testing.T) {
 	pub.assertS2CPacketTimeout()
 
 	// client2 to receive message of topic test as normal message, because it is already subscribed
-	sub1.assertS2CPacket("<Publish ID=3 Message=<Message Topic=\"test\" QOS=1 Retain=false Payload=[111 102 102 108 105 110 101]> Dup=false>")
+	sub1.assertS2CPacket("<Publish ID=3 Message=<Message Topic=\"test\" QOS=1 Retain=false Payload=6f66666c696e65> Dup=false>")
 	sub1.sendC2S(&mqtt.Puback{ID: 2})
 
 	fmt.Println("\n--> 4. client3 subscribe topic 'test' --> client3 Will receive message of topic 'test' <--")
@@ -1200,7 +1209,7 @@ func TestSessionMqttRetain(t *testing.T) {
 	b.assertSessionStore("sub2", "{\"id\":\"sub2\",\"subs\":{\"test\":1}}", nil)
 
 	// client3 Will receive retain message("online")
-	sub2.assertS2CPacket("<Publish ID=1 Message=<Message Topic=\"test\" QOS=1 Retain=true Payload=[111 102 102 108 105 110 101]> Dup=false>")
+	sub2.assertS2CPacket("<Publish ID=1 Message=<Message Topic=\"test\" QOS=1 Retain=true Payload=6f66666c696e65> Dup=false>")
 	sub2.sendC2S(&mqtt.Puback{ID: 1})
 	sub2.assertS2CPacketTimeout()
 

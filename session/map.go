@@ -59,13 +59,3 @@ func (m *syncmap) count() int {
 	defer m.mut.RUnlock()
 	return len(m.data)
 }
-
-func (m *syncmap) copy() []interface{} {
-	m.mut.RLock()
-	defer m.mut.RUnlock()
-	var res []interface{}
-	for _, v := range m.data {
-		res = append(res, v)
-	}
-	return res
-}
