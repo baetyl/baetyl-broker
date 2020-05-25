@@ -8,7 +8,6 @@ import (
 	"github.com/baetyl/baetyl-broker/queue"
 	"github.com/baetyl/baetyl-go/log"
 	"github.com/baetyl/baetyl-go/mqtt"
-	"github.com/baetyl/baetyl-go/utils"
 )
 
 // state: session state type
@@ -132,7 +131,7 @@ func (s *Session) gotoState2() error {
 
 func (s *Session) createQOS1() error {
 	qc := s.mgr.cfg.Persistence.Queue
-	qc.Name = utils.CalculateBase64(s.info.ID)
+	qc.Name = s.info.ID
 	qc.BatchSize = s.mgr.cfg.MaxInflightQOS1Messages
 	qbk, err := s.mgr.store.NewBucket(qc.Name, new(queue.Encoder))
 	if err != nil {

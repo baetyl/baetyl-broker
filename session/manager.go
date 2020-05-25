@@ -73,12 +73,12 @@ func NewManager(cfg Config) (m *Manager, err error) {
 	if err != nil {
 		return nil, err
 	}
-	m.sessionBucket, err = m.store.NewBucket("session", nil)
+	m.sessionBucket, err = m.store.NewBucket("#session", nil)
 	if err != nil {
 		m.Close()
 		return
 	}
-	m.retainBucket, err = m.store.NewBucket("retain", nil)
+	m.retainBucket, err = m.store.NewBucket("#retain", nil)
 	if err != nil {
 		m.Close()
 		return

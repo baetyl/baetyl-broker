@@ -190,8 +190,8 @@ type mockConn struct {
 func newMockConn(t *testing.T) *mockConn {
 	return &mockConn{
 		t:   t,
-		c2s: make(chan mqtt.Packet, 10),
-		s2c: make(chan mqtt.Packet, 10),
+		c2s: make(chan mqtt.Packet, 20),
+		s2c: make(chan mqtt.Packet, 20),
 		err: make(chan error, 10),
 	}
 }

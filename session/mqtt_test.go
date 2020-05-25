@@ -4,7 +4,9 @@ import (
 	"errors"
 	"fmt"
 	"math/rand"
+	"strconv"
 	"testing"
+	"time"
 
 	"github.com/baetyl/baetyl-go/mqtt"
 	"github.com/baetyl/baetyl-go/utils"
@@ -103,42 +105,53 @@ func TestSessionMqttConnectSameClientID(t *testing.T) {
 	b.assertSessionCount(1)
 	b.assertExchangeCount(0)
 
-	// client 1
 	c1 := newMockConn(t)
 	b.ses.Handle(c1)
 	c1.sendC2S(&mqtt.Connect{ClientID: t.Name(), Version: 3})
 	c1.assertS2CPacket("<Connack SessionPresent=false ReturnCode=0>")
-	c1.sendC2S(&mqtt.Subscribe{ID: 1, Subscriptions: []mqtt.Subscription{{Topic: "test", QOS: 0}}})
-	c1.assertS2CPacket("<Suback ID=1 ReturnCodes=[0]>")
+	c1.sendC2S(&mqtt.Subscribe{ID: 1, Subscriptions: []mqtt.Subscription{{Topic: "test", QOS: 1}}})
+	c1.assertS2CPacket("<Suback ID=1 ReturnCodes=[1]>")
 	b.waitClientReady(t.Name(), false)
-	b.assertSessionStore(t.Name(), "{\"id\":\""+t.Name()+"\",\"subs\":{\"test\":0}}", nil)
+	b.assertSessionStore(t.Name(), "{\"id\":\""+t.Name()+"\",\"subs\":{\"test\":1}}", nil)
 	b.assertSessionCount(2)
 	b.assertExchangeCount(1)
 
 	pktpub := &mqtt.Publish{}
 	pktpub.Message.Topic = "test"
 	pktpub.Message.Payload = []byte("hi")
+	pktpub.Message.QOS = 1
 	pub.sendC2S(pktpub)
-	c1.assertS2CPacket("<Publish ID=0 Message=<Message Topic=\"test\" QOS=0 Retain=false Payload=6869> Dup=false>")
+	c1.assertS2CPacket("<Publish ID=1 Message=<Message Topic=\"test\" QOS=1 Retain=false Payload=6869> Dup=false>")
+	c1.sendC2S(&mqtt.Puback{ID: 1})
 
-	// client 2
-	c2 := newMockConn(t)
-	b.ses.Handle(c2)
-	c2.sendC2S(&mqtt.Connect{ClientID: t.Name(), Version: 3})
-	c2.assertS2CPacket("<Connack SessionPresent=true ReturnCode=0>")
-	c2.sendC2S(&mqtt.Subscribe{ID: 1, Subscriptions: []mqtt.Subscription{{Topic: "test", QOS: 0}}})
-	c2.assertS2CPacket("<Suback ID=1 ReturnCodes=[0]>")
-	b.waitClientReady(t.Name(), false)
-	b.assertSessionStore(t.Name(), "{\"id\":\""+t.Name()+"\",\"subs\":{\"test\":0}}", nil)
-	b.assertSessionCount(2)
-	b.assertExchangeCount(1)
+	c1.assertClosed(false)
 
-	pub.sendC2S(pktpub)
-	c2.assertS2CPacket("<Publish ID=0 Message=<Message Topic=\"test\" QOS=0 Retain=false Payload=6869> Dup=false>")
+	for i := 2; i < 20; i++ {
+		c2 := newMockConn(t)
+		b.ses.Handle(c2)
+		c2.sendC2S(&mqtt.Connect{ClientID: t.Name(), Version: 3})
+		c2.assertS2CPacket("<Connack SessionPresent=true ReturnCode=0>")
+		c2.assertS2CPacketTimeout()
+		c2.sendC2S(&mqtt.Subscribe{ID: 1, Subscriptions: []mqtt.Subscription{{Topic: "test", QOS: 1}}})
+		c2.assertS2CPacket("<Suback ID=1 ReturnCodes=[1]>")
+		b.waitClientReady(t.Name(), false)
+		b.assertSessionStore(t.Name(), "{\"id\":\""+t.Name()+"\",\"subs\":{\"test\":1}}", nil)
+		b.assertSessionCount(2)
+		b.assertExchangeCount(1)
 
-	// 'c1' is closed during 'c2' connecting
-	c1.assertClosed(true)
-	c2.assertClosed(false)
+		pktpub := &mqtt.Publish{}
+		pktpub.Message.Topic = "test"
+		pktpub.Message.Payload = []byte("hi" + strconv.Itoa(i))
+		pktpub.Message.QOS = 1
+		pub.sendC2S(pktpub)
+		c2.assertS2CPacket(fmt.Sprintf("<Publish ID=%d Message=<Message Topic=\"test\" QOS=1 Retain=false Payload=6869%x> Dup=false>", i, strconv.Itoa(i)))
+		c2.sendC2S(&mqtt.Puback{ID: mqtt.ID(i)})
+
+		c1.assertClosed(true)
+		c2.assertClosed(false)
+		c1 = c2
+		time.Sleep(time.Microsecond * 500)
+	}
 }
 
 func TestSessionMqttConnectException(t *testing.T) {

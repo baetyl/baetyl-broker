@@ -1,6 +1,8 @@
 package queue
 
 import (
+	"bytes"
+	"encoding/gob"
 	"encoding/json"
 	"fmt"
 	"io/ioutil"
@@ -290,6 +292,46 @@ func BenchmarkUnmarshal(b *testing.B) {
 			json.Unmarshal(d2, mm)
 		}
 	})
+
+	mmm := new(mockMessage)
+	mmm.Content = []byte("hi")
+	mmm.Context.ID = 111
+	mmm.Context.TS = 123
+	mmm.Context.QOS = 1
+	mmm.Context.Topic = "b"
+	d3, err := mockGobEncode(mmm)
+	assert.NoError(b, err)
+	b.ResetTimer()
+	b.Run("Gob", func(b *testing.B) {
+		for i := 0; i < b.N; i++ {
+			mockGobDecode(d3, mmm)
+		}
+	})
+}
+
+func mockGobEncode(value interface{}) ([]byte, error) {
+	var buff bytes.Buffer
+
+	en := gob.NewEncoder(&buff)
+
+	err := en.Encode(value)
+	if err != nil {
+		return nil, err
+	}
+
+	return buff.Bytes(), nil
+}
+
+func mockGobDecode(data []byte, value interface{}) error {
+	var buff bytes.Buffer
+	de := gob.NewDecoder(&buff)
+
+	_, err := buff.Write(data)
+	if err != nil {
+		return err
+	}
+
+	return de.Decode(value)
 }
 
 func TestChannelLB(t *testing.T) {
