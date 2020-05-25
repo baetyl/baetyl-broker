@@ -1,8 +1,7 @@
 package store
 
 import (
-	"bytes"
-	"encoding/gob"
+	"encoding/json"
 )
 
 type encoder struct{}
@@ -11,25 +10,12 @@ func NewDefaultEncoder() Encoder {
 	return new(encoder)
 }
 
-// Encode encoding (Gob)
+// Encode encoding
 func (e *encoder) Encode(value interface{}) (data []byte, err error) {
-	var buff bytes.Buffer
-	en := gob.NewEncoder(&buff)
-	err = en.Encode(value)
-	if err != nil {
-		return nil, err
-	}
-	return buff.Bytes(), nil
+	return json.Marshal(value)
 }
 
-// Decode decoding (Gob)
+// Decode decoding
 func (e *encoder) Decode(data []byte, value interface{}, _ ...interface{}) error {
-	var buff bytes.Buffer
-	de := gob.NewDecoder(&buff)
-
-	_, err := buff.Write(data)
-	if err != nil {
-		return err
-	}
-	return de.Decode(value)
+	return json.Unmarshal(data, value)
 }

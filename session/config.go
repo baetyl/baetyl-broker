@@ -18,7 +18,7 @@ type Config struct {
 type SessionConfig struct {
 	MaxSessions             int           `yaml:"maxSessions,omitempty" json:"maxSessions,omitempty"`
 	MaxMessagePayloadSize   utils.Size    `yaml:"maxMessagePayloadSize,omitempty" json:"maxMessagePayloadSize,omitempty" default:"32768" validate:"min=1,max=268435455"` // max size of message payload is (256MB - 1)
-	MaxInflightQOS0Messages int           `yaml:"maxInflightQOS0Messages" json:"maxInflightQOS0Messages" default:"1000" validate:"min=1"`
+	MaxInflightQOS0Messages int           `yaml:"maxInflightQOS0Messages" json:"maxInflightQOS0Messages" default:"100" validate:"min=1"`
 	MaxInflightQOS1Messages int           `yaml:"maxInflightQOS1Messages" json:"maxInflightQOS1Messages" default:"20" validate:"min=1"`
 	ResendInterval          time.Duration `yaml:"resendInterval" json:"resendInterval" default:"20s"`
 	Persistence             Persistence   `yaml:"persistence,omitempty" json:"persistence,omitempty"`

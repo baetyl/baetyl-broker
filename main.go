@@ -10,7 +10,7 @@ import (
 func main() {
 	// // go tool pprof http://localhost:6060/debug/pprof/profile
 	// go func() {
-	// 	panic(http.ListenAndServe("localhost:6060", nil))
+	// 	panic(http.ListenAndServe(":6060", nil))
 	// }()
 
 	// f, err := os.Create("trace.out")
