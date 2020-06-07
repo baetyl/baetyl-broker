@@ -1,7 +1,6 @@
 package session
 
 import (
-	"io"
 	"regexp"
 	"strings"
 	"sync"
@@ -13,8 +12,8 @@ import (
 	"github.com/docker/distribution/uuid"
 )
 
-// ClientMQTT the client of MQTT
-type ClientMQTT struct {
+// Client the client of MQTT
+type Client struct {
 	id      string
 	mgr     *Manager
 	session *Session
@@ -24,6 +23,7 @@ type ClientMQTT struct {
 	tomb    utils.Tomb
 	mut     sync.Mutex
 	once    sync.Once
+	disp    *dispatcher
 }
 
 // * connection handlers
@@ -31,7 +31,7 @@ type ClientMQTT struct {
 // Handle the connection handler to create a new MQTT client
 func (m *Manager) Handle(conn mqtt.Connection) {
 	id := strings.ReplaceAll(uuid.Generate().String(), "-", "")
-	c := &ClientMQTT{
+	c := &Client{
 		id:   id,
 		mgr:  m,
 		conn: conn,
@@ -46,11 +46,11 @@ func (m *Manager) Handle(conn mqtt.Connection) {
 	c.tomb.Go(c.receiving)
 }
 
-func (c *ClientMQTT) getID() string {
+func (c *Client) getID() string {
 	return c.id
 }
 
-func (c *ClientMQTT) setSession(sid string, s *Session) {
+func (c *Client) setSession(sid string, s *Session) {
 	c.session = s
 	if c.id != sid {
 		c.log = c.log.With(log.Any("sid", sid))
@@ -58,49 +58,50 @@ func (c *ClientMQTT) setSession(sid string, s *Session) {
 }
 
 // closes client by session
-func (c *ClientMQTT) close() error {
-	if !c.tomb.Alive() {
-		return nil
-	}
+func (c *Client) close() error {
 	c.log.Info("client is closing")
 	defer c.log.Info("client has closed")
-	c.tomb.Kill(nil)
+
 	c.once.Do(func() {
 		c.conn.Close()
+		c.disp.close()
+		c.tomb.Kill(nil)
 	})
-	return nil
+
+	return c.tomb.Wait()
 }
 
 // closes client by itself
-func (c *ClientMQTT) die(msg string, err error) {
+func (c *Client) die(msg string, err error) {
 	if !c.tomb.Alive() {
 		return
 	}
+
 	c.log.Info("client is dying")
 	defer c.log.Info("client has died")
-	c.tomb.Kill(err)
+
 	if c.session != nil {
 		c.session.delClient()
 	}
+
 	if err != nil {
-		if err == io.EOF {
-			c.log.Info("client disconnected", log.Error(err))
-		} else {
-			c.log.Error(msg, log.Error(err))
-		}
+		c.log.Error(msg, log.Error(err))
 		c.sendWillMessage()
 	}
+
 	c.once.Do(func() {
 		c.conn.Close()
+		c.disp.tomb.Kill(err)
+		c.tomb.Kill(err)
 	})
 }
 
-func (c *ClientMQTT) authorize(action, topic string) bool {
+func (c *Client) authorize(action, topic string) bool {
 	return c.auth == nil || c.auth.Authorize(action, topic)
 }
 
 // SendWillMessage sends will message
-func (c *ClientMQTT) sendWillMessage() {
+func (c *Client) sendWillMessage() {
 	if c.session == nil {
 		return
 	}
@@ -119,7 +120,7 @@ func (c *ClientMQTT) sendWillMessage() {
 	c.mgr.exch.Route(msg, c.callback)
 }
 
-func (c *ClientMQTT) retainMessage(msg *mqtt.Message) error {
+func (c *Client) retainMessage(msg *mqtt.Message) error {
 	if len(msg.Content) == 0 {
 		return c.mgr.unretainMessage(msg.Context.Topic)
 	}
@@ -127,7 +128,7 @@ func (c *ClientMQTT) retainMessage(msg *mqtt.Message) error {
 }
 
 // SendRetainMessage sends retain message
-func (c *ClientMQTT) sendRetainMessage() error {
+func (c *Client) sendRetainMessage() error {
 	if c.session == nil {
 		return nil
 	}
@@ -153,7 +154,7 @@ func (c *ClientMQTT) sendRetainMessage() error {
 
 // * egress
 
-func (c *ClientMQTT) send(pkt mqtt.Packet, async bool) error {
+func (c *Client) send(pkt mqtt.Packet, async bool) error {
 	if !c.tomb.Alive() {
 		return ErrSessionClientAlreadyClosed
 	}
@@ -170,7 +171,7 @@ func (c *ClientMQTT) send(pkt mqtt.Packet, async bool) error {
 	return nil
 }
 
-func (c *ClientMQTT) sendConnack(code mqtt.ConnackCode, exists bool) error {
+func (c *Client) sendConnack(code mqtt.ConnackCode, exists bool) error {
 	ack := &mqtt.Connack{
 		SessionPresent: exists,
 		ReturnCode:     code,
@@ -178,13 +179,13 @@ func (c *ClientMQTT) sendConnack(code mqtt.ConnackCode, exists bool) error {
 	return c.send(ack, false)
 }
 
-func (c *ClientMQTT) sendEvent(m *eventWrapper, dup bool) (err error) {
+func (c *Client) sendEvent(m *eventWrapper, dup bool) (err error) {
 	return c.send(m.packet(dup), true)
 }
 
 // * ingress
 
-func (c *ClientMQTT) receiving() error {
+func (c *Client) receiving() error {
 	c.log.Info("client starts to receive messages")
 	defer c.log.Info("client has stopped receiving messages")
 
@@ -227,7 +228,7 @@ func (c *ClientMQTT) receiving() error {
 		case *mqtt.Publish:
 			err = c.onPublish(p)
 		case *mqtt.Puback:
-			c.session.acknowledge(uint64(p.ID))
+			c.acknowledge(uint64(p.ID))
 		case *mqtt.Subscribe:
 			err = c.onSubscribe(p)
 		case *mqtt.Pingreq:
@@ -237,6 +238,7 @@ func (c *ClientMQTT) receiving() error {
 		case *mqtt.Pingresp:
 			err = nil // just ignore
 		case *mqtt.Disconnect:
+			//TODO: clean will message
 			c.die("", nil)
 			return nil
 		case *mqtt.Connect:
@@ -252,7 +254,7 @@ func (c *ClientMQTT) receiving() error {
 	}
 }
 
-func (c *ClientMQTT) onConnect(p *mqtt.Connect) error {
+func (c *Client) onConnect(p *mqtt.Connect) error {
 	si := Info{
 		ID:           p.ClientID,
 		CleanSession: p.CleanSession,
@@ -332,7 +334,7 @@ func (c *ClientMQTT) onConnect(p *mqtt.Connect) error {
 	return nil
 }
 
-func (c *ClientMQTT) onPublish(p *mqtt.Publish) error {
+func (c *Client) onPublish(p *mqtt.Publish) error {
 	// TODO: improvement, cache auth result
 	if len(p.Message.Payload) > int(c.mgr.cfg.MaxMessagePayloadSize) {
 		return ErrSessionMessagePayloadSizeExceedsLimit
@@ -363,12 +365,17 @@ func (c *ClientMQTT) onPublish(p *mqtt.Publish) error {
 	return nil
 }
 
-func (c *ClientMQTT) onSubscribe(p *mqtt.Subscribe) error {
+func (c *Client) onSubscribe(p *mqtt.Subscribe) error {
 	sa, subs := c.genSuback(p)
 	err := c.session.subscribe(subs)
 	if err != nil {
 		return err
 	}
+
+	if c.disp == nil {
+		c.disp = newDispatcher(c)
+	}
+
 	err = c.send(sa, false)
 	if err != nil {
 		return err
@@ -376,25 +383,31 @@ func (c *ClientMQTT) onSubscribe(p *mqtt.Subscribe) error {
 	return c.sendRetainMessage()
 }
 
-func (c *ClientMQTT) onUnsubscribe(p *mqtt.Unsubscribe) error {
+func (c *Client) onUnsubscribe(p *mqtt.Unsubscribe) error {
 	usa := mqtt.NewUnsuback()
 	usa.ID = p.ID
-	err := c.session.unsubscribe(p.Topics)
+
+	empty, err := c.session.unsubscribe(p.Topics)
 	if err != nil {
 		return err
 	}
+	if empty && c.disp != nil{
+		c.disp.close()
+		c.disp = nil
+	}
+
 	return c.send(usa, false)
 }
 
-func (c *ClientMQTT) onPingreq(p *mqtt.Pingreq) error {
+func (c *Client) onPingreq(p *mqtt.Pingreq) error {
 	return c.send(mqtt.NewPingresp(), false)
 }
 
-func (c *ClientMQTT) callback(id uint64) {
+func (c *Client) callback(id uint64) {
 	c.send(&mqtt.Puback{ID: mqtt.ID(id)}, true)
 }
 
-func (c *ClientMQTT) genSuback(p *mqtt.Subscribe) (*mqtt.Suback, []mqtt.Subscription) {
+func (c *Client) genSuback(p *mqtt.Subscribe) (*mqtt.Suback, []mqtt.Subscription) {
 	sa := &mqtt.Suback{
 		ID:          p.ID,
 		ReturnCodes: make([]mqtt.QOS, len(p.Subscriptions)),
@@ -416,6 +429,18 @@ func (c *ClientMQTT) genSuback(p *mqtt.Subscribe) (*mqtt.Suback, []mqtt.Subscrip
 		}
 	}
 	return sa, subs
+}
+
+func (c *Client) acknowledge(id uint64) {
+	if c.disp == nil {
+		c.log.Warn("no dispatcher")
+		return
+	}
+
+	err := c.disp.delete(id)
+	if err != nil {
+		c.log.Warn("failed to acknowledge", log.Any("id", id), log.Error(err))
+	}
 }
 
 // checkClientID checks clientID

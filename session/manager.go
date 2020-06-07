@@ -34,14 +34,6 @@ var (
 	ErrSessionWillMessagePayloadSizeExceedsLimit = errors.New("will message payload exceeds the max limit")
 )
 
-type client interface {
-	getID() string
-	setSession(sid string, s *Session)
-	authorize(string, string) bool
-	sendEvent(e *eventWrapper, dup bool) error
-	close() error
-}
-
 // Manager the manager of sessions
 type Manager struct {
 	cfg           Config
@@ -89,11 +81,13 @@ func NewManager(cfg Config) (m *Manager, err error) {
 	}
 	for _, i := range ss {
 		m.checkSubscriptions(&i)
+
 		var s *Session
 		if s, _, err = m.getSession(i); err != nil {
 			m.Close()
 			return
 		}
+
 		if err = s.init(&i, nil); err != nil {
 			return nil, err
 		}
@@ -153,7 +147,7 @@ func (m *Manager) Close() error {
 	atomic.AddInt32(&m.quit, -1)
 
 	for _, v := range m.sessions.empty() {
-		v.(*Session).Close()
+		v.(*Session).close()
 	}
 	if m.sessionBucket != nil {
 		m.sessionBucket.Close(false)

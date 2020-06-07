@@ -11,7 +11,7 @@ import (
 
 type dispatcher struct {
 	interval time.Duration
-	cli      client
+	cli      *Client
 	qos0     <-chan *common.Event
 	qos1     <-chan *common.Event
 	queue    chan *eventWrapper
@@ -22,17 +22,17 @@ type dispatcher struct {
 	wrap func(*common.Event) *eventWrapper
 }
 
-func newDispatcher(s *Session) *dispatcher {
+func newDispatcher(c *Client) *dispatcher {
 	d := &dispatcher{
-		interval: s.mgr.cfg.ResendInterval,
-		cli:      s.client,
-		qos0:     s.qos0.Chan(),
-		qos1:     s.qos1.Chan(),
-		queue:    make(chan *eventWrapper, s.mgr.cfg.MaxInflightQOS1Messages),
-		log:      s.log.With(log.Any("session", "dispatcher"), log.Any("id", s.info.ID)),
+		interval: c.mgr.cfg.ResendInterval,
+		cli:      c,
+		qos0:     c.session.qos0.Chan(),
+		qos1:     c.session.qos1.Chan(),
+		queue:    make(chan *eventWrapper, c.mgr.cfg.MaxInflightQOS1Messages),
+		log:      c.log.With(log.Any("session", "dispatcher")),
 	}
 	d.wrap = func(m *common.Event) *eventWrapper {
-		return newEventWrapper(uint64(s.cnt.NextID()), 1, m)
+		return newEventWrapper(uint64(c.session.cnt.NextID()), 1, m)
 	}
 	d.tomb.Go(d.resending, d.sending)
 	return d
@@ -43,6 +43,7 @@ func (d *dispatcher) close() {
 	defer d.log.Info("dispatcher has closed")
 
 	d.tomb.Kill(nil)
+	d.tomb.Wait()
 }
 
 func (d *dispatcher) next(m *eventWrapper) time.Duration {
@@ -72,13 +73,10 @@ func (d *dispatcher) sending() error {
 	defer d.log.Info("dispatcher has stopped sending messages")
 
 	var msg *eventWrapper
-	cli := d.cli
-	qos0 := d.qos0
-	qos1 := d.qos1
 	for {
 		if msg != nil {
-			if err := cli.sendEvent(msg, false); err != nil {
-				d.log.Debug("failed to send message", log.Error(err), log.Any("cid", cli.getID()))
+			if err := d.cli.sendEvent(msg, false); err != nil {
+				d.log.Debug("failed to send message", log.Error(err))
 				return nil
 			}
 			if msg.qos == 1 {
@@ -90,12 +88,12 @@ func (d *dispatcher) sending() error {
 			}
 		}
 		select {
-		case evt := <-qos0:
+		case evt := <-d.qos0:
 			if ent := d.log.Check(log.DebugLevel, "queue popped a message as qos 0"); ent != nil {
 				ent.Write(log.Any("message", evt.String()))
 			}
 			msg = newEventWrapper(0, 0, evt)
-		case evt := <-qos1:
+		case evt := <-d.qos1:
 			if ent := d.log.Check(log.DebugLevel, "queue popped a message as qos 1"); ent != nil {
 				ent.Write(log.Any("message", evt.String()))
 			}
@@ -114,7 +112,6 @@ func (d *dispatcher) resending() error {
 	defer d.log.Info("dispatcher has stopped resending messages")
 
 	var msg *eventWrapper
-	cli := d.cli
 	timer := time.NewTimer(d.interval)
 	defer timer.Stop()
 	for {
@@ -124,8 +121,8 @@ func (d *dispatcher) resending() error {
 			default:
 			}
 			for timer.Reset(d.next(msg)); msg.Wait(timer.C, d.tomb.Dying()) == common.ErrAcknowledgeTimedOut; timer.Reset(d.interval) {
-				if err := cli.sendEvent(msg, true); err != nil {
-					d.log.Debug("failed to resend message", log.Error(err), log.Any("cid", cli.getID()))
+				if err := d.cli.sendEvent(msg, true); err != nil {
+					d.log.Debug("failed to resend message", log.Error(err))
 					return nil
 				}
 			}
