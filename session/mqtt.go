@@ -364,6 +364,11 @@ func (c *ClientMQTT) onPublish(p *mqtt.Publish) error {
 }
 
 func (c *ClientMQTT) onSubscribe(p *mqtt.Subscribe) error {
+	// MQTT-3.8.3-3: A SUBSCRIBE packet with no payload is a protocol violation
+	if len(p.Subscriptions) == 0 {
+		return ErrSessionSubscribePayloadEmpty
+	}
+
 	sa, subs := c.genSuback(p)
 	err := c.session.subscribe(subs)
 	if err != nil {

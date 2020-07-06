@@ -142,6 +142,36 @@ func TestMqttTcpTls(t *testing.T) {
 	conn.Close()
 }
 
+func TestMqttTcpTlsDebug(t *testing.T) {
+	// for debug
+	t.Skip(t.Name())
+
+	url := "ssl://0.0.0.0:1884"
+	pkt := mqtt.NewConnect()
+	pkt.ClientID = t.Name()
+	pkt.CleanSession = true
+	pkt.Username = ""
+
+	tlscli, err := utils.NewTLSConfigClient(utils.Certificate{
+		CA:                 "../example/var/lib/baetyl/testcert/ca.pem", // ca.pem is a certificate chain
+		Key:                "../example/var/lib/baetyl/testcert/client.key",
+		Cert:               "../example/var/lib/baetyl/testcert/client.pem",
+		InsecureSkipVerify: true,
+	})
+	assert.NoError(t, err)
+	dailer := mqtt.NewDialer(tlscli, time.Duration(0))
+	conn, err := dailer.Dial(url)
+	assert.NoError(t, err)
+	err = conn.Send(pkt, false)
+	assert.NoError(t, err)
+	res, err := conn.Receive()
+	assert.NoError(t, err)
+	assert.Equal(t, res.String(), "<Connack SessionPresent=false ReturnCode=4>")
+	_, err = conn.Receive()
+	assert.Error(t, err)
+	assert.Equal(t, err.Error(), "EOF")
+}
+
 func TestMqttWebSocket(t *testing.T) {
 	cfg := []Listener{
 		{Address: "ws://localhost:0"},

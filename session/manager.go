@@ -32,6 +32,7 @@ var (
 	ErrSessionWillMessageTopicInvalid            = errors.New("will topic is invalid")
 	ErrSessionWillMessageTopicNotPermitted       = errors.New("will topic is not permitted")
 	ErrSessionWillMessagePayloadSizeExceedsLimit = errors.New("will message payload exceeds the max limit")
+	ErrSessionSubscribePayloadEmpty              = errors.New("subscribe payload can't be empty")
 )
 
 type client interface {
