@@ -2,7 +2,6 @@ package session
 
 import (
 	"context"
-	"fmt"
 	"io"
 	"net"
 	"os"
@@ -51,7 +50,7 @@ principals:
   password: p4
   permissions:
   - action: sub
-    permit: [test, talks]
+    permit: [test, talks, '$baidu/iot', '$link/data']
 `
 )
 
@@ -284,16 +283,6 @@ type mockStream struct {
 	sync.RWMutex
 }
 
-func newMockStream(t *testing.T, linkid string) *mockStream {
-	return &mockStream{
-		t:   t,
-		md:  metadata.New(map[string]string{"linkid": linkid}),
-		c2s: make(chan *mqtt.Message, 100),
-		s2c: make(chan *mqtt.Message, 100),
-		err: make(chan error, 100),
-	}
-}
-
 func (c *mockStream) Send(msg *mqtt.Message) error {
 	select {
 	case c.s2c <- msg:
@@ -376,37 +365,5 @@ func (c *mockStream) assertS2CMessageTimeout() {
 	case msg := <-c.s2c:
 		assert.Fail(c.t, "receive unexpected packet", msg.String())
 	case <-time.After(time.Millisecond * 100):
-	}
-}
-
-func assertClientClosed(expect int, cs ...*mockStream) string {
-	var count int
-	var active *mockStream
-	for _, c := range cs {
-		if c.isClosed() {
-			count++
-		} else {
-			active = c
-		}
-	}
-	assert.Equal(active.t, expect, count)
-	return active.md.Get("linkid")[0]
-}
-
-func assertS2CMessageLB(subc1, subc2 *mockStream, expect string) *mockStream {
-	select {
-	case msg := <-subc1.s2c:
-		assert.NotNil(subc1.t, msg)
-		assert.Equal(subc1.t, expect, msg.String())
-		fmt.Println("--> subc1 receive message:", msg)
-		return subc1
-	case msg := <-subc2.s2c:
-		assert.NotNil(subc2.t, msg)
-		assert.Equal(subc2.t, expect, msg.String())
-		fmt.Println("--> subc2 receive message:", msg)
-		return subc2
-	case <-time.After(time.Minute):
-		assert.Fail(subc1.t, "receive common timeout")
-		return nil
 	}
 }
