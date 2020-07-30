@@ -1,9 +1,12 @@
-name: internal-image
-on: push
+name: image-develop
+on:
+  push:
+    branches:
+      - master
 
 jobs:
   image:
-    name: docker build images of runtime
+    name: docker build images
     runs-on: ubuntu-latest
     steps:
       - name: Install deps
@@ -17,11 +20,12 @@ jobs:
           sudo apt update
           sudo apt install docker-ce
           docker -v
-      - name: docker login
-        run: |
-          docker login hub.baidubce.com -u ${{ secrets.DOCKER_REGISTRY_ID_INTERNAL }} -p ${{ secrets.DOCKER_REGISTRY_PASS_INTERNAL }}
       - name: Checkout code
         uses: actions/checkout@v1
+      - name: docker login
+        run: |
+          docker login -u ${{ secrets.DOCKER_REGISTRY_ID }} -p ${{ secrets.DOCKER_REGISTRY_PASS }}
       - name: build and publish image
         run: |
-          make image PLATFORMS=all XFLAGS=--push REGISTRY=hub.baidubce.com/btl-test/
+          make image PLATFORMS=all XFLAGS='--push --cache-to=type=local,dest=/tmp/main' REGISTRY=baetyltechtest/
+      
