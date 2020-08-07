@@ -11,22 +11,26 @@ import (
 	"time"
 
 	"github.com/baetyl/baetyl-broker/listener"
-	"github.com/baetyl/baetyl-go/log"
-	"github.com/baetyl/baetyl-go/mqtt"
-	"github.com/baetyl/baetyl-go/utils"
+	"github.com/baetyl/baetyl-go/v2/log"
+	"github.com/baetyl/baetyl-go/v2/mqtt"
+	"github.com/baetyl/baetyl-go/v2/utils"
 	"github.com/stretchr/testify/assert"
 	"google.golang.org/grpc/metadata"
 )
 
 var (
-	testConfDefault = ""
+	testConfDefault   = ""
+	testConfResending = `
+session:
+  resendInterval: 2s
+`
 	testConfSession = `
 session:
   sysTopics:
   - $link
   - $baidu
   maxSessions: 3
-  resendInterval: 200ms
+  resendInterval: 1s
 
 principals:
 - username: u1
@@ -105,47 +109,14 @@ func (b *mockBroker) assertSessionStore(id string, expect string, hasErr error) 
 	}
 }
 
-func (b *mockBroker) assertSessionState(sid string, expect state) {
-	v, ok := b.ses.sessions.load(sid)
-	assert.True(b.t, ok)
-	if !ok {
-		return
-	}
-	s := v.(*Session)
-	s.mut.RLock()
-	defer s.mut.RUnlock()
-	assert.Equal(b.t, expect, s.stat)
-	if expect == STATE0 {
-		assert.Nil(b.t, s.disp)
-		assert.Nil(b.t, s.qos0)
-		assert.Nil(b.t, s.qos1)
-		assert.Zero(b.t, s.subs.Count())
-		assert.Zero(b.t, len(s.info.Subscriptions))
-	} else if expect == STATE1 {
-		assert.NotNil(b.t, s.disp)
-		assert.NotNil(b.t, s.qos0)
-		assert.NotNil(b.t, s.qos1)
-		assert.NotNil(b.t, s.client)
-		assert.NotZero(b.t, s.subs.Count())
-		assert.NotZero(b.t, len(s.info.Subscriptions))
-	} else if expect == STATE2 {
-		assert.Nil(b.t, s.disp)
-		assert.Nil(b.t, s.qos0)
-		assert.NotNil(b.t, s.qos1)
-		assert.Nil(b.t, s.client)
-		assert.NotZero(b.t, s.subs.Count())
-		assert.NotZero(b.t, len(s.info.Subscriptions))
-	}
-}
-
 func (b *mockBroker) waitClientReady(sid string, isNil bool) {
 	for {
-		v, ok := b.ses.sessions.load(sid)
+		s, ok := b.ses.sessions.load(sid)
 		if ok {
-			if isNil && v.(*Session).client == nil {
+			if isNil && s.getClient() == nil {
 				return
 			}
-			if !isNil && v.(*Session).client != nil {
+			if !isNil && s.getClient() != nil {
 				return
 			}
 		}
@@ -252,7 +223,7 @@ func (c *mockConn) assertS2CPacket(expect string) {
 	case pkt := <-c.s2c:
 		assert.NotNil(c.t, pkt)
 		assert.Equal(c.t, expect, pkt.String())
-	case <-time.After(time.Minute):
+	case <-time.After(time.Second * 10):
 		assert.Fail(c.t, "receive common timeout")
 	}
 }

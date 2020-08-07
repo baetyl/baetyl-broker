@@ -4,7 +4,7 @@ import (
 	"time"
 
 	"github.com/baetyl/baetyl-broker/common"
-	"github.com/baetyl/baetyl-go/mqtt"
+	"github.com/baetyl/baetyl-go/v2/mqtt"
 )
 
 type eventWrapper struct {

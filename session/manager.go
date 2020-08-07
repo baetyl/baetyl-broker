@@ -6,8 +6,8 @@ import (
 
 	"github.com/baetyl/baetyl-broker/exchange"
 	"github.com/baetyl/baetyl-broker/store"
-	"github.com/baetyl/baetyl-go/log"
-	"github.com/baetyl/baetyl-go/mqtt"
+	"github.com/baetyl/baetyl-go/v2/log"
+	"github.com/baetyl/baetyl-go/v2/mqtt"
 )
 
 // all errors
@@ -32,22 +32,17 @@ var (
 	ErrSessionWillMessageTopicInvalid            = errors.New("will topic is invalid")
 	ErrSessionWillMessageTopicNotPermitted       = errors.New("will topic is not permitted")
 	ErrSessionWillMessagePayloadSizeExceedsLimit = errors.New("will message payload exceeds the max limit")
+	ErrSessionNotFound                           = errors.New("session is not found")
 	ErrSessionSubscribePayloadEmpty              = errors.New("subscribe payload can't be empty")
+	ErrSessionManagerClosed                      = errors.New("manager has closed")
 )
-
-type client interface {
-	getID() string
-	setSession(sid string, s *Session)
-	authorize(string, string) bool
-	sendEvent(e *eventWrapper, dup bool) error
-	close() error
-}
 
 // Manager the manager of sessions
 type Manager struct {
 	cfg           Config
 	store         store.DB
 	sessions      *syncmap
+	clients       *syncmap
 	checker       *mqtt.TopicChecker
 	exch          *exchange.Exchange
 	auth          *Authenticator
@@ -61,7 +56,8 @@ type Manager struct {
 func NewManager(cfg Config) (m *Manager, err error) {
 	m = &Manager{
 		cfg:      cfg,
-		sessions: newSyncMap(cfg.MaxSessions),
+		sessions: newSyncMap(),
+		clients:  newSyncMap(),
 		checker:  mqtt.NewTopicChecker(cfg.SysTopics),
 		exch:     exchange.NewExchange(cfg.SysTopics),
 		auth:     NewAuthenticator(cfg.Principals),
@@ -88,44 +84,81 @@ func NewManager(cfg Config) (m *Manager, err error) {
 		m.Close()
 		return
 	}
-	for _, i := range ss {
-		m.checkSubscriptions(&i)
+	for _, si := range ss {
+		m.checkSubscriptions(&si)
+
 		var s *Session
-		if s, _, err = m.getSession(i); err != nil {
+		s, err = newSession(si, m)
+		if err != nil {
 			m.Close()
 			return
 		}
-		if err = s.init(&i, nil); err != nil {
-			return nil, err
-		}
+
+		m.sessions.store(si.ID, s)
 	}
 	m.log.Info("session manager has initialized")
 	return m, nil
 }
 
-func (m *Manager) getSession(si Info) (s *Session, exists bool, err error) {
+func (m *Manager) addClient(si Info, c *Client) (s *Session, exists bool, err error) {
 	if err = m.checkQuitState(); err != nil {
 		return
 	}
 
-	var v interface{}
-	if v, exists = m.sessions.load(si.ID); exists {
+	defer func() {
+		c.setSession(si.ID, s)
+	}()
+
+	if v, loaded := m.clients.store(si.ID, c); loaded {
+		v.(*Client).close()
+	}
+
+	if v, loaded := m.sessions.load(si.ID); loaded {
 		s = v.(*Session)
+		if !s.info.CleanSession {
+			s.update(si)
+			return
+		}
+
+		// If CleanSession is set to 1, the Client and Server MUST discard any previous Session and start a new one. [MQTT-3.1.2-6]
+		s.close()
+		exists = false
+	}
+
+	s, err = newSession(si, m)
+	if err != nil {
 		return
 	}
 
-	s = newSession(si, m)
-	err = m.sessions.store(si.ID, s)
-	if err != nil {
-		s.log.Error("number of sessions exceeds the limit", log.Any("max", s.mgr.cfg.MaxSessions))
-	}
+	m.sessions.store(si.ID, s)
 	return
+}
+
+func (m *Manager) delClient(clientID string) error {
+	if err := m.checkQuitState(); err != nil {
+		return err
+	}
+
+	m.clients.delete(clientID)
+
+	v, exists := m.sessions.load(clientID)
+	if !exists {
+		return ErrSessionNotFound
+	}
+
+	s := v.(*Session)
+	if s.info.CleanSession {
+		m.exch.UnbindAll(s)
+		m.sessions.delete(clientID)
+		s.close()
+	}
+	return nil
 }
 
 func (m *Manager) checkQuitState() error {
 	if atomic.LoadInt32(&m.quit) == 1 {
 		m.log.Error(ErrConnectionRefuse.Error())
-		return ErrConnectionRefuse
+		return ErrSessionManagerClosed
 	}
 	return nil
 }
@@ -148,20 +181,31 @@ func (m *Manager) checkSubscriptions(si *Info) {
 
 // Close close
 func (m *Manager) Close() error {
+	if err := m.checkQuitState(); err != nil {
+		return err
+	}
+
 	m.log.Info("session manager is closing")
 	defer m.log.Info("session manager has closed")
 
 	atomic.AddInt32(&m.quit, -1)
 
-	for _, v := range m.sessions.empty() {
-		v.(*Session).Close()
+	for _, s := range m.sessions.empty() {
+		s.(*Session).close()
 	}
+
+	for _, c := range m.clients.empty() {
+		c.(*Client).close()
+	}
+
 	if m.sessionBucket != nil {
 		m.sessionBucket.Close(false)
 	}
+
 	if m.retainBucket != nil {
 		m.retainBucket.Close(false)
 	}
+
 	if m.store != nil {
 		m.store.Close()
 	}

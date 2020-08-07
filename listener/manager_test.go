@@ -6,8 +6,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/baetyl/baetyl-go/mqtt"
-	"github.com/baetyl/baetyl-go/utils"
+	"github.com/baetyl/baetyl-go/v2/mqtt"
+	"github.com/baetyl/baetyl-go/v2/utils"
 	"github.com/stretchr/testify/assert"
 )
 

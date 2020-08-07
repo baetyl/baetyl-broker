@@ -1,33 +1,27 @@
 package session
 
 import (
-	"errors"
 	"sync"
 )
 
-var errExceedsLimit = errors.New("exceeds limit")
-
 type syncmap struct {
-	max  int
 	data map[string]interface{}
 	mut  sync.RWMutex
 }
 
-func newSyncMap(max int) *syncmap {
+func newSyncMap() *syncmap {
 	return &syncmap{
-		max:  max,
-		data: map[string]interface{}{},
+		data: make(map[string]interface{}),
 	}
 }
 
-func (m *syncmap) store(k string, v interface{}) error {
+func (m *syncmap) store(k string, v interface{}) (actual interface{}, loaded bool) {
 	m.mut.Lock()
 	defer m.mut.Unlock()
-	if m.max > 0 && len(m.data) >= m.max {
-		return errExceedsLimit
-	}
+
+	old, ok := m.data[k]
 	m.data[k] = v
-	return nil
+	return old, ok
 }
 
 func (m *syncmap) delete(k string) {
@@ -39,6 +33,7 @@ func (m *syncmap) delete(k string) {
 func (m *syncmap) empty() []interface{} {
 	m.mut.Lock()
 	defer m.mut.Unlock()
+	// it will cause data race if return data directly
 	var res []interface{}
 	for k, v := range m.data {
 		delete(m.data, k)

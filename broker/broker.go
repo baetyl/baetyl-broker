@@ -1,10 +1,10 @@
-package main
+package broker
 
 import (
 	"github.com/baetyl/baetyl-broker/common"
 	"github.com/baetyl/baetyl-broker/listener"
 	"github.com/baetyl/baetyl-broker/session"
-	"github.com/baetyl/baetyl-go/log"
+	"github.com/baetyl/baetyl-go/v2/log"
 )
 
 // Config all config of broker

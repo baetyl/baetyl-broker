@@ -5,7 +5,7 @@ import (
 
 	"github.com/baetyl/baetyl-broker/queue"
 	"github.com/baetyl/baetyl-broker/store"
-	"github.com/baetyl/baetyl-go/utils"
+	"github.com/baetyl/baetyl-go/v2/utils"
 )
 
 // Config session config
@@ -16,7 +16,7 @@ type Config struct {
 
 // SessionConfig session config without principals
 type SessionConfig struct {
-	MaxSessions             int           `yaml:"maxSessions,omitempty" json:"maxSessions,omitempty"`
+	MaxClients              int           `yaml:"maxClients,omitempty" json:"maxClients,omitempty"`
 	MaxMessagePayloadSize   utils.Size    `yaml:"maxMessagePayloadSize,omitempty" json:"maxMessagePayloadSize,omitempty" default:"32768" validate:"min=1,max=268435455"` // max size of message payload is (256MB - 1)
 	MaxInflightQOS0Messages int           `yaml:"maxInflightQOS0Messages" json:"maxInflightQOS0Messages" default:"100" validate:"min=1"`
 	MaxInflightQOS1Messages int           `yaml:"maxInflightQOS1Messages" json:"maxInflightQOS1Messages" default:"20" validate:"min=1"`

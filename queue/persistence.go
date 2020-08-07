@@ -6,9 +6,9 @@ import (
 
 	"github.com/baetyl/baetyl-broker/common"
 	"github.com/baetyl/baetyl-broker/store"
-	"github.com/baetyl/baetyl-go/log"
-	"github.com/baetyl/baetyl-go/mqtt"
-	"github.com/baetyl/baetyl-go/utils"
+	"github.com/baetyl/baetyl-go/v2/log"
+	"github.com/baetyl/baetyl-go/v2/mqtt"
+	"github.com/baetyl/baetyl-go/v2/utils"
 )
 
 // Config queue config
