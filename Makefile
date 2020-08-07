@@ -10,7 +10,7 @@ GIT_REV:=git-$(shell git rev-parse --short HEAD)
 VERSION:=$(if $(GIT_TAG),$(GIT_TAG),$(GIT_REV))
 
 GO_FLAGS:=-ldflags '-X "github.com/baetyl/baetyl-go/utils.REVISION=$(GIT_REV)" -X "github.com/baetyl/baetyl-go/utils.VERSION=$(VERSION)"'
-GO_TEST_FLAGS:=-race -short -covermode=atomic -coverprofile=coverage.txt
+GO_TEST_FLAGS:=-timeout 3m -race -short -covermode=atomic -coverprofile=coverage.txt
 GO_TEST_PKGS:=$(shell go list ./...)
 ifndef PLATFORMS
 	GO_OS:=$(shell go env GOOS)
@@ -31,7 +31,7 @@ XPLATFORMS:=$(shell echo $(filter-out darwin/amd64,$(PLATFORMS)) | sed 's: :,:g'
 .PHONY: all
 all: $(SRC_FILES)
 	@echo "BUILD $(BIN)"
-	@env GO111MODULE=on GOPROXY=https://goproxy.cn CGO_ENABLED=0 go build -o $(BIN) $(GO_FLAGS) .
+	@env GO111MODULE=on GOPROXY=https://goproxy.cn CGO_ENABLED=0 go build -o $(BIN) $(GO_FLAGS) cmd/main.go
 
 .PHONY: image
 image:

@@ -4,8 +4,8 @@ import (
 	"strings"
 
 	"github.com/baetyl/baetyl-broker/common"
-	"github.com/baetyl/baetyl-go/log"
-	"github.com/baetyl/baetyl-go/mqtt"
+	"github.com/baetyl/baetyl-go/v2/log"
+	"github.com/baetyl/baetyl-go/v2/mqtt"
 )
 
 // Exchange the message exchange

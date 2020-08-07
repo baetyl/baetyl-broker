@@ -5,7 +5,7 @@ import (
 	"reflect"
 	"strings"
 
-	"github.com/baetyl/baetyl-go/mqtt"
+	"github.com/baetyl/baetyl-go/v2/mqtt"
 	"gopkg.in/validator.v2"
 )
 

@@ -5,7 +5,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/baetyl/baetyl-go/mqtt"
+	"github.com/baetyl/baetyl-go/v2/mqtt"
 )
 
 // all errors of acknowledgement

@@ -14,8 +14,8 @@ import (
 
 	"github.com/baetyl/baetyl-broker/common"
 	"github.com/baetyl/baetyl-broker/store"
-	"github.com/baetyl/baetyl-go/mqtt"
-	"github.com/baetyl/baetyl-go/utils"
+	"github.com/baetyl/baetyl-go/v2/mqtt"
+	"github.com/baetyl/baetyl-go/v2/utils"
 	"github.com/gogo/protobuf/proto"
 	"github.com/stretchr/testify/assert"
 )

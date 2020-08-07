@@ -2,7 +2,7 @@ package queue
 
 import (
 	"errors"
-	"github.com/baetyl/baetyl-go/mqtt"
+	"github.com/baetyl/baetyl-go/v2/mqtt"
 	"github.com/gogo/protobuf/proto"
 )
 

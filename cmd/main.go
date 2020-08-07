@@ -4,7 +4,8 @@ import (
 	// "net/http"
 	// _ "net/http/pprof"
 
-	"github.com/baetyl/baetyl-go/context"
+	"github.com/baetyl/baetyl-broker/broker"
+	"github.com/baetyl/baetyl-go/v2/context"
 )
 
 func main() {
@@ -26,12 +27,12 @@ func main() {
 	// defer trace.Stop()
 
 	context.Run(func(ctx context.Context) error {
-		var cfg Config
+		var cfg broker.Config
 		err := ctx.LoadCustomConfig(&cfg)
 		if err != nil {
 			return err
 		}
-		b, err := NewBroker(cfg)
+		b, err := broker.NewBroker(cfg)
 		if err != nil {
 			return err
 		}

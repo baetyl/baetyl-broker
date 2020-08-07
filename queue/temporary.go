@@ -4,7 +4,7 @@ import (
 	"sync"
 
 	"github.com/baetyl/baetyl-broker/common"
-	"github.com/baetyl/baetyl-go/log"
+	"github.com/baetyl/baetyl-go/v2/log"
 )
 
 // Temporary is an temporary queue in memory
@@ -83,8 +83,8 @@ func (q *Temporary) Close(_ bool) error {
 	q.log.Info("queue is closing")
 	defer q.log.Info("queue has closed")
 
-	q.Do(func() {
-		close(q.quit)
-	})
+	//q.Do(func() {
+	//	close(q.quit)
+	//})
 	return nil
 }
