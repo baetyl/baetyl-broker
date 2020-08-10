@@ -33,7 +33,6 @@ func (m *syncmap) delete(k string) {
 func (m *syncmap) empty() []interface{} {
 	m.mut.Lock()
 	defer m.mut.Unlock()
-	// it will cause data race if return data directly
 	var res []interface{}
 	for k, v := range m.data {
 		delete(m.data, k)
