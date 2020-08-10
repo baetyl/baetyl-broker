@@ -29,7 +29,7 @@ session:
   sysTopics:
   - $link
   - $baidu
-  maxSessions: 3
+  maxClients: 3
   resendInterval: 1s
 
 principals:
@@ -59,10 +59,10 @@ principals:
 )
 
 type mockBroker struct {
-	t   *testing.T
-	cfg Config
-	ses *Manager
-	lis *listener.Manager
+	t       *testing.T
+	cfg     Config
+	manager *Manager
+	lis     *listener.Manager
 }
 
 func newMockBroker(t *testing.T, cfgStr string) *mockBroker {
@@ -73,7 +73,7 @@ func newMockBroker(t *testing.T, cfgStr string) *mockBroker {
 	assert.NoError(t, err)
 	os.RemoveAll(path.Dir(cfg.Persistence.Store.Source))
 	b := &mockBroker{t: t, cfg: cfg}
-	b.ses, err = NewManager(cfg)
+	b.manager, err = NewManager(cfg)
 	assert.NoError(t, err)
 	return b
 }
@@ -85,18 +85,22 @@ func newMockBrokerNotClean(t *testing.T, cfgStr string) *mockBroker {
 	err := utils.UnmarshalYAML([]byte(cfgStr), &cfg)
 	assert.NoError(t, err)
 	b := &mockBroker{t: t, cfg: cfg}
-	b.ses, err = NewManager(cfg)
+	b.manager, err = NewManager(cfg)
 	assert.NoError(t, err)
 	return b
 }
 
 func (b *mockBroker) assertSessionCount(expect int) {
-	assert.Equal(b.t, expect, b.ses.sessions.count())
+	assert.Equal(b.t, expect, b.manager.sessions.count())
+}
+
+func (b *mockBroker) assertClientCount(expect int) {
+	assert.Equal(b.t, expect, b.manager.clients.count())
 }
 
 func (b *mockBroker) assertSessionStore(id string, expect string, hasErr error) {
 	var s Info
-	err := b.ses.sessionBucket.GetKV(id, &s)
+	err := b.manager.sessionBucket.GetKV(id, &s)
 	if hasErr != nil {
 		assert.Error(b.t, err)
 		assert.Equal(b.t, err.Error(), hasErr.Error())
@@ -111,12 +115,13 @@ func (b *mockBroker) assertSessionStore(id string, expect string, hasErr error) 
 
 func (b *mockBroker) waitClientReady(sid string, isNil bool) {
 	for {
-		s, ok := b.ses.sessions.load(sid)
+		_, ok := b.manager.sessions.load(sid)
 		if ok {
-			if isNil && s.getClient() == nil {
+			_, _ok := b.manager.clients.load(sid)
+			if isNil && !_ok {
 				return
 			}
-			if !isNil && s.getClient() != nil {
+			if !isNil && _ok {
 				return
 			}
 		}
@@ -126,7 +131,7 @@ func (b *mockBroker) waitClientReady(sid string, isNil bool) {
 
 func (b *mockBroker) assertExchangeCount(expect int) {
 	count := 0
-	for _, bind := range b.ses.exch.Bindings() {
+	for _, bind := range b.manager.exch.Bindings() {
 		count += bind.Count()
 	}
 	assert.Equal(b.t, expect, count)
@@ -136,8 +141,8 @@ func (b *mockBroker) close() {
 	if b.lis != nil {
 		b.lis.Close()
 	}
-	if b.ses != nil {
-		b.ses.Close()
+	if b.manager != nil {
+		b.manager.Close()
 	}
 }
 

@@ -42,9 +42,9 @@ func newSession(i Info, m *Manager) (*Session, error) {
 	s := &Session{
 		info:    i,
 		manager: m,
-		qos0msg: queue.NewTemporary(i.ID, m.cfg.MaxInflightQOS0Messages, true),
 		subs:    mqtt.NewTrie(),
 		cnt:     cnt,
+		qos0msg: queue.NewTemporary(i.ID, m.cfg.MaxInflightQOS0Messages, true),
 		qos1ack: make(chan *eventWrapper, m.cfg.MaxInflightQOS1Messages),
 		qos1pkt: &cache{
 			offset: cnt.GetNextID(),
@@ -61,6 +61,12 @@ func newSession(i Info, m *Manager) (*Session, error) {
 		return nil, err
 	}
 	s.qos1msg = queue.NewPersistence(qc, qbk)
+
+	for topic, qos := range i.Subscriptions {
+		s.subs.Set(topic, qos)
+		s.manager.exch.Bind(topic, s)
+		s.info.Subscriptions[topic] = qos
+	}
 
 	s.persistent()
 
@@ -82,12 +88,21 @@ func (s *Session) close() {
 
 // * the following operations need lock
 
-func (s *Session) update(si Info) {
+func (s *Session) update(si Info, auth func(action, topic string) bool) {
 	s.mut.Lock()
 	defer s.mut.Unlock()
 
 	s.info.WillMessage = si.WillMessage
 	s.info.CleanSession = si.CleanSession
+
+	for topic := range s.info.Subscriptions {
+		if auth != nil && !auth(Subscribe, topic) {
+			s.log.Warn(ErrSessionMessageTopicNotPermitted.Error(), log.Any("topic", topic))
+			s.subs.Empty(topic)
+			s.manager.exch.Unbind(topic, s)
+			delete(s.info.Subscriptions, topic)
+		}
+	}
 
 	s.persistent()
 }
@@ -134,19 +149,14 @@ func (s *Session) subscribe(subs []mqtt.Subscription, auth func(action, topic st
 		s.info.Subscriptions = make(map[string]mqtt.QOS)
 	}
 
-	for topic, qos := range s.info.Subscriptions {
-		s.subs.Set(topic, qos)
-		s.manager.exch.Bind(topic, s)
-		s.info.Subscriptions[topic] = qos
-	}
-
-	for topic := range s.info.Subscriptions {
-		if auth != nil && !auth(Subscribe, topic) {
-			s.log.Warn(ErrSessionMessageTopicNotPermitted.Error(), log.Any("topic", topic))
-			s.subs.Empty(topic)
-			s.manager.exch.Unbind(topic, s)
-			delete(s.info.Subscriptions, topic)
+	for _, v := range subs {
+		if auth != nil && !auth(Subscribe, v.Topic) {
+			s.log.Warn(ErrSessionMessageTopicNotPermitted.Error(), log.Any("topic", v.Topic))
+			continue
 		}
+		s.subs.Set(v.Topic, v.QOS)
+		s.manager.exch.Bind(v.Topic, s)
+		s.info.Subscriptions[v.Topic] = v.QOS
 	}
 
 	s.persistent()
