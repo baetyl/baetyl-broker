@@ -1,6 +1,7 @@
 package listener
 
 import (
+	"crypto/tls"
 	"fmt"
 	"sync/atomic"
 	"testing"
@@ -96,9 +97,10 @@ func TestMqttTcpTls(t *testing.T) {
 		{
 			Address: "ssl://localhost:0",
 			Certificate: utils.Certificate{
-				CA:   "../example/var/lib/baetyl/testcert/ca.pem", // ca.pem is a certificate chain
-				Key:  "../example/var/lib/baetyl/testcert/server.key",
-				Cert: "../example/var/lib/baetyl/testcert/server.pem",
+				CA:             "../example/var/lib/baetyl/testcert/ca.pem", // ca.pem is a certificate chain
+				Key:            "../example/var/lib/baetyl/testcert/server.key",
+				Cert:           "../example/var/lib/baetyl/testcert/server.pem",
+				ClientAuthType: tls.ClientAuthType(4),
 			},
 		},
 	}
@@ -157,6 +159,7 @@ func TestMqttTcpTlsDebug(t *testing.T) {
 		Key:                "../example/var/lib/baetyl/testcert/client.key",
 		Cert:               "../example/var/lib/baetyl/testcert/client.pem",
 		InsecureSkipVerify: true,
+		ClientAuthType:     tls.RequestClientCert,
 	})
 	assert.NoError(t, err)
 	dailer := mqtt.NewDialer(tlscli, time.Duration(0))
@@ -233,9 +236,10 @@ func TestMqttWebSocketTls(t *testing.T) {
 		{
 			Address: "wss://localhost:0/mqtt",
 			Certificate: utils.Certificate{
-				CA:   "../example/var/lib/baetyl/testcert/ca.pem", // ca.pem is a certificate chain
-				Key:  "../example/var/lib/baetyl/testcert/server.key",
-				Cert: "../example/var/lib/baetyl/testcert/server.pem",
+				CA:             "../example/var/lib/baetyl/testcert/ca.pem", // ca.pem is a certificate chain
+				Key:            "../example/var/lib/baetyl/testcert/server.key",
+				Cert:           "../example/var/lib/baetyl/testcert/server.pem",
+				ClientAuthType: tls.RequestClientCert,
 			},
 		},
 	}

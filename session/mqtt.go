@@ -102,7 +102,9 @@ func (c *Client) die(msg string, err error) {
 		c.conn.Close()
 	})
 
-	c.manager.delClient(c.session.info.ID)
+	if c.session != nil {
+		c.manager.delClient(c.session.info.ID)
+	}
 }
 
 func (c *Client) authorize(action, topic string) bool {
@@ -463,10 +465,18 @@ func (c *Client) sending() error {
 			if ent := c.log.Check(log.DebugLevel, "queue popped a message as qos 0"); ent != nil {
 				ent.Write(log.Any("message", evt.String()))
 			}
+			if !c.authorize(Subscribe, evt.Context.Topic) {
+				c.log.Warn("dropped a message whose topic is not permitted when sending", log.Any("topic", evt.Context.Topic))
+				continue
+			}
 			msg = newEventWrapper(0, 0, evt)
 		case evt := <-qos1:
 			if ent := c.log.Check(log.DebugLevel, "queue popped a message as qos 1"); ent != nil {
 				ent.Write(log.Any("message", evt.String()))
+			}
+			if !c.authorize(Subscribe, evt.Context.Topic) {
+				c.log.Warn("dropped a message whose topic is not permitted when sending", log.Any("topic", evt.Context.Topic))
+				continue
 			}
 			msg = c.wrap(evt)
 			if err := cache.store(msg); err != nil {

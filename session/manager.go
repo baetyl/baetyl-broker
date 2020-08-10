@@ -86,7 +86,8 @@ func NewManager(cfg Config) (m *Manager, err error) {
 	for _, si := range ss {
 		m.checkSubscriptions(&si)
 
-		s, err := newSession(si, m)
+		var s *Session
+		s, err = newSession(si, m)
 		if err != nil {
 			m.Close()
 			return
@@ -104,6 +105,10 @@ func (m *Manager) addClient(si Info, c *Client) (s *Session, exists bool, err er
 	}
 
 	defer func() {
+		if err != nil {
+			m.clients.delete(si.ID)
+			return
+		}
 		c.setSession(si.ID, s)
 	}()
 
@@ -114,13 +119,13 @@ func (m *Manager) addClient(si Info, c *Client) (s *Session, exists bool, err er
 	if v, loaded := m.sessions.load(si.ID); loaded {
 		s = v.(*Session)
 		if !s.info.CleanSession {
-			s.update(si)
+			exists = true
+			s.update(si, c.authorize)
 			return
 		}
 
 		// If CleanSession is set to 1, the Client and Server MUST discard any previous Session and start a new one. [MQTT-3.1.2-6]
-		s.close()
-		exists = false
+		m.cleanSession(s)
 	}
 
 	s, err = newSession(si, m)
@@ -146,11 +151,15 @@ func (m *Manager) delClient(clientID string) error {
 
 	s := v.(*Session)
 	if s.info.CleanSession {
-		m.exch.UnbindAll(s)
-		m.sessions.delete(clientID)
-		s.close()
+		m.cleanSession(s)
 	}
 	return nil
+}
+
+func (m *Manager) cleanSession(s *Session) {
+	m.exch.UnbindAll(s)
+	m.sessions.delete(s.info.ID)
+	s.close()
 }
 
 func (m *Manager) checkQuitState() error {
