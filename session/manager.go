@@ -32,7 +32,6 @@ var (
 	ErrSessionWillMessageTopicInvalid            = errors.New("will topic is invalid")
 	ErrSessionWillMessageTopicNotPermitted       = errors.New("will topic is not permitted")
 	ErrSessionWillMessagePayloadSizeExceedsLimit = errors.New("will message payload exceeds the max limit")
-	ErrSessionNotFound                           = errors.New("session is not found")
 	ErrSessionSubscribePayloadEmpty              = errors.New("subscribe payload can't be empty")
 	ErrSessionManagerClosed                      = errors.New("manager has closed")
 )
@@ -87,8 +86,7 @@ func NewManager(cfg Config) (m *Manager, err error) {
 	for _, si := range ss {
 		m.checkSubscriptions(&si)
 
-		var s *Session
-		s, err = newSession(si, m)
+		s, err := newSession(si, m)
 		if err != nil {
 			m.Close()
 			return
@@ -143,7 +141,7 @@ func (m *Manager) delClient(clientID string) error {
 
 	v, exists := m.sessions.load(clientID)
 	if !exists {
-		return ErrSessionNotFound
+		return nil
 	}
 
 	s := v.(*Session)
@@ -157,7 +155,7 @@ func (m *Manager) delClient(clientID string) error {
 
 func (m *Manager) checkQuitState() error {
 	if atomic.LoadInt32(&m.quit) == 1 {
-		m.log.Error(ErrConnectionRefuse.Error())
+		m.log.Error(ErrSessionManagerClosed.Error())
 		return ErrSessionManagerClosed
 	}
 	return nil
@@ -182,7 +180,7 @@ func (m *Manager) checkSubscriptions(si *Info) {
 // Close close
 func (m *Manager) Close() error {
 	if err := m.checkQuitState(); err != nil {
-		return err
+		return nil
 	}
 
 	m.log.Info("session manager is closing")

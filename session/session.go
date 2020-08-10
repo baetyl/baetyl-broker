@@ -27,12 +27,12 @@ func (i *Info) String() string {
 type Session struct {
 	info    Info
 	manager *Manager
-	qos0    queue.Queue // queue for qos0
-	qos1    queue.Queue // queue for qos1
 	subs    *mqtt.Trie
 	cnt     *mqtt.Counter
-	queue   chan *eventWrapper
-	cache   *cache
+	qos0msg queue.Queue // queue for qos0
+	qos1msg queue.Queue // queue for qos1
+	qos1pkt *cache
+	qos1ack chan *eventWrapper
 	log     *log.Logger
 	mut     sync.RWMutex // mutex for session
 }
@@ -42,11 +42,11 @@ func newSession(i Info, m *Manager) (*Session, error) {
 	s := &Session{
 		info:    i,
 		manager: m,
-		qos0:    queue.NewTemporary(i.ID, m.cfg.MaxInflightQOS0Messages, true),
+		qos0msg: queue.NewTemporary(i.ID, m.cfg.MaxInflightQOS0Messages, true),
 		subs:    mqtt.NewTrie(),
 		cnt:     cnt,
-		queue:   make(chan *eventWrapper, m.cfg.MaxInflightQOS1Messages),
-		cache: &cache{
+		qos1ack: make(chan *eventWrapper, m.cfg.MaxInflightQOS1Messages),
+		qos1pkt: &cache{
 			offset: cnt.GetNextID(),
 		},
 		log: m.log.With(log.Any("id", i.ID)),
@@ -57,10 +57,10 @@ func newSession(i Info, m *Manager) (*Session, error) {
 	qc.BatchSize = m.cfg.MaxInflightQOS1Messages
 	qbk, err := m.store.NewBucket(qc.Name, new(queue.Encoder))
 	if err != nil {
-		s.log.Error("failed to create queue bucket", log.Error(err))
+		s.log.Error("failed to create qos1 bucket", log.Error(err))
 		return nil, err
 	}
-	s.qos1 = queue.NewPersistence(qc, qbk)
+	s.qos1msg = queue.NewPersistence(qc, qbk)
 
 	s.persistent()
 
@@ -71,12 +71,12 @@ func (s *Session) close() {
 	s.log.Info("session is closing")
 	defer s.log.Info("session has closed")
 
-	if s.qos0 != nil {
-		s.qos0.Close(s.info.CleanSession)
+	if s.qos0msg != nil {
+		s.qos0msg.Close(s.info.CleanSession)
 	}
 
-	if s.qos1 != nil {
-		s.qos1.Close(s.info.CleanSession)
+	if s.qos1msg != nil {
+		s.qos1msg.Close(s.info.CleanSession)
 	}
 }
 
@@ -99,7 +99,7 @@ func (s *Session) Push(e *common.Event) error {
 
 	// always flow message with qos 0 into qos0 queue
 	if e.Context.QOS == 0 {
-		return s.qos0.Push(e)
+		return s.qos0msg.Push(e)
 	}
 
 	// TODO: improve
@@ -113,11 +113,11 @@ func (s *Session) Push(e *common.Event) error {
 	for _, q := range qs {
 		if q.(mqtt.QOS) > 0 {
 			// chose maximum QoS of all the matching subscriptions. [MQTT-3.3.5-1]
-			return s.qos1.Push(e)
+			return s.qos1msg.Push(e)
 		}
 	}
 
-	return s.qos0.Push(e)
+	return s.qos0msg.Push(e)
 }
 
 // * the following operations are only used by mqtt client
@@ -192,7 +192,7 @@ func (s *Session) acknowledge(id uint64) {
 	s.mut.RLock()
 	defer s.mut.RUnlock()
 
-	err := s.cache.delete(id)
+	err := s.qos1pkt.delete(id)
 	if err != nil {
 		s.log.Warn("failed to acknowledge", log.Any("id", id), log.Error(err))
 	}

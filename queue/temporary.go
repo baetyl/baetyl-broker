@@ -82,9 +82,5 @@ func (q *Temporary) putOrDrop(e *common.Event) error {
 func (q *Temporary) Close(_ bool) error {
 	q.log.Info("queue is closing")
 	defer q.log.Info("queue has closed")
-
-	//q.Do(func() {
-	//	close(q.quit)
-	//})
 	return nil
 }

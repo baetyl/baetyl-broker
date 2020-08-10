@@ -45,7 +45,7 @@ func (m *Manager) Handle(conn mqtt.Connection) {
 
 	max := m.cfg.MaxClients
 	if max > 0 && m.clients.count() >= max {
-		c.log.Error("number of clients exceeds the limit", log.Any("max", m.cfg.MaxClients))
+		c.log.Error("number of clients exceeds the limit", log.Any("max", max))
 		conn.Close()
 		return
 	}
@@ -111,6 +111,9 @@ func (c *Client) authorize(action, topic string) bool {
 
 // SendWillMessage sends will message
 func (c *Client) sendWillMessage() {
+	if c.session == nil {
+		return
+	}
 	msg := c.session.will()
 	if msg == nil {
 		return
@@ -135,6 +138,9 @@ func (c *Client) retainMessage(msg *mqtt.Message) error {
 
 // SendRetainMessage sends retain message
 func (c *Client) sendRetainMessage() error {
+	if c.session == nil {
+		return nil
+	}
 	msgs, err := c.manager.listRetainedMessages()
 	if err != nil || len(msgs) == 0 {
 		return err
@@ -434,10 +440,10 @@ func (c *Client) sending() error {
 	defer c.log.Info("client has stopped sending messages")
 
 	var msg *eventWrapper
-	qos0 := c.session.qos0.Chan()
-	qos1 := c.session.qos1.Chan()
-	queue := c.session.queue
-	cache := c.session.cache
+	qos0 := c.session.qos0msg.Chan()
+	qos1 := c.session.qos1msg.Chan()
+	queue := c.session.qos1ack
+	cache := c.session.qos1pkt
 	for {
 		if msg != nil {
 			if err := c.sendEvent(msg, false); err != nil {
@@ -477,7 +483,7 @@ func (c *Client) resending() error {
 	defer c.log.Info("client has stopped resending messages")
 
 	var msg *eventWrapper
-	queue := c.session.queue
+	queue := c.session.qos1ack
 	timer := time.NewTimer(c.interval)
 	defer timer.Stop()
 	for {
