@@ -20,13 +20,11 @@ listeners:
     ca: ../example/var/lib/baetyl/testcert/ca.pem
     key: ../example/var/lib/baetyl/testcert/server.key
     cert: ../example/var/lib/baetyl/testcert/server.pem
-    clientAuthType: 1
   - address: ws://0.0.0.0:8883/mqtt
   - address: wss://0.0.0.0:8884/mqtt
     ca: ../example/var/lib/baetyl/testcert/ca.pem
     key: ../example/var/lib/baetyl/testcert/server.key
     cert: ../example/var/lib/baetyl/testcert/server.pem
-    clientAuthType: 1
 principals:
   - username: test
     password: hahaha
