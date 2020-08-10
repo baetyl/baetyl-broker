@@ -47,6 +47,8 @@ func NewManager(cfg []Listener, handler Handler) (*Manager, error) {
 		if c.Key != "" || c.Cert != "" {
 			tlsconfig = tlsconfigs[fmt.Sprintf(c.CA, "`", c.Key, "`", c.Cert)]
 			if tlsconfig == nil {
+				// TODO: support more ClientAuthType type
+				c.Certificate.ClientAuthType = tls.VerifyClientCertIfGiven
 				tlsconfig, err = utils.NewTLSConfigServer(c.Certificate)
 				if err != nil {
 					m.Close()
