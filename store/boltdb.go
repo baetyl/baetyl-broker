@@ -133,6 +133,7 @@ func (d *boltBucket) Get(offset uint64, length int, results interface{}) error {
 
 // Del deletes values by IDs from DB
 func (d *boltBucket) Del(ids []uint64) error {
+	// TODO: should pass max id is ok
 	return d.db.Update(func(tx *bolt.Tx) error {
 		b := tx.Bucket(d.name)
 		if b == nil {
