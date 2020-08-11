@@ -68,12 +68,14 @@ func (d *boltBucket) Put(values []interface{}) error {
 	}
 	return d.db.Update(func(tx *bolt.Tx) error {
 		b := tx.Bucket(d.name)
+		// key = sid + ts (16 bytes)
+		ts := uint64(time.Now().Unix())
 		for i := range values {
 			index, err := b.NextSequence()
 			if err != nil {
 				return err
 			}
-			gk := U64ToByte(index)
+			gk := U64U64ToByte(index, ts)
 			gv, err := d.encoder.Encode(values[i])
 			if err != nil {
 				return err
@@ -110,7 +112,7 @@ func (d *boltBucket) Get(offset uint64, length int, results interface{}) error {
 		gk, i, c := U64ToByte(offset), 0, b.Cursor()
 		for k, v := c.Seek(gk); k != nil && i < length; k, v = c.Next() {
 			val := reflect.New(tp)
-			err := d.encoder.Decode(v, val.Interface(), ByteToU64(k))
+			err := d.encoder.Decode(v, val.Interface(), ByteToU64(k[:8]))
 			if err != nil {
 				return err
 			}
@@ -136,10 +138,12 @@ func (d *boltBucket) Del(ids []uint64) error {
 		if b == nil {
 			return errors.New("bucket doesn't exist")
 		}
-		for _, v := range ids {
-			gk := U64ToByte(v)
-			if err := b.Delete(gk); err != nil {
-				return err
+		for _, id := range ids {
+			gk, c := U64ToByte(id), b.Cursor()
+			if k, _ := c.Seek(gk); k != nil {
+				if err := b.Delete(k); err != nil {
+					return err
+				}
 			}
 		}
 		return nil
@@ -148,8 +152,20 @@ func (d *boltBucket) Del(ids []uint64) error {
 
 // DelBefore delete expired messages from DB
 func (d *boltBucket) DelBefore(ts time.Time) error {
-	// TODO: cause boltDB not support ttl
-	return nil
+	return d.db.Update(func(tx *bolt.Tx) error {
+		b := tx.Bucket(d.name)
+		if b == nil {
+			return errors.New("bucket doesn't exist")
+		}
+		c := b.Cursor()
+		for k, _ := c.First(); k != nil && ByteToU64(k[8:]) < uint64(ts.Unix()); k, _ = c.Next() {
+			err := b.Delete(k)
+			if err != nil {
+				return err
+			}
+		}
+		return nil
+	})
 }
 
 // * kv
