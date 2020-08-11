@@ -133,26 +133,42 @@ func (d *boltBucket) Get(offset uint64, length int, results interface{}) error {
 
 // Del deletes values by IDs from DB
 func (d *boltBucket) Del(ids []uint64) error {
-	// TODO: should pass max id is ok
 	return d.db.Update(func(tx *bolt.Tx) error {
 		b := tx.Bucket(d.name)
 		if b == nil {
 			return errors.New("bucket doesn't exist")
 		}
-		for _, id := range ids {
-			gk, c := U64ToByte(id), b.Cursor()
-			if k, _ := c.Seek(gk); k != nil {
-				if err := b.Delete(k); err != nil {
-					return err
-				}
+		for _, v := range ids {
+			gk := U64ToByte(v)
+			if err := b.Delete(gk); err != nil {
+				return err
 			}
 		}
 		return nil
 	})
 }
 
-// DelBefore delete expired messages from DB
-func (d *boltBucket) DelBefore(ts time.Time) error {
+// DelBeforeID deletes values whose key is not greater than the given id from DB
+func (d *boltBucket) DelBeforeID(id uint64) error {
+	return d.db.Update(func(tx *bolt.Tx) error {
+		b := tx.Bucket(d.name)
+		if b == nil {
+			return errors.New("bucket doesn't exist")
+		}
+
+		gk, c := U64ToByte(id), b.Cursor()
+		for k, _ := c.Seek(gk); k != nil; k, _ = c.Prev() {
+			err := b.Delete(k)
+			if err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+}
+
+// DelBeforeTS deletes expired messages from DB
+func (d *boltBucket) DelBeforeTS(ts time.Time) error {
 	return d.db.Update(func(tx *bolt.Tx) error {
 		b := tx.Bucket(d.name)
 		if b == nil {
