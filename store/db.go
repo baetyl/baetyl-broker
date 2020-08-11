@@ -31,7 +31,8 @@ type Bucket interface {
 	Put([]interface{}) error
 	Get(offset uint64, length int, results interface{}) error
 	Del([]uint64) error
-	DelBefore(time.Time) error
+	DelBeforeID(uint64) error
+	DelBeforeTS(time.Time) error
 
 	SetKV(k string, v interface{}) error
 	GetKV(k string, result interface{}) error
