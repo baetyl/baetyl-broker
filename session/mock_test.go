@@ -56,6 +56,15 @@ principals:
   - action: sub
     permit: [test, talks, '$baidu/iot', '$link/data']
 `
+	testCleanExpiredMags = `
+session:
+  resendInterval: 100s
+  maxInflightQOS1Messages: 1
+  persistence:
+    queue:
+      expireTime: 2s
+      cleanInterval: 1s
+`
 )
 
 type mockBroker struct {
