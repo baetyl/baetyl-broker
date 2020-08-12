@@ -30,7 +30,6 @@ type DB interface {
 type Bucket interface {
 	Put([]interface{}) error
 	Get(offset uint64, length int, results interface{}) error
-	Del([]uint64) error
 	DelBeforeID(uint64) error
 	DelBeforeTS(time.Time) error
 
