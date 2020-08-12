@@ -131,24 +131,7 @@ func (d *boltBucket) Get(offset uint64, length int, results interface{}) error {
 	})
 }
 
-// Del deletes values by IDs from DB
-func (d *boltBucket) Del(ids []uint64) error {
-	return d.db.Update(func(tx *bolt.Tx) error {
-		b := tx.Bucket(d.name)
-		if b == nil {
-			return errors.New("bucket doesn't exist")
-		}
-		for _, v := range ids {
-			gk := U64ToByte(v)
-			if err := b.Delete(gk); err != nil {
-				return err
-			}
-		}
-		return nil
-	})
-}
-
-// DelBeforeID deletes values whose key is not greater than the given id from DB
+// DelBeforeID deletes values whose keys are not greater than the given id from DB
 func (d *boltBucket) DelBeforeID(id uint64) error {
 	return d.db.Update(func(tx *bolt.Tx) error {
 		b := tx.Bucket(d.name)

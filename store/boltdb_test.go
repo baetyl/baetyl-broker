@@ -102,7 +102,7 @@ func TestDatabaseBoltDB(t *testing.T) {
 		assert.Equal(t, *valuesp[1], obj2)
 		assert.Equal(t, *valuesp[2], obj3)
 
-		err = bucket.Del([]uint64{1, 2})
+		err = bucket.DelBeforeID(uint64(2))
 		assert.NoError(t, err)
 
 		var values2 []mockStruct
@@ -169,11 +169,7 @@ func TestDatabaseBoltDBLarge(t *testing.T) {
 			assert.Equal(t, values[i], iis[i])
 		}
 
-		var nums []uint64
-		for i := 1; i < count; i++ {
-			nums = append(nums, uint64(i))
-		}
-		err = bucket.Del(nums)
+		err = bucket.DelBeforeID(uint64(count-1))
 		assert.NoError(t, err)
 
 		var values2 []mockStruct
@@ -208,11 +204,7 @@ func TestDatabaseBoltDBLarge(t *testing.T) {
 			assert.Equal(t, values4[i], iis2[i])
 		}
 
-		var nums2 []uint64
-		for i := 10000; i < count; i++ {
-			nums2 = append(nums2, uint64(i))
-		}
-		err = bucket.Del(nums2)
+		err = bucket.DelBeforeID(uint64(count-1))
 		assert.NoError(t, err)
 
 		var values5 []mockStruct
@@ -460,7 +452,7 @@ func BenchmarkDatabaseBoltDB(b *testing.B) {
 	})
 	b.Run("Del", func(b *testing.B) {
 		for i := 0; i < b.N; i++ {
-			bucket.Del([]uint64{uint64(i)})
+			bucket.DelBeforeID(uint64(i))
 		}
 	})
 }

@@ -242,11 +242,12 @@ func (q *Persistence) delete(buf []uint64) []uint64 {
 		return buf
 	}
 
-	defer utils.Trace(q.log.Debug, "queue has deleted message from backend", log.Any("count", len(buf)))()
+	id := buf[len(buf)-1]
+	defer utils.Trace(q.log.Debug, "queue has deleted message from backend", log.Any("count", len(buf)), log.Any("id", id))
 
-	err := q.bucket.Del(buf)
+	err := q.bucket.DelBeforeID(id)
 	if err != nil {
-		q.log.Error("failed to delete messages from backend database", log.Any("count", len(buf)), log.Error(err))
+		q.log.Error("failed to delete messages from backend database", log.Any("count", len(buf)), log.Any("id", id), log.Error(err))
 	}
 	return []uint64{}
 }
@@ -254,7 +255,7 @@ func (q *Persistence) delete(buf []uint64) []uint64 {
 // clean expired messages
 func (q *Persistence) clean() {
 	defer utils.Trace(q.log.Debug, "queue has cleaned expired messages from backend")
-	err := q.bucket.DelBefore(time.Now().Add(-q.cfg.ExpireTime))
+	err := q.bucket.DelBeforeTS(time.Now().Add(-q.cfg.ExpireTime))
 	if err != nil {
 		q.log.Error("failed to clean expired messages from backend", log.Error(err))
 	}
