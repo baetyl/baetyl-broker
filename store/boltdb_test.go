@@ -6,6 +6,7 @@ import (
 	"os"
 	"path"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 )
@@ -129,6 +130,107 @@ func TestDatabaseBoltDB(t *testing.T) {
 		err = bucket.Get(4, 10, &values6)
 		assert.NoError(t, err)
 		assert.Len(t, values6, 0)
+
+		bucket.Close(true)
+	}
+}
+
+func TestDatabaseBoltDBDelBeforeTs(t *testing.T) {
+	dir, err := ioutil.TempDir("", t.Name())
+	assert.NoError(t, err)
+	defer os.RemoveAll(dir)
+
+	db, err := New(Conf{Driver: "boltdb", Source: path.Join(dir, t.Name())})
+	defer db.Close()
+	assert.NoError(t, err)
+	assert.NotNil(t, db)
+
+	encoders := []Encoder{new(mockEncoder), nil}
+	for _, encoder := range encoders {
+		bucket, err := db.NewBucket(t.Name(), encoder)
+		assert.NoError(t, err)
+		assert.NotNil(t, bucket)
+
+		obj1 := mockStruct{
+			ID:    1,
+			Dummy: "d1",
+			Obj1: mockStruct2{
+				Name: "baetyl11",
+				Age:  11,
+			},
+			Obj2: &mockStruct2{
+				Name: "baetyl12",
+				Age:  12,
+			},
+		}
+
+		obj2 := mockStruct{
+			ID:    2,
+			Dummy: "d2",
+			Obj1: mockStruct2{
+				Name: "baetyl22",
+				Age:  21,
+			},
+			Obj2: &mockStruct2{
+				Name: "baetyl22",
+				Age:  22,
+			},
+		}
+
+		obj3 := mockStruct{
+			ID:    3,
+			Dummy: "d3",
+			Obj1: mockStruct2{
+				Name: "baetyl33",
+				Age:  31,
+			},
+			Obj2: &mockStruct2{
+				Name: "baetyl32",
+				Age:  32,
+			},
+		}
+
+		err = bucket.Put([]interface{}{obj1, obj2, obj3})
+		assert.NoError(t, err)
+
+		var values []mockStruct
+		err = bucket.Get(1, 10, &values)
+		assert.NoError(t, err)
+		assert.Len(t, values, 3)
+		assert.Equal(t, values[0], obj1)
+		assert.Equal(t, values[1], obj2)
+		assert.Equal(t, values[2], obj3)
+
+		time.Sleep(2*time.Second)
+
+		err = bucket.DelBeforeTS(time.Now().Add(-time.Second))
+		assert.NoError(t, err)
+
+		var values2 []*mockStruct
+		err = bucket.Get(1, 10, &values2)
+		assert.NoError(t, err)
+		assert.Len(t, values2, 0)
+
+		err = bucket.Put([]interface{}{obj1, obj2, obj3})
+		assert.NoError(t, err)
+
+		var values3 []mockStruct
+		err = bucket.Get(1, 10, &values3)
+		assert.NoError(t, err)
+		assert.Len(t, values3, 3)
+		assert.Equal(t, values3[0], obj1)
+		assert.Equal(t, values3[1], obj2)
+		assert.Equal(t, values3[2], obj3)
+
+		time.Sleep(time.Second)
+
+		err = bucket.DelBeforeTS(time.Now().Add(-3 * time.Second))
+		assert.NoError(t, err)
+
+		var values4 []*mockStruct
+		err = bucket.Get(1, 10, &values4)
+		assert.NoError(t, err)
+		assert.Len(t, values4, 3)
 
 		bucket.Close(true)
 	}
