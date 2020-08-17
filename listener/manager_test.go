@@ -31,7 +31,7 @@ func newMockHandler(t *testing.T) *mockHandler {
 	}
 }
 
-func (m *mockHandler) Handle(conn mqtt.Connection) {
+func (m *mockHandler) Handle(conn mqtt.Connection, anonymous bool) {
 	if m.handle != nil {
 		m.handle(conn)
 	}

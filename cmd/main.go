@@ -5,6 +5,8 @@ import (
 	// _ "net/http/pprof"
 
 	"github.com/baetyl/baetyl-broker/broker"
+	"github.com/baetyl/baetyl-broker/common"
+	"github.com/baetyl/baetyl-broker/listener"
 	"github.com/baetyl/baetyl-go/v2/context"
 )
 
@@ -27,11 +29,23 @@ func main() {
 	// defer trace.Stop()
 
 	context.Run(func(ctx context.Context) error {
+		if err := ctx.CheckSystemCert(); err != nil {
+			return err
+		}
+
 		var cfg broker.Config
 		err := ctx.LoadCustomConfig(&cfg)
 		if err != nil {
 			return err
 		}
+
+		cert := ctx.SystemConfig().Certificate
+		cfg.Listeners = append(cfg.Listeners, listener.Listener{
+			Address:     common.DefaultMqttAddress,
+			Anonymous:   true,
+			Certificate: cert,
+		})
+
 		b, err := broker.NewBroker(cfg)
 		if err != nil {
 			return err

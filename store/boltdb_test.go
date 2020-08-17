@@ -201,7 +201,7 @@ func TestDatabaseBoltDBDelBeforeTs(t *testing.T) {
 		assert.Equal(t, values[1], obj2)
 		assert.Equal(t, values[2], obj3)
 
-		time.Sleep(2*time.Second)
+		time.Sleep(2 * time.Second)
 
 		err = bucket.DelBeforeTS(time.Now().Add(-time.Second))
 		assert.NoError(t, err)
@@ -271,7 +271,7 @@ func TestDatabaseBoltDBLarge(t *testing.T) {
 			assert.Equal(t, values[i], iis[i])
 		}
 
-		err = bucket.DelBeforeID(uint64(count-1))
+		err = bucket.DelBeforeID(uint64(count - 1))
 		assert.NoError(t, err)
 
 		var values2 []mockStruct
@@ -306,7 +306,7 @@ func TestDatabaseBoltDBLarge(t *testing.T) {
 			assert.Equal(t, values4[i], iis2[i])
 		}
 
-		err = bucket.DelBeforeID(uint64(count-1))
+		err = bucket.DelBeforeID(uint64(count - 1))
 		assert.NoError(t, err)
 
 		var values5 []mockStruct
