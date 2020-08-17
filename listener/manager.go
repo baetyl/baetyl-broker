@@ -20,12 +20,13 @@ type Listener struct {
 	Address              string     `yaml:"address" json:"address"`
 	MaxMessageSize       utils.Size `yaml:"maxMessageSize" json:"maxMessageSize"`
 	MaxConcurrentStreams uint32     `yaml:"maxConcurrentStreams" json:"maxConcurrentStreams"`
+	Anonymous            bool       `yaml:"anonymous" json:"anonymous"`
 	utils.Certificate    `yaml:",inline" json:",inline"`
 }
 
 // Handler listener handler
 type Handler interface {
-	Handle(mqtt.Connection)
+	Handle(conn mqtt.Connection, anonymous bool)
 }
 
 // Manager listener manager
@@ -57,7 +58,7 @@ func NewManager(cfg []Listener, handler Handler) (*Manager, error) {
 			}
 		}
 
-		svr, err := m.launchMQTTServer(c.Address, tlsconfig, handler)
+		svr, err := m.launchMQTTServer(c.Address, tlsconfig, c.Anonymous, handler)
 		if err != nil {
 			m.Close()
 			return nil, err
@@ -68,7 +69,7 @@ func NewManager(cfg []Listener, handler Handler) (*Manager, error) {
 	return m, nil
 }
 
-func (m *Manager) launchMQTTServer(address string, tlsconfig *tls.Config, handler Handler) (mqtt.Server, error) {
+func (m *Manager) launchMQTTServer(address string, tlsconfig *tls.Config, anonymous bool, handler Handler) (mqtt.Server, error) {
 	svr, err := mqtt.NewLauncher(tlsconfig).Launch(address)
 	if err != nil {
 		return nil, err
@@ -84,7 +85,7 @@ func (m *Manager) launchMQTTServer(address string, tlsconfig *tls.Config, handle
 				}
 				return
 			}
-			handler.Handle(conn)
+			handler.Handle(conn, anonymous)
 		}
 	}()
 	return svr, nil

@@ -14,14 +14,34 @@ principals:
     password: hahaha
     permissions:
       - action: pub
-        permit: ["test", "#"]
+        permit: ["test"]
       - action: sub
-        permit: ["test", "#"]
+        permit: ["test"]
   - username: client.example.org
     permissions:
       - action: pub
-        permit: ["test", "#"]
+        permit: ["#"]
       - action: sub
-        permit: ["test", "#"]
+        permit: ["#"]
 session:
+  maxClients: 0
+  maxMessagePayloadSize: 32768
+  maxInflightQOS0Messages: 100
+  maxInflightQOS1Messages: 20
+  resendInterval: 20s
+  persistence:
+    store:
+      driver: boltdb
+      source: var/lib/baetyl/broker.db
+    queue:
+      batchSize: 10
+      expireTime: 24h
+      cleanInterval: 1h
+      writeTimeout: 100ms
+      deleteTimeout: 500ms
   sysTopics: ["$link", "$baidu"]
+
+logger:
+  level: info
+
+

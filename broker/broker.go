@@ -1,7 +1,6 @@
 package broker
 
 import (
-	"github.com/baetyl/baetyl-broker/common"
 	"github.com/baetyl/baetyl-broker/listener"
 	"github.com/baetyl/baetyl-broker/session"
 	"github.com/baetyl/baetyl-go/v2/log"
@@ -32,10 +31,7 @@ func NewBroker(cfg Config) (*Broker, error) {
 	if err != nil {
 		return nil, err
 	}
-	if len(cfg.Listeners) == 0 {
-		// if no address configured, to use default address
-		cfg.Listeners = append(cfg.Listeners, listener.Listener{Address: common.DefaultMqttAddress})
-	}
+
 	b.lis, err = listener.NewManager(cfg.Listeners, b.ses)
 	if err != nil {
 		b.Close()

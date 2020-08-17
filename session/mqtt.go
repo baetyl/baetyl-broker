@@ -16,16 +16,17 @@ import (
 
 // Client the client of MQTT
 type Client struct {
-	id       string
-	interval time.Duration
-	manager  *Manager
-	session  *Session
-	auth     *Authorizer
-	conn     mqtt.Connection
-	log      *log.Logger
-	tomb     utils.Tomb
-	mut      sync.Mutex
-	once     sync.Once
+	id        string
+	interval  time.Duration
+	anonymous bool
+	manager   *Manager
+	session   *Session
+	auth      *Authorizer
+	conn      mqtt.Connection
+	log       *log.Logger
+	tomb      utils.Tomb
+	mut       sync.Mutex
+	once      sync.Once
 
 	wrap func(*common.Event) *eventWrapper
 }
@@ -33,14 +34,15 @@ type Client struct {
 // * connection handlers
 
 // Handle the connection handler to create a new MQTT client
-func (m *Manager) Handle(conn mqtt.Connection) {
+func (m *Manager) Handle(conn mqtt.Connection, anonymous bool) {
 	id := strings.ReplaceAll(uuid.Generate().String(), "-", "")
 	c := &Client{
-		id:       id,
-		interval: m.cfg.ResendInterval,
-		manager:  m,
-		conn:     conn,
-		log:      log.With(log.Any("type", "mqtt"), log.Any("id", id)),
+		id:        id,
+		interval:  m.cfg.ResendInterval,
+		manager:   m,
+		conn:      conn,
+		anonymous: anonymous,
+		log:       log.With(log.Any("type", "mqtt"), log.Any("id", id)),
 	}
 
 	max := m.cfg.MaxClients
@@ -258,7 +260,7 @@ func (c *Client) onConnect(p *mqtt.Connect) error {
 		return ErrSessionClientIDInvalid
 	}
 
-	if c.manager.auth != nil {
+	if !c.anonymous && c.manager.auth != nil {
 		if p.Password != "" {
 			// username/password authentication
 			if p.Username == "" {
