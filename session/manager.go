@@ -4,8 +4,8 @@ import (
 	"errors"
 	"sync/atomic"
 
-	"github.com/baetyl/baetyl-broker/exchange"
-	"github.com/baetyl/baetyl-broker/store"
+	"github.com/baetyl/baetyl-broker/v2/exchange"
+	"github.com/baetyl/baetyl-broker/v2/store"
 	"github.com/baetyl/baetyl-go/v2/log"
 	"github.com/baetyl/baetyl-go/v2/mqtt"
 )

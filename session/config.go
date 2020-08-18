@@ -3,8 +3,8 @@ package session
 import (
 	"time"
 
-	"github.com/baetyl/baetyl-broker/queue"
-	"github.com/baetyl/baetyl-broker/store"
+	"github.com/baetyl/baetyl-broker/v2/queue"
+	"github.com/baetyl/baetyl-broker/v2/store"
 	"github.com/baetyl/baetyl-go/v2/utils"
 )
 

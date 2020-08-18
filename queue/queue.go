@@ -3,7 +3,7 @@ package queue
 import (
 	"errors"
 
-	"github.com/baetyl/baetyl-broker/common"
+	"github.com/baetyl/baetyl-broker/v2/common"
 )
 
 // ErrQueueClosed queue is closed
