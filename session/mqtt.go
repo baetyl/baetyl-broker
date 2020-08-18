@@ -313,13 +313,14 @@ func (c *Client) onConnect(p *mqtt.Connect) error {
 		return newEventWrapper(uint64(s.cnt.NextID()), 1, m)
 	}
 
-	c.tomb.Go(c.sending, c.resending)
-
 	err = c.sendConnack(mqtt.ConnectionAccepted, exists)
 	if err != nil {
 		return err
 	}
 	c.log.Info("client is connected")
+
+	c.tomb.Go(c.sending, c.resending)
+
 	return nil
 }
 
