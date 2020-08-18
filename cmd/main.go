@@ -5,7 +5,6 @@ import (
 	// _ "net/http/pprof"
 
 	"github.com/baetyl/baetyl-broker/v2/broker"
-	"github.com/baetyl/baetyl-broker/v2/common"
 	"github.com/baetyl/baetyl-broker/v2/listener"
 	"github.com/baetyl/baetyl-go/v2/context"
 )
@@ -41,8 +40,7 @@ func main() {
 
 		cert := ctx.SystemConfig().Certificate
 		cfg.Listeners = append(cfg.Listeners, listener.Listener{
-			// TODO: read from env
-			Address:     common.DefaultMqttAddress,
+			Address:     "ssl://0.0.0.0:" + ctx.BrokerPort(),
 			Anonymous:   true,
 			Certificate: cert,
 		})
