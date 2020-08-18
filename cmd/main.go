@@ -41,6 +41,7 @@ func main() {
 
 		cert := ctx.SystemConfig().Certificate
 		cfg.Listeners = append(cfg.Listeners, listener.Listener{
+			// TODO: read from env
 			Address:     common.DefaultMqttAddress,
 			Anonymous:   true,
 			Certificate: cert,
