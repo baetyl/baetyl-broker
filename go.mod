@@ -1,4 +1,4 @@
-module github.com/baetyl/baetyl-broker
+module github.com/baetyl/baetyl-broker/v2
 
 go 1.13
 

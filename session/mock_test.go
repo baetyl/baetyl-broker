@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/baetyl/baetyl-broker/listener"
+	"github.com/baetyl/baetyl-broker/v2/listener"
 	"github.com/baetyl/baetyl-go/v2/log"
 	"github.com/baetyl/baetyl-go/v2/mqtt"
 	"github.com/baetyl/baetyl-go/v2/utils"

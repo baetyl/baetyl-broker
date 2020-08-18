@@ -3,7 +3,7 @@ package queue
 import (
 	"sync"
 
-	"github.com/baetyl/baetyl-broker/common"
+	"github.com/baetyl/baetyl-broker/v2/common"
 	"github.com/baetyl/baetyl-go/v2/log"
 )
 

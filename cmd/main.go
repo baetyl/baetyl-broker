@@ -4,9 +4,9 @@ import (
 	// "net/http"
 	// _ "net/http/pprof"
 
-	"github.com/baetyl/baetyl-broker/broker"
-	"github.com/baetyl/baetyl-broker/common"
-	"github.com/baetyl/baetyl-broker/listener"
+	"github.com/baetyl/baetyl-broker/v2/broker"
+	"github.com/baetyl/baetyl-broker/v2/common"
+	"github.com/baetyl/baetyl-broker/v2/listener"
 	"github.com/baetyl/baetyl-go/v2/context"
 )
 
