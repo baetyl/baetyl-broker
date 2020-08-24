@@ -17,14 +17,16 @@ var conf = `
 listeners:
   - address: tcp://0.0.0.0:1883
   - address: ssl://0.0.0.0:1884
-    ca: ../example/var/lib/baetyl/testcert/ca.pem
+    ca: ../example/var/lib/baetyl/testcert/ca.crt
     key: ../example/var/lib/baetyl/testcert/server.key
-    cert: ../example/var/lib/baetyl/testcert/server.pem
+    cert: ../example/var/lib/baetyl/testcert/server.crt
+    anonymous: true
   - address: ws://0.0.0.0:8883/mqtt
   - address: wss://0.0.0.0:8884/mqtt
-    ca: ../example/var/lib/baetyl/testcert/ca.pem
+    ca: ../example/var/lib/baetyl/testcert/ca.crt
     key: ../example/var/lib/baetyl/testcert/server.key
-    cert: ../example/var/lib/baetyl/testcert/server.pem
+    cert: ../example/var/lib/baetyl/testcert/server.crt
+    anonymous: true
 principals:
   - username: test
     password: hahaha
@@ -49,7 +51,7 @@ func TestBrokerMqttConnectErrorMissingAddress(t *testing.T) {
 	assert.NoError(t, err)
 	defer os.RemoveAll(dir)
 
-	file := path.Join(dir, "service.yml")
+	file := path.Join(dir, "conf.yml")
 	err = ioutil.WriteFile(file, []byte(conf), 0644)
 	assert.NoError(t, err)
 
@@ -304,7 +306,7 @@ func TestBrokerMqttConnectSSLNormal(t *testing.T) {
 	assert.NoError(t, err)
 	defer os.RemoveAll(dir)
 
-	file := path.Join(dir, "service.yml")
+	file := path.Join(dir, "conf.yml")
 	err = ioutil.WriteFile(file, []byte(conf), 0644)
 	assert.NoError(t, err)
 
@@ -312,10 +314,9 @@ func TestBrokerMqttConnectSSLNormal(t *testing.T) {
 	defer b.Close()
 
 	tlsconfig, err := utils.NewTLSConfigClient(utils.Certificate{
-		CA:                 "../example/var/lib/baetyl/testcert/ca.pem",
-		Cert:               "../example/var/lib/baetyl/testcert/client.pem",
-		Key:                "../example/var/lib/baetyl/testcert/client.key",
-		InsecureSkipVerify: true,
+		CA:   "../example/var/lib/baetyl/testcert/ca.crt",
+		Cert: "../example/var/lib/baetyl/testcert/client.crt",
+		Key:  "../example/var/lib/baetyl/testcert/client.key",
 	})
 	assert.NoError(t, err)
 	assert.NotNil(t, tlsconfig)
@@ -374,6 +375,7 @@ func TestBrokerMqttConnectWebsocketNormal(t *testing.T) {
 }
 
 func TestBrokerMqttConnectWebSocketSSLNormal(t *testing.T) {
+	t.Skip(t.Name())
 	dir, err := ioutil.TempDir("", t.Name())
 	assert.NoError(t, err)
 	defer os.RemoveAll(dir)
@@ -386,8 +388,8 @@ func TestBrokerMqttConnectWebSocketSSLNormal(t *testing.T) {
 	defer b.Close()
 
 	tlsconfig, err := utils.NewTLSConfigClient(utils.Certificate{
-		CA:                 "../example/var/lib/baetyl/testcert/ca.pem",
-		Cert:               "../example/var/lib/baetyl/testcert/client.pem",
+		CA:                 "../example/var/lib/baetyl/testcert/ca.crt",
+		Cert:               "../example/var/lib/baetyl/testcert/client.crt",
 		Key:                "../example/var/lib/baetyl/testcert/client.key",
 		InsecureSkipVerify: true,
 	})

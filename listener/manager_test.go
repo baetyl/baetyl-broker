@@ -88,7 +88,6 @@ func TestMqttTcpTls(t *testing.T) {
 		cn, isBidAuth := mqtt.GetTLSCommonName(conn)
 		assert.True(t, isBidAuth)
 		assert.NotNil(t, cn)
-		assert.Equal(t, "client.example.org", cn)
 		err = conn.Send(p, false)
 		assert.NoError(t, err)
 	}
@@ -97,9 +96,9 @@ func TestMqttTcpTls(t *testing.T) {
 		{
 			Address: "ssl://localhost:0",
 			Certificate: utils.Certificate{
-				CA:             "../example/var/lib/baetyl/testcert/ca.pem", // ca.pem is a certificate chain
+				CA:             "../example/var/lib/baetyl/testcert/ca.crt", // ca.pem is a certificate chain
 				Key:            "../example/var/lib/baetyl/testcert/server.key",
-				Cert:           "../example/var/lib/baetyl/testcert/server.pem",
+				Cert:           "../example/var/lib/baetyl/testcert/server.crt",
 				ClientAuthType: tls.ClientAuthType(4),
 			},
 		},
@@ -127,9 +126,9 @@ func TestMqttTcpTls(t *testing.T) {
 
 	// count: 2
 	tlscli, err := utils.NewTLSConfigClient(utils.Certificate{
-		CA:                 "../example/var/lib/baetyl/testcert/ca.pem", // ca.pem is a certificate chain
+		CA:                 "../example/var/lib/baetyl/testcert/ca.crt", // ca.pem is a certificate chain
 		Key:                "../example/var/lib/baetyl/testcert/client.key",
-		Cert:               "../example/var/lib/baetyl/testcert/client.pem",
+		Cert:               "../example/var/lib/baetyl/testcert/client.crt",
 		InsecureSkipVerify: true,
 	})
 	assert.NoError(t, err)
@@ -155,9 +154,9 @@ func TestMqttTcpTlsDebug(t *testing.T) {
 	pkt.Username = ""
 
 	tlscli, err := utils.NewTLSConfigClient(utils.Certificate{
-		CA:                 "../example/var/lib/baetyl/testcert/ca.pem", // ca.pem is a certificate chain
+		CA:                 "../example/var/lib/baetyl/testcert/ca.crt", // ca.pem is a certificate chain
 		Key:                "../example/var/lib/baetyl/testcert/client.key",
-		Cert:               "../example/var/lib/baetyl/testcert/client.pem",
+		Cert:               "../example/var/lib/baetyl/testcert/client.crt",
 		InsecureSkipVerify: true,
 	})
 	assert.NoError(t, err)
@@ -227,7 +226,6 @@ func TestMqttWebSocketTls(t *testing.T) {
 		cn, isBidAuth := mqtt.GetTLSCommonName(conn)
 		assert.True(t, isBidAuth)
 		assert.NotNil(t, cn)
-		assert.Equal(t, "client.example.org", cn)
 		err = conn.Send(p, false)
 		assert.NoError(t, err)
 	}
@@ -235,9 +233,9 @@ func TestMqttWebSocketTls(t *testing.T) {
 		{
 			Address: "wss://localhost:0/mqtt",
 			Certificate: utils.Certificate{
-				CA:   "../example/var/lib/baetyl/testcert/ca.pem", // ca.pem is a certificate chain
+				CA:   "../example/var/lib/baetyl/testcert/ca.crt", // ca.pem is a certificate chain
 				Key:  "../example/var/lib/baetyl/testcert/server.key",
-				Cert: "../example/var/lib/baetyl/testcert/server.pem",
+				Cert: "../example/var/lib/baetyl/testcert/server.crt",
 			},
 		},
 	}
@@ -264,9 +262,9 @@ func TestMqttWebSocketTls(t *testing.T) {
 
 	// count: 2
 	ctc, err := utils.NewTLSConfigClient(utils.Certificate{
-		CA:                 "../example/var/lib/baetyl/testcert/ca.pem", // ca.pem is a certificate chain
+		CA:                 "../example/var/lib/baetyl/testcert/ca.crt", // ca.pem is a certificate chain
 		Key:                "../example/var/lib/baetyl/testcert/client.key",
-		Cert:               "../example/var/lib/baetyl/testcert/client.pem",
+		Cert:               "../example/var/lib/baetyl/testcert/client.crt",
 		InsecureSkipVerify: true,
 	})
 	assert.NoError(t, err)
