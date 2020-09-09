@@ -1,14 +1,14 @@
 listeners:
   - address: tcp://0.0.0.0:1883
   - address: ssl://0.0.0.0:1884
-    ca: example/var/lib/baetyl/testcert/ca.pem
+    ca: example/var/lib/baetyl/testcert/ca.crt
     key: example/var/lib/baetyl/testcert/server.key
-    cert: example/var/lib/baetyl/testcert/server.pem
+    cert: example/var/lib/baetyl/testcert/server.crt
   - address: ws://0.0.0.0:8883/mqtt
   - address: wss://0.0.0.0:8884/mqtt
-    ca: example/var/lib/baetyl/testcert/ca.pem
+    ca: example/var/lib/baetyl/testcert/ca.crt
     key: example/var/lib/baetyl/testcert/server.key
-    cert: example/var/lib/baetyl/testcert/server.pem
+    cert: example/var/lib/baetyl/testcert/server.crt
 principals:
   - username: test
     password: hahaha
@@ -17,7 +17,7 @@ principals:
         permit: ["test"]
       - action: sub
         permit: ["test"]
-  - username: client.example.org
+  - username: client
     permissions:
       - action: pub
         permit: ["#"]
