@@ -4,11 +4,13 @@ listeners:
     ca: example/var/lib/baetyl/testcert/ca.crt
     key: example/var/lib/baetyl/testcert/server.key
     cert: example/var/lib/baetyl/testcert/server.crt
+    anonymous: true
   - address: ws://0.0.0.0:8883/mqtt
   - address: wss://0.0.0.0:8884/mqtt
     ca: example/var/lib/baetyl/testcert/ca.crt
     key: example/var/lib/baetyl/testcert/server.key
     cert: example/var/lib/baetyl/testcert/server.crt
+    anonymous: false
 principals:
   - username: test
     password: hahaha
@@ -43,5 +45,3 @@ session:
 
 logger:
   level: info
-
-
