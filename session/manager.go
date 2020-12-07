@@ -1,13 +1,17 @@
 package session
 
 import (
-	"errors"
+	"encoding/json"
 	"sync/atomic"
+
+	"github.com/baetyl/baetyl-go/v2/errors"
+	"github.com/baetyl/baetyl-go/v2/log"
+	"github.com/baetyl/baetyl-go/v2/mqtt"
 
 	"github.com/baetyl/baetyl-broker/v2/exchange"
 	"github.com/baetyl/baetyl-broker/v2/store"
-	"github.com/baetyl/baetyl-go/v2/log"
-	"github.com/baetyl/baetyl-go/v2/mqtt"
+
+	"github.com/gogo/protobuf/proto"
 )
 
 // all errors
@@ -45,8 +49,8 @@ type Manager struct {
 	checker       *mqtt.TopicChecker
 	exch          *exchange.Exchange
 	auth          *Authenticator
-	sessionBucket store.Bucket
-	retainBucket  store.Bucket
+	sessionBucket store.KVBucket
+	retainBucket  store.KVBucket
 	log           *log.Logger
 	quit          int32 // if quit != 0, it means manager is closed
 }
@@ -66,23 +70,34 @@ func NewManager(cfg Config) (m *Manager, err error) {
 	if err != nil {
 		return nil, err
 	}
-	m.sessionBucket, err = m.store.NewBucket("#session", nil)
+	m.sessionBucket, err = m.store.NewKVBucket("#session")
 	if err != nil {
 		m.Close()
 		return
 	}
-	m.retainBucket, err = m.store.NewBucket("#retain", nil)
+	m.retainBucket, err = m.store.NewKVBucket("#retain")
 	if err != nil {
 		m.Close()
 		return
 	}
 	var ss []Info
 	// load stored sessions from backend database
-	err = m.sessionBucket.ListKV(&ss)
+	err = m.sessionBucket.ListKV(func(data []byte) error {
+		if len(data) == 0 {
+			return store.ErrDataNotFound
+		}
+		v := Info{}
+		if err := json.Unmarshal(data, &v); err != nil {
+			return err
+		}
+		ss = append(ss, v)
+		return nil
+	})
 	if err != nil {
 		m.Close()
 		return
 	}
+
 	for _, si := range ss {
 		m.checkSubscriptions(&si)
 
@@ -205,14 +220,6 @@ func (m *Manager) Close() error {
 		c.(*Client).close()
 	}
 
-	if m.sessionBucket != nil {
-		m.sessionBucket.Close(false)
-	}
-
-	if m.retainBucket != nil {
-		m.retainBucket.Close(false)
-	}
-
 	if m.store != nil {
 		m.store.Close()
 	}
@@ -223,7 +230,17 @@ func (m *Manager) Close() error {
 
 func (m *Manager) listRetainedMessages() ([]*mqtt.Message, error) {
 	msgs := make([]*mqtt.Message, 0)
-	err := m.retainBucket.ListKV(&msgs)
+	err := m.retainBucket.ListKV(func(data []byte) error {
+		if len(data) == 0 {
+			return store.ErrDataNotFound
+		}
+		v := new(mqtt.Message)
+		if err := proto.Unmarshal(data, v); err != nil {
+			return err
+		}
+		msgs = append(msgs, v)
+		return nil
+	})
 	if err != nil {
 		return nil, err
 	}
@@ -231,9 +248,13 @@ func (m *Manager) listRetainedMessages() ([]*mqtt.Message, error) {
 }
 
 func (m *Manager) retainMessage(msg *mqtt.Message) error {
-	return m.retainBucket.SetKV(msg.Context.Topic, msg)
+	data, err := proto.Marshal(msg)
+	if err != nil {
+		return errors.Trace(err)
+	}
+	return m.retainBucket.SetKV([]byte(msg.Context.Topic), data)
 }
 
 func (m *Manager) unretainMessage(topic string) error {
-	return m.retainBucket.DelKV(topic)
+	return m.retainBucket.DelKV([]byte(topic))
 }

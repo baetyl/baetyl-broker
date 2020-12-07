@@ -4,10 +4,11 @@ import (
 	"encoding/json"
 	"sync"
 
-	"github.com/baetyl/baetyl-broker/v2/common"
-	"github.com/baetyl/baetyl-broker/v2/queue"
 	"github.com/baetyl/baetyl-go/v2/log"
 	"github.com/baetyl/baetyl-go/v2/mqtt"
+
+	"github.com/baetyl/baetyl-broker/v2/common"
+	"github.com/baetyl/baetyl-broker/v2/queue"
 )
 
 // Info session information
@@ -55,7 +56,7 @@ func newSession(i Info, m *Manager) (*Session, error) {
 	qc := m.cfg.Persistence.Queue
 	qc.Name = i.ID
 	qc.BatchSize = m.cfg.MaxInflightQOS1Messages
-	qbk, err := m.store.NewBucket(qc.Name, new(queue.Encoder))
+	qbk, err := m.store.NewBatchBucket(qc.Name)
 	if err != nil {
 		s.log.Error("failed to create qos1 bucket", log.Error(err))
 		return nil, err
@@ -210,14 +211,19 @@ func (s *Session) acknowledge(id uint64) {
 
 func (s *Session) persistent() {
 	if s.info.CleanSession {
-		err := s.manager.sessionBucket.DelKV(s.info.ID)
+		err := s.manager.sessionBucket.DelKV([]byte(s.info.ID))
 		if err != nil {
 			s.log.Error("failed to delete session", log.Error(err))
 		}
 		return
 	}
 
-	err := s.manager.sessionBucket.SetKV(s.info.ID, &s.info)
+	data, err := json.Marshal(s.info)
+	if err != nil {
+		s.log.Error("failed to marshal session info", log.Error(err))
+		return
+	}
+	err = s.manager.sessionBucket.SetKV([]byte(s.info.ID), data)
 	if err != nil {
 		s.log.Error("failed to persist session", log.Error(err))
 	}

@@ -65,7 +65,7 @@ func TestSessionMqttConnect(t *testing.T) {
 	c.sendC2S(&mqtt.Connect{ClientID: t.Name(), CleanSession: true, Version: 3})
 	c.assertS2CPacket("<Connack SessionPresent=true ReturnCode=0>")
 	b.waitClientReady(t.Name(), false)
-	b.assertSessionStore(t.Name(), "", errors.New("No data found for this key"))
+	b.assertSessionStore(t.Name(), "", errors.New("pebble: not found"))
 	b.assertSessionCount(1)
 
 	fmt.Println("--> fourth connect end: cleansession=true <---")
@@ -73,7 +73,7 @@ func TestSessionMqttConnect(t *testing.T) {
 	c.sendC2S(&mqtt.Disconnect{})
 	c.assertS2CPacketTimeout()
 	c.assertClosed(true)
-	b.assertSessionStore(t.Name(), "", errors.New("No data found for this key"))
+	b.assertSessionStore(t.Name(), "", errors.New("pebble: not found"))
 	b.assertSessionCount(0)
 
 	fmt.Println("--> fourth send disconnect end: cleansession=true <---")
@@ -281,7 +281,7 @@ func TestSessionMqttConnectException(t *testing.T) {
 	c.assertClosed(true)
 
 	b.assertSessionCount(0)
-	b.assertSessionStore(t.Name(), "", errors.New("No data found for this key"))
+	b.assertSessionStore(t.Name(), "", errors.New("pebble: not found"))
 }
 
 func TestSessionMqttMaxClients(t *testing.T) {
@@ -314,7 +314,7 @@ func TestSessionMqttMaxClients(t *testing.T) {
 	// c2 sends connect with cleansession=true
 	c2.sendC2S(&mqtt.Connect{ClientID: "c2", CleanSession: true, Username: "u1", Password: "p1", Version: 3})
 	c2.assertS2CPacket("<Connack SessionPresent=false ReturnCode=0>")
-	b.assertSessionStore("c2", "", errors.New("No data found for this key"))
+	b.assertSessionStore("c2", "", errors.New("pebble: not found"))
 	b.assertSessionCount(2)
 	b.assertClientCount(1)
 
@@ -325,7 +325,7 @@ func TestSessionMqttMaxClients(t *testing.T) {
 	// c3 sends connect with cleansession=true
 	c3.sendC2S(&mqtt.Connect{ClientID: "c3", CleanSession: true, Username: "u1", Password: "p1", Version: 3})
 	c3.assertS2CPacket("<Connack SessionPresent=false ReturnCode=0>")
-	b.assertSessionStore("c3", "", errors.New("No data found for this key"))
+	b.assertSessionStore("c3", "", errors.New("pebble: not found"))
 	b.assertSessionCount(3)
 	b.assertClientCount(2)
 
@@ -336,7 +336,7 @@ func TestSessionMqttMaxClients(t *testing.T) {
 	// c4 sends connect with cleansession=true
 	c4.sendC2S(&mqtt.Connect{ClientID: "c4", CleanSession: true, Username: "u1", Password: "p1", Version: 3})
 	c4.assertS2CPacket("<Connack SessionPresent=false ReturnCode=0>")
-	b.assertSessionStore("c4", "", errors.New("No data found for this key"))
+	b.assertSessionStore("c4", "", errors.New("pebble: not found"))
 	b.assertSessionCount(4)
 	b.assertClientCount(3)
 
@@ -357,7 +357,7 @@ func TestSessionMqttMaxClients(t *testing.T) {
 	// c5 sends connect with cleansession=true
 	c5.sendC2S(&mqtt.Connect{ClientID: "c5", CleanSession: true, Username: "u1", Password: "p1", Version: 3})
 	c5.assertS2CPacket("<Connack SessionPresent=false ReturnCode=0>")
-	b.assertSessionStore("c5", "", errors.New("No data found for this key"))
+	b.assertSessionStore("c5", "", errors.New("pebble: not found"))
 	b.assertSessionCount(4)
 }
 
@@ -596,7 +596,7 @@ func TestSessionMqttCleanSession(t *testing.T) {
 	b.manager.Handle(sub, false)
 	sub.sendC2S(&mqtt.Connect{ClientID: "sub", CleanSession: true, Version: 3})
 	sub.assertS2CPacket("<Connack SessionPresent=true ReturnCode=0>")
-	b.assertSessionStore("sub", "", errors.New("No data found for this key"))
+	b.assertSessionStore("sub", "", errors.New("pebble: not found"))
 	b.assertExchangeCount(1)
 
 	pub.sendC2S(pktpub0)
@@ -608,7 +608,7 @@ func TestSessionMqttCleanSession(t *testing.T) {
 	sub.sendC2S(&mqtt.Disconnect{})
 	sub.assertS2CPacketTimeout()
 	sub.assertClosed(true)
-	b.assertSessionStore("sub", "", errors.New("No data found for this key"))
+	b.assertSessionStore("sub", "", errors.New("pebble: not found"))
 	b.assertExchangeCount(0)
 
 	fmt.Println("--> clean session from true to true <--")
@@ -617,7 +617,7 @@ func TestSessionMqttCleanSession(t *testing.T) {
 	b.manager.Handle(sub, false)
 	sub.sendC2S(&mqtt.Connect{ClientID: "sub", CleanSession: true, Version: 3})
 	sub.assertS2CPacket("<Connack SessionPresent=false ReturnCode=0>")
-	b.assertSessionStore("sub", "", errors.New("No data found for this key"))
+	b.assertSessionStore("sub", "", errors.New("pebble: not found"))
 	b.assertExchangeCount(0)
 
 	pub.sendC2S(pktpub0)
@@ -627,7 +627,7 @@ func TestSessionMqttCleanSession(t *testing.T) {
 
 	sub.sendC2S(&mqtt.Subscribe{ID: 1, Subscriptions: []mqtt.Subscription{{Topic: "test", QOS: 1}}})
 	sub.assertS2CPacket("<Suback ID=1 ReturnCodes=[1]>")
-	b.assertSessionStore("sub", "", errors.New("No data found for this key"))
+	b.assertSessionStore("sub", "", errors.New("pebble: not found"))
 	b.assertExchangeCount(1)
 
 	pub.sendC2S(pktpub0)
@@ -746,19 +746,19 @@ func TestSessionMqttAllStates(t *testing.T) {
 	b.manager.Handle(c, false)
 	c.sendC2S(&mqtt.Connect{ClientID: t.Name(), CleanSession: true, Version: 3})
 	c.assertS2CPacket("<Connack SessionPresent=true ReturnCode=0>")
-	b.assertSessionStore(t.Name(), "", errors.New("No data found for this key"))
+	b.assertSessionStore(t.Name(), "", errors.New("pebble: not found"))
 	b.assertExchangeCount(1)
 
 	// [cleansession=true] c unsubscribes, session is removed
 	c.sendC2S(&mqtt.Unsubscribe{ID: 4, Topics: []string{"test"}})
 	c.assertS2CPacket("<Unsuback ID=4>")
-	b.assertSessionStore(t.Name(), "", errors.New("No data found for this key"))
+	b.assertSessionStore(t.Name(), "", errors.New("pebble: not found"))
 	b.assertExchangeCount(0)
 
 	// [cleansession=true] c subscribes again, session is in state1
 	c.sendC2S(&mqtt.Subscribe{ID: 5, Subscriptions: []mqtt.Subscription{{Topic: "test", QOS: 1}}})
 	c.assertS2CPacket("<Suback ID=5 ReturnCodes=[1]>")
-	b.assertSessionStore(t.Name(), "", errors.New("No data found for this key"))
+	b.assertSessionStore(t.Name(), "", errors.New("pebble: not found"))
 	b.assertExchangeCount(1)
 
 	// broker closes unexpected, session queue date is deleted
@@ -767,7 +767,7 @@ func TestSessionMqttAllStates(t *testing.T) {
 	// broker start, connect send disconnect packet, queue data will be deleted when cleanSession is true
 	b = newMockBroker(t, testConfDefault)
 	defer b.closeAndClean()
-	b.assertSessionStore(t.Name(), "", errors.New("No data found for this key"))
+	b.assertSessionStore(t.Name(), "", errors.New("pebble: not found"))
 	b.assertExchangeCount(0)
 
 	// [cleansession=true] c connects again, session is in state1
@@ -775,20 +775,20 @@ func TestSessionMqttAllStates(t *testing.T) {
 	b.manager.Handle(c, false)
 	c.sendC2S(&mqtt.Connect{ClientID: t.Name(), CleanSession: true, Version: 3})
 	c.assertS2CPacket("<Connack SessionPresent=false ReturnCode=0>")
-	b.assertSessionStore(t.Name(), "", errors.New("No data found for this key"))
+	b.assertSessionStore(t.Name(), "", errors.New("pebble: not found"))
 	b.assertExchangeCount(0)
 
 	// [cleansession=true] c subscribes again, session is in state1
 	c.sendC2S(&mqtt.Subscribe{ID: 6, Subscriptions: []mqtt.Subscription{{Topic: "test", QOS: 1}}})
 	c.assertS2CPacket("<Suback ID=6 ReturnCodes=[1]>")
-	b.assertSessionStore(t.Name(), "", errors.New("No data found for this key"))
+	b.assertSessionStore(t.Name(), "", errors.New("pebble: not found"))
 	b.assertExchangeCount(1)
 
 	// [cleansession=true] c disconnects, session is removed
 	c.sendC2S(&mqtt.Disconnect{})
 	c.assertS2CPacketTimeout()
 	c.assertClosed(true)
-	b.assertSessionStore(t.Name(), "", errors.New("No data found for this key"))
+	b.assertSessionStore(t.Name(), "", errors.New("pebble: not found"))
 	b.assertExchangeCount(0)
 }
 

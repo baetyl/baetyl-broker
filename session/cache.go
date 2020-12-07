@@ -1,8 +1,9 @@
 package session
 
 import (
-	"github.com/baetyl/baetyl-go/v2/mqtt"
 	"sync"
+
+	"github.com/baetyl/baetyl-go/v2/mqtt"
 )
 
 type cache struct {

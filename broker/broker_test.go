@@ -11,6 +11,8 @@ import (
 	"github.com/baetyl/baetyl-go/v2/mqtt"
 	"github.com/baetyl/baetyl-go/v2/utils"
 	"github.com/stretchr/testify/assert"
+
+	_ "github.com/baetyl/baetyl-broker/v2/store/pebble"
 )
 
 var conf = `

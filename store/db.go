@@ -3,7 +3,10 @@ package store
 import (
 	"errors"
 	"io"
-	"time"
+)
+
+var (
+	ErrDataNotFound = errors.New("no data found for this key")
 )
 
 // Factories of database
@@ -11,34 +14,32 @@ var Factories = map[string]func(conf Conf) (DB, error){}
 
 // Conf the configuration of database
 type Conf struct {
-	Driver string `yaml:"driver" json:"driver" default:"boltdb"`
-	Source string `yaml:"source" json:"source" default:"var/lib/baetyl/broker.db"`
-}
-
-// Encoder value encode/decode interface
-type Encoder interface {
-	Encode(value interface{}) (data []byte, err error)
-	Decode(data []byte, value interface{}, args ...interface{}) error
+	Driver string `yaml:"driver" json:"driver" default:"pebble"`
+	Path   string `yaml:"path" json:"path" default:"var/lib/baetyl/db"`
 }
 
 type DB interface {
-	NewBucket(name string, encoder Encoder) (Bucket, error)
+	NewBatchBucket(name string) (BatchBucket, error)
+	NewKVBucket(name string) (KVBucket, error)
+
 	io.Closer
 }
 
-// Bucket the backend database
-type Bucket interface {
-	Put([]interface{}) error
-	Get(offset uint64, length int, results interface{}) error
+// BatchBucket the backend database
+type BatchBucket interface {
+	Put(values [][]byte) error
+	Get(offset uint64, length int, op func([]byte, uint64) error) error
 	DelBeforeID(uint64) error
-	DelBeforeTS(time.Time) error
-
-	SetKV(k string, v interface{}) error
-	GetKV(k string, result interface{}) error
-	DelKV(k string) error
-	ListKV(results interface{}) error
-
+	DelBeforeTS(ts uint64) error
 	Close(clean bool) (err error)
+}
+
+// KVBucket the backend database
+type KVBucket interface {
+	SetKV(key []byte, value []byte) error
+	GetKV(key []byte, op func([]byte) error) error
+	DelKV(key []byte) error
+	ListKV(op func([]byte) error) error
 }
 
 // New DB by given name

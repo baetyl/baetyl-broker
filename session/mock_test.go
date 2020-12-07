@@ -2,6 +2,7 @@ package session
 
 import (
 	"context"
+	"encoding/json"
 	"io"
 	"net"
 	"os"
@@ -10,12 +11,16 @@ import (
 	"testing"
 	"time"
 
-	"github.com/baetyl/baetyl-broker/v2/listener"
 	"github.com/baetyl/baetyl-go/v2/log"
 	"github.com/baetyl/baetyl-go/v2/mqtt"
 	"github.com/baetyl/baetyl-go/v2/utils"
 	"github.com/stretchr/testify/assert"
 	"google.golang.org/grpc/metadata"
+
+	"github.com/baetyl/baetyl-broker/v2/listener"
+	"github.com/baetyl/baetyl-broker/v2/store"
+
+	_ "github.com/baetyl/baetyl-broker/v2/store/pebble"
 )
 
 var (
@@ -80,7 +85,7 @@ func newMockBroker(t *testing.T, cfgStr string) *mockBroker {
 	var cfg Config
 	err := utils.UnmarshalYAML([]byte(cfgStr), &cfg)
 	assert.NoError(t, err)
-	os.RemoveAll(path.Dir(cfg.Persistence.Store.Source))
+	os.RemoveAll(path.Dir(cfg.Persistence.Store.Path))
 	b := &mockBroker{t: t, cfg: cfg}
 	b.manager, err = NewManager(cfg)
 	assert.NoError(t, err)
@@ -109,7 +114,15 @@ func (b *mockBroker) assertClientCount(expect int) {
 
 func (b *mockBroker) assertSessionStore(id string, expect string, hasErr error) {
 	var s Info
-	err := b.manager.sessionBucket.GetKV(id, &s)
+	err := b.manager.sessionBucket.GetKV([]byte(id), func(data []byte) error {
+		if len(data) == 0 {
+			return store.ErrDataNotFound
+		}
+		if err := json.Unmarshal(data, &s); err != nil {
+			return err
+		}
+		return nil
+	})
 	if hasErr != nil {
 		assert.Error(b.t, err)
 		assert.Equal(b.t, err.Error(), hasErr.Error())
