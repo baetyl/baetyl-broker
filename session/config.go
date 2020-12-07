@@ -3,9 +3,10 @@ package session
 import (
 	"time"
 
+	"github.com/baetyl/baetyl-go/v2/utils"
+
 	"github.com/baetyl/baetyl-broker/v2/queue"
 	"github.com/baetyl/baetyl-broker/v2/store"
-	"github.com/baetyl/baetyl-go/v2/utils"
 )
 
 // Config session config

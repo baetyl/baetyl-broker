@@ -1,9 +1,10 @@
 package broker
 
 import (
+	"github.com/baetyl/baetyl-go/v2/log"
+
 	"github.com/baetyl/baetyl-broker/v2/listener"
 	"github.com/baetyl/baetyl-broker/v2/session"
-	"github.com/baetyl/baetyl-go/v2/log"
 )
 
 // Config all config of broker

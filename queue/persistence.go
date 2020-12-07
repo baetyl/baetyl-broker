@@ -4,11 +4,15 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/baetyl/baetyl-broker/v2/common"
-	"github.com/baetyl/baetyl-broker/v2/store"
+	"github.com/baetyl/baetyl-go/v2/errors"
 	"github.com/baetyl/baetyl-go/v2/log"
 	"github.com/baetyl/baetyl-go/v2/mqtt"
 	"github.com/baetyl/baetyl-go/v2/utils"
+
+	"github.com/baetyl/baetyl-broker/v2/common"
+	"github.com/baetyl/baetyl-broker/v2/store"
+
+	"github.com/gogo/protobuf/proto"
 )
 
 // Config queue config
@@ -28,13 +32,13 @@ type Persistence struct {
 	output chan *common.Event
 	edel   chan uint64 // del events with message id
 	eget   chan bool   // get events
-	bucket store.Bucket
+	bucket store.BatchBucket
 	log    *log.Logger
 	utils.Tomb
 }
 
 // NewPersistence creates a new persistent queue
-func NewPersistence(cfg Config, bucket store.Bucket) Queue {
+func NewPersistence(cfg Config, bucket store.BatchBucket) Queue {
 	q := &Persistence{
 		bucket: bucket,
 		cfg:    cfg,
@@ -196,10 +200,23 @@ func (q *Persistence) get(offset uint64, length int) ([]*common.Event, error) {
 	start := time.Now()
 
 	var msgs []*mqtt.Message
-	err := q.bucket.Get(offset, length, &msgs)
-	if err != nil {
+	if err := q.bucket.Get(offset, length, func(data []byte, offset uint64) error {
+		if len(data) == 0 {
+			return store.ErrDataNotFound
+		}
+		v := new(mqtt.Message)
+		err := proto.Unmarshal(data, v)
+		if err != nil {
+			return errors.Trace(err)
+		}
+		v.Context.ID = offset
+
+		msgs = append(msgs, v)
+		return nil
+	}); err != nil {
 		return nil, err
 	}
+
 	var events []*common.Event
 	for _, m := range msgs {
 		events = append(events, common.NewEvent(m, 1, q.acknowledge))
@@ -219,9 +236,13 @@ func (q *Persistence) add(buf []*common.Event) []*common.Event {
 
 	defer utils.Trace(q.log.Debug, "queue has written message to backend", log.Any("count", len(buf)))()
 
-	var msgs []interface{}
+	var msgs [][]byte
 	for _, e := range buf {
-		msgs = append(msgs, e.Message)
+		data, err := proto.Marshal(e.Message)
+		if err != nil {
+			q.log.Error("failed to add messages to backend database", log.Error(err))
+		}
+		msgs = append(msgs, data)
 	}
 	err := q.bucket.Put(msgs)
 	if err == nil {
@@ -255,7 +276,7 @@ func (q *Persistence) delete(buf []uint64) []uint64 {
 // clean expired messages
 func (q *Persistence) clean() {
 	defer utils.Trace(q.log.Debug, "queue has cleaned expired messages from backend")
-	err := q.bucket.DelBeforeTS(time.Now().Add(-q.cfg.ExpireTime))
+	err := q.bucket.DelBeforeTS(uint64(time.Now().Add(-q.cfg.ExpireTime).Unix()))
 	if err != nil {
 		q.log.Error("failed to clean expired messages from backend", log.Error(err))
 	}

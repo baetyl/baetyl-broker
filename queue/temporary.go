@@ -3,8 +3,9 @@ package queue
 import (
 	"sync"
 
-	"github.com/baetyl/baetyl-broker/v2/common"
 	"github.com/baetyl/baetyl-go/v2/log"
+
+	"github.com/baetyl/baetyl-broker/v2/common"
 )
 
 // Temporary is an temporary queue in memory

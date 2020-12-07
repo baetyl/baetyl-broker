@@ -3,8 +3,9 @@ package session
 import (
 	"time"
 
-	"github.com/baetyl/baetyl-broker/v2/common"
 	"github.com/baetyl/baetyl-go/v2/mqtt"
+
+	"github.com/baetyl/baetyl-broker/v2/common"
 )
 
 type eventWrapper struct {

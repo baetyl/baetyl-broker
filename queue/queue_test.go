@@ -12,12 +12,15 @@ import (
 	"testing"
 	"time"
 
-	"github.com/baetyl/baetyl-broker/v2/common"
-	"github.com/baetyl/baetyl-broker/v2/store"
 	"github.com/baetyl/baetyl-go/v2/mqtt"
 	"github.com/baetyl/baetyl-go/v2/utils"
 	"github.com/gogo/protobuf/proto"
 	"github.com/stretchr/testify/assert"
+
+	"github.com/baetyl/baetyl-broker/v2/common"
+	"github.com/baetyl/baetyl-broker/v2/store"
+
+	_ "github.com/baetyl/baetyl-broker/v2/store/pebble"
 )
 
 func TestTemporaryQueue(t *testing.T) {
@@ -55,12 +58,11 @@ func TestPersistentQueue(t *testing.T) {
 	assert.NoError(t, err)
 	defer os.RemoveAll(dir)
 
-	db, err := store.New(store.Conf{Driver: "boltdb", Source: path.Join(dir, t.Name())})
-	defer db.Close()
+	db, err := store.New(store.Conf{Driver: "pebble", Path: path.Join(dir, t.Name())})
 	assert.NoError(t, err)
 	assert.NotNil(t, db)
 
-	bucket, err := db.NewBucket(t.Name(), new(Encoder))
+	bucket, err := db.NewBatchBucket(t.Name())
 	assert.NoError(t, err)
 	assert.NotNil(t, bucket)
 
@@ -93,24 +95,39 @@ func TestPersistentQueue(t *testing.T) {
 	assert.Equal(t, "Context:<ID:2 TS:123 QOS:1 Topic:\"t\" > Content:\"hi\" ", e2.String())
 
 	var ms []mqtt.Message
-	err = bucket.Get(1, 10, &ms)
+	err = bucket.Get(1, 10, func(data []byte, offset uint64) error {
+		if len(data) == 0 {
+			return store.ErrDataNotFound
+		}
+		v := mqtt.Message{}
+		if err := proto.Unmarshal(data, &v); err != nil {
+			return err
+		}
+		ms = append(ms, v)
+		return nil
+	})
 	assert.NoError(t, err)
 	assert.Len(t, ms, 3)
 
 	e1.Done()
 	e2.Done()
 
-	var ms2 []mqtt.Message
-	err = bucket.Get(1, 10, &ms2)
-	assert.NoError(t, err)
-	assert.Len(t, ms2, 3)
-
 	time.Sleep(time.Second)
 
-	var ms3 []mqtt.Message
-	err = bucket.Get(1, 10, &ms3)
+	var ms2 []mqtt.Message
+	err = bucket.Get(1, 10, func(data []byte, offset uint64) error {
+		if len(data) == 0 {
+			return store.ErrDataNotFound
+		}
+		v := mqtt.Message{}
+		if err := proto.Unmarshal(data, &v); err != nil {
+			return err
+		}
+		ms2 = append(ms2, v)
+		return nil
+	})
 	assert.NoError(t, err)
-	assert.Len(t, ms3, 1)
+	assert.Len(t, ms2, 1)
 
 	e3, err := b.Pop()
 	assert.NoError(t, err)
@@ -120,7 +137,17 @@ func TestPersistentQueue(t *testing.T) {
 	time.Sleep(time.Second)
 
 	var ms4 []mqtt.Message
-	err = bucket.Get(1, 10, &ms4)
+	err = bucket.Get(1, 10, func(data []byte, offset uint64) error {
+		if len(data) == 0 {
+			return store.ErrDataNotFound
+		}
+		v := mqtt.Message{}
+		if err := proto.Unmarshal(data, &v); err != nil {
+			return err
+		}
+		ms4 = append(ms4, v)
+		return nil
+	})
 	assert.NoError(t, err)
 	assert.Len(t, ms4, 0)
 
@@ -133,12 +160,11 @@ func BenchmarkPersistentQueue(b *testing.B) {
 	assert.NoError(b, err)
 	defer os.RemoveAll(dir)
 
-	db, err := store.New(store.Conf{Driver: "boltdb", Source: path.Join(dir, b.Name())})
-	defer db.Close()
+	db, err := store.New(store.Conf{Driver: "pebble", Path: path.Join(dir, b.Name())})
 	assert.NoError(b, err)
 	assert.NotNil(b, db)
 
-	bucket, err := db.NewBucket(b.Name(), new(Encoder))
+	bucket, err := db.NewBatchBucket(b.Name())
 	assert.NoError(b, err)
 	assert.NotNil(b, bucket)
 
@@ -182,12 +208,11 @@ func BenchmarkPersistentQueueParallel(b *testing.B) {
 	assert.NoError(b, err)
 	defer os.RemoveAll(dir)
 
-	db, err := store.New(store.Conf{Driver: "boltdb", Source: path.Join(dir, b.Name())})
-	defer db.Close()
+	db, err := store.New(store.Conf{Driver: "pebble", Path: path.Join(dir, b.Name())})
 	assert.NoError(b, err)
 	assert.NotNil(b, db)
 
-	bucket, err := db.NewBucket(b.Name(), new(Encoder))
+	bucket, err := db.NewBatchBucket(b.Name())
 	assert.NoError(b, err)
 	assert.NotNil(b, bucket)
 
