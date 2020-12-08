@@ -111,18 +111,17 @@ func (q *Persistence) Push(e *common.Event) (err error) {
 	}
 
 	q.Lock()
-	recovering := q.recovering
-	disable := q.disable
-	q.Unlock()
-
-	// if in recovery mode, send the msg to db, and do not pass to out channel
-	// otherwise send to the db and pass to out channel
-	if recovering || disable {
+	if q.recovering || q.disable {
+		// if in recovery mode, send the msg to db, and do not pass to out channel
+		// otherwise send to the db and pass to out channel
+		q.Unlock()
 		return nil
 	}
+	q.Unlock()
+
 	select {
 	case q.events <- ee:
-		// TODO: log which? e or ee ?
+		// TODO: log which, e or ee ?
 		if ent := q.log.Check(log.DebugLevel, "queue pushed a message"); ent != nil {
 			ent.Write(log.Any("message", ee.String()))
 		}
