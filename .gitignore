@@ -18,7 +18,7 @@
 # Mac
 baetyl-broker
 var/**
-**/var/**
+etc/**
 coverage.txt
 coverage.out
 coverage.html

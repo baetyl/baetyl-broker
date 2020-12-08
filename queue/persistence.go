@@ -240,7 +240,9 @@ func (q *Persistence) add(buf []*common.Event) []*common.Event {
 	for _, e := range buf {
 		data, err := proto.Marshal(e.Message)
 		if err != nil {
+			// TODO: how to process marshal properly ?
 			q.log.Error("failed to add messages to backend database", log.Error(err))
+			return []*common.Event{}
 		}
 		msgs = append(msgs, data)
 	}
