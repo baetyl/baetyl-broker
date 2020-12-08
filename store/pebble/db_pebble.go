@@ -43,7 +43,7 @@ func (c *counter) Next() uint64 {
 func newPebbleDB(conf store.Conf) (store.DB, error) {
 	err := os.MkdirAll(conf.Path, 0755)
 	if err != nil {
-		return nil, err
+		return nil, errors.Trace(err)
 	}
 
 	db, err := pebble.Open(conf.Path, &pebble.Options{})

@@ -88,7 +88,7 @@ func NewManager(cfg Config) (m *Manager, err error) {
 		}
 		v := Info{}
 		if err := json.Unmarshal(data, &v); err != nil {
-			return err
+			return errors.Trace(err)
 		}
 		ss = append(ss, v)
 		return nil
@@ -236,7 +236,7 @@ func (m *Manager) listRetainedMessages() ([]*mqtt.Message, error) {
 		}
 		v := new(mqtt.Message)
 		if err := proto.Unmarshal(data, v); err != nil {
-			return err
+			return errors.Trace(err)
 		}
 		msgs = append(msgs, v)
 		return nil
