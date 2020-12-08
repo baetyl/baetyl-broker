@@ -53,6 +53,7 @@ func newSession(i Info, m *Manager) (*Session, error) {
 		log: m.log.With(log.Any("id", i.ID)),
 	}
 
+	// TODO: will data race if directly visit manager
 	qc := m.cfg.Persistence.Queue
 	qc.Name = i.ID
 	qc.BatchSize = m.cfg.MaxInflightQOS1Messages
@@ -61,7 +62,11 @@ func newSession(i Info, m *Manager) (*Session, error) {
 		s.log.Error("failed to create qos1 bucket", log.Error(err))
 		return nil, err
 	}
-	s.qos1msg = queue.NewPersistence(qc, qbk)
+	s.qos1msg, err = queue.NewPersistence(qc, qbk)
+	if err != nil {
+		s.log.Error("failed to create qos1 persistent", log.Error(err))
+		return nil, err
+	}
 
 	for topic, qos := range i.Subscriptions {
 		s.subs.Set(topic, qos)
@@ -89,6 +94,7 @@ func (s *Session) close() {
 
 // * the following operations need lock
 
+// TODO: return err or just log
 func (s *Session) update(si Info, auth func(action, topic string) bool) {
 	s.mut.Lock()
 	defer s.mut.Unlock()
@@ -105,7 +111,40 @@ func (s *Session) update(si Info, auth func(action, topic string) bool) {
 		}
 	}
 
+	// reset qos1 queue
+	if s.qos1msg != nil {
+		err := s.qos1msg.Close(si.CleanSession)
+		if err != nil {
+			s.log.Error("failed to close qos1 queue when update", log.Error(err))
+			return
+		}
+	}
+
+	// TODO: will data race if directly visit manager
+	qc := s.manager.cfg.Persistence.Queue
+	qc.Name = si.ID
+	qc.BatchSize = s.manager.cfg.MaxInflightQOS1Messages
+	qbk, err := s.manager.store.NewBatchBucket(qc.Name)
+	if err != nil {
+		s.log.Error("failed to create qos1 bucket", log.Error(err))
+		return
+	}
+	s.qos1msg, err = queue.NewPersistence(qc, qbk)
+	if err != nil {
+		s.log.Error("failed to create qos1 persistent", log.Error(err))
+		return
+	}
+
 	s.persistent()
+}
+
+func (s *Session) disableQos1() {
+	s.mut.Lock()
+	defer s.mut.Unlock()
+
+	if s.qos1msg != nil {
+		s.qos1msg.Disable()
+	}
 }
 
 // Push pushes source message to session queue

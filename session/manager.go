@@ -165,9 +165,12 @@ func (m *Manager) delClient(clientID string) error {
 	}
 
 	s := v.(*Session)
+	// TODO: need lock here ?
 	if s.info.CleanSession {
 		m.cleanSession(s)
 	}
+
+	s.disableQos1()
 	return nil
 }
 

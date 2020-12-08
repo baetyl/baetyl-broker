@@ -37,15 +37,8 @@ func (q *Temporary) Chan() <-chan *common.Event {
 	return q.events
 }
 
-// Pop pops a message from queue
-func (q *Temporary) Pop() (*common.Event, error) {
-	select {
-	case e := <-q.events:
-		return e, nil
-	case <-q.quit:
-		return nil, ErrQueueClosed
-	}
-}
+// Disable disable
+func (q *Temporary) Disable() {}
 
 // Push pushes a message to queue
 func (q *Temporary) Push(e *common.Event) error {

@@ -3,6 +3,7 @@ package session
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net"
 	"os"
@@ -228,6 +229,7 @@ func (c *mockConn) RemoteAddr() net.Addr                 { return nil }
 func (c *mockConn) sendC2S(pkt mqtt.Packet) error {
 	select {
 	case c.c2s <- pkt:
+		fmt.Println("client send: ", pkt)
 		return nil
 	case <-time.After(time.Minute):
 		assert.Fail(c.t, "send common timeout")
@@ -248,9 +250,10 @@ func (c *mockConn) receiveS2C() mqtt.Packet {
 func (c *mockConn) assertS2CPacket(expect string) {
 	select {
 	case pkt := <-c.s2c:
+		fmt.Println("rec: ", pkt)
 		assert.NotNil(c.t, pkt)
 		assert.Equal(c.t, expect, pkt.String())
-	case <-time.After(time.Second * 10):
+	case <-time.After(time.Second * 5):
 		assert.Fail(c.t, "receive common timeout")
 	}
 }
