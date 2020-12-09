@@ -1603,7 +1603,7 @@ func TestQOS1MessageOrdering(t *testing.T) {
 
 func TestCleanExpiredMessages(t *testing.T) {
 	b := newMockBroker(t, testCleanExpiredMags)
-	//b.closeAndClean()
+	defer b.closeAndClean()
 
 	pub := newMockConn(t)
 	b.manager.Handle(pub, false)

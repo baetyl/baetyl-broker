@@ -171,7 +171,7 @@ func (b *mockBroker) close() {
 
 func (b *mockBroker) closeAndClean() {
 	b.close()
-	os.RemoveAll("./var")
+	os.RemoveAll("var")
 }
 
 // * mqtt mock
