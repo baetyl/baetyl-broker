@@ -84,11 +84,17 @@ func (s *Session) close() {
 	defer s.log.Info("session has closed")
 
 	if s.qos0msg != nil {
-		s.qos0msg.Close(s.info.CleanSession)
+		err := s.qos0msg.Close(s.info.CleanSession)
+		if err != nil {
+			s.log.Error("failed to clase qos0 queue", log.Error(err))
+		}
 	}
 
 	if s.qos1msg != nil {
-		s.qos1msg.Close(s.info.CleanSession)
+		err := s.qos1msg.Close(s.info.CleanSession)
+		if err != nil {
+			s.log.Error("failed to clase qos1 queue", log.Error(err))
+		}
 	}
 }
 

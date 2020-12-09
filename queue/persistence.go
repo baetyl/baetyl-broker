@@ -57,7 +57,7 @@ func (c *counter) Next() uint64 {
 func NewPersistence(cfg Config, bucket store.BatchBucket) (Queue, error) {
 	offset, err := bucket.MaxOffset()
 	if err != nil {
-		return nil, err
+		return nil, errors.Trace(err)
 	}
 	c := &counter{
 		offset: offset,
@@ -145,7 +145,7 @@ func (q *Persistence) recovery() error {
 		buf, err = q.get(offset, max)
 		if err != nil {
 			q.log.Error("failed to get message from db", log.Error(err))
-			return err
+			return errors.Trace(err)
 		}
 		length = len(buf)
 		if length == 0 {
@@ -246,7 +246,7 @@ func (q *Persistence) add(e *common.Event) error {
 
 	data, err := proto.Marshal(e.Message)
 	if err != nil {
-		return err
+		return errors.Trace(err)
 	}
 
 	return q.bucket.Set(e.Context.ID, data)
@@ -291,6 +291,9 @@ func (q *Persistence) Close(clean bool) error {
 	defer q.log.Info("queue has closed")
 
 	q.Kill(nil)
-	q.Wait()
+	err := q.Wait()
+	if err != nil {
+		q.log.Error("failed to wait tomb goroutines", log.Error(err))
+	}
 	return q.bucket.Close(clean)
 }
