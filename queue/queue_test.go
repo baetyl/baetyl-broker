@@ -70,7 +70,8 @@ func TestPersistentQueue(t *testing.T) {
 	utils.SetDefaults(&cfg)
 	cfg.Name = t.Name()
 
-	b := NewPersistence(cfg, bucket)
+	b, err := NewPersistence(cfg, bucket)
+	assert.NoError(t, err)
 	assert.NotNil(t, b)
 
 	m := new(mqtt.Message)
@@ -172,7 +173,8 @@ func BenchmarkPersistentQueue(b *testing.B) {
 	utils.SetDefaults(&cfg)
 	cfg.Name = b.Name()
 
-	q := NewPersistence(cfg, bucket)
+	q, err := NewPersistence(cfg, bucket)
+	assert.NoError(b, err)
 	assert.NotNil(b, q)
 	defer q.Close(false)
 
@@ -222,7 +224,8 @@ func BenchmarkPersistentQueueParallel(b *testing.B) {
 	assert.NoError(b, err)
 	assert.NotNil(b, bucket)
 
-	q := NewPersistence(cfg, bucket)
+	q, err := NewPersistence(cfg, bucket)
+	assert.NoError(b, err)
 	assert.NotNil(b, q)
 	defer q.Close(false)
 

@@ -83,9 +83,10 @@ func (b *Exchange) Route(msg *mqtt.Message, cb func(uint64)) {
 	var err error
 	event := common.NewEvent(msg, int32(length), cb)
 	for _, s := range sss {
-		err = s.(common.Queue).Push(event)
+		queue := s.(common.Queue)
+		err = queue.Push(event)
 		if err != nil {
-			b.log.Error("failed to push message into queue", log.Error(err))
+			b.log.Error("failed to push message into queue", log.Any("id", queue.ID()), log.Error(err))
 		}
 	}
 }
