@@ -81,7 +81,8 @@ func TestDatabasePebbleDB(t *testing.T) {
 	data3, err := json.Marshal(&obj3)
 	assert.NoError(t, err)
 
-	msgs = append(msgs, data1, data2, data3)
+	err = bucket.Set(msgs)
+	assert.NoError(t, err)
 
 	err = bucket.Put(msgs)
 	assert.NoError(t, err)

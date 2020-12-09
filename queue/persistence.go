@@ -27,6 +27,7 @@ type Config struct {
 
 // Persistence is a persistent queue
 type Persistence struct {
+	id         string
 	cfg        Config
 	counter    *counter
 	events     chan *common.Event
@@ -64,22 +65,41 @@ func NewPersistence(cfg Config, bucket store.BatchBucket) (Queue, error) {
 	}
 
 	q := &Persistence{
+		id:         cfg.Name,
 		bucket:     bucket,
 		counter:    c,
 		recovering: true,
 		cfg:        cfg,
 		events:     make(chan *common.Event, cfg.BatchSize),
 		edel:       make(chan uint64, cfg.BatchSize),
-		log:        log.With(log.Any("queue", "persist"), log.Any("id", cfg.Name)),
+		log:        log.With(log.Any("queue", "persistence"), log.Any("id", cfg.Name)),
 	}
 
 	q.Go(q.deleting, q.recovery)
 	return q, nil
 }
 
+// ID return id
+func (q *Persistence) ID() string {
+	return q.id
+}
+
 // Chan returns message channel
 func (q *Persistence) Chan() <-chan *common.Event {
 	return q.events
+}
+
+// Pop pops a message from queue
+func (q *Persistence) Pop() (*common.Event, error) {
+	select {
+	case e := <-q.events:
+		if ent := q.log.Check(log.DebugLevel, "queue poped a message"); ent != nil {
+			ent.Write(log.Any("message", e.String()))
+		}
+		return e, nil
+	case <-q.Dying():
+		return nil, ErrQueueClosed
+	}
 }
 
 // Disable disable
@@ -105,10 +125,9 @@ func (q *Persistence) Push(e *common.Event) (err error) {
 
 	err = q.add(ee)
 	if err != nil {
-		q.log.Error("failed to add messages to db", log.Error(err))
-	} else {
-		e.Done()
+		return errors.Trace(err)
 	}
+	e.Done()
 
 	q.Lock()
 	if q.recovering || q.disable {
@@ -121,7 +140,6 @@ func (q *Persistence) Push(e *common.Event) (err error) {
 
 	select {
 	case q.events <- ee:
-		// TODO: log which, e or ee ?
 		if ent := q.log.Check(log.DebugLevel, "queue pushed a message"); ent != nil {
 			ent.Write(log.Any("message", ee.String()))
 		}
@@ -133,8 +151,8 @@ func (q *Persistence) Push(e *common.Event) (err error) {
 
 // recovery from db
 func (q *Persistence) recovery() error {
-	q.log.Info("queue starts to recovery msgs from db in batch mode")
-	defer utils.Trace(q.log.Info, "queue has finished reading messages from db in batch mode")()
+	q.log.Debug("queue starts to recovery msgs from db in batch mode")
+	defer utils.Trace(q.log.Debug, "queue has finished reading messages from db in batch mode")()
 
 	var err error
 	var buf []*common.Event
@@ -144,7 +162,6 @@ func (q *Persistence) recovery() error {
 		q.Lock()
 		buf, err = q.get(offset, max)
 		if err != nil {
-			q.log.Error("failed to get message from db", log.Error(err))
 			return errors.Trace(err)
 		}
 		length = len(buf)
@@ -237,19 +254,21 @@ func (q *Persistence) get(offset uint64, length int) ([]*common.Event, error) {
 }
 
 // add all buffered messages to db in batch mode
-func (q *Persistence) add(e *common.Event) error {
+func (q *Persistence) add(event *common.Event) error {
 	if ent := q.log.Check(log.DebugLevel, "queue received a message"); ent != nil {
-		ent.Write(log.Any("event", e.String()))
+		ent.Write(log.Any("event", event.String()))
 	}
+	if event == nil {
+		return nil
+	}
+	defer utils.Trace(q.log.Debug, "queue has written message to db", log.Any("msg", event))()
 
-	defer utils.Trace(q.log.Debug, "queue has written message to db", log.Any("msg", e))()
-
-	data, err := proto.Marshal(e.Message)
+	data, err := proto.Marshal(event.Message)
 	if err != nil {
 		return errors.Trace(err)
 	}
 
-	return q.bucket.Set(e.Context.ID, data)
+	return q.bucket.Set(event.Context.ID, data)
 }
 
 // deletes all acknowledged message from db in batch mode
@@ -287,8 +306,8 @@ func (q *Persistence) acknowledge(id uint64) {
 
 // Close closes this queue and clean queue data when cleanSession is true
 func (q *Persistence) Close(clean bool) error {
-	q.log.Info("queue is closing", log.Any("clean", clean))
-	defer q.log.Info("queue has closed")
+	q.log.Debug("queue is closing", log.Any("clean", clean))
+	defer q.log.Debug("queue has closed")
 
 	q.Kill(nil)
 	err := q.Wait()
