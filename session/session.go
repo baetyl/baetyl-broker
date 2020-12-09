@@ -181,6 +181,14 @@ func (s *Session) Push(e *common.Event) error {
 	return s.qos0msg.Push(e)
 }
 
+// ID id
+func (s *Session) ID() string {
+	s.mut.Lock()
+	defer s.mut.Unlock()
+
+	return s.info.ID
+}
+
 // * the following operations are only used by mqtt client
 
 func (s *Session) subscribe(subs []mqtt.Subscription, auth func(action, topic string) bool) {

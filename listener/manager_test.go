@@ -304,7 +304,7 @@ func TestServerException(t *testing.T) {
 		{Address: "wss://:28767/v2"},
 	}
 	_, err = NewManager(cfg, newMockHandler(t))
-	assert.EqualError(t, err, "tls: neither Certificates nor GetCertificate set in Config")
+	assert.EqualError(t, err, "tls: neither Certificates, GetCertificate, nor GetConfigForClient set in Config")
 
 	cfg = []Listener{
 		{Address: "ws://:28767/v1"},
