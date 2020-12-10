@@ -1,6 +1,7 @@
 package queue
 
 import (
+	"fmt"
 	"sync"
 	"time"
 
@@ -174,6 +175,7 @@ func (q *Persistence) recovery() error {
 		for _, e := range buf {
 			select {
 			case q.events <- e:
+				fmt.Println("recovery put a message to queue:", e)
 			case <-q.Dying():
 				return nil
 			}
