@@ -119,7 +119,7 @@ func (c *Client) die(msg string, err error) {
 	})
 
 	if c.session != nil {
-		err := c.manager.delClient(c.session.info.ID)
+		err := c.manager.delClient(c.session.ID())
 		if err != nil {
 			c.log.Error("failed to del client from manager", log.Error(err))
 		}
@@ -237,7 +237,7 @@ func (c *Client) receiving() error {
 		case *mqtt.Pingresp:
 			err = nil // just ignore
 		case *mqtt.Disconnect:
-			c.session.cleanWill()
+			err = c.session.cleanWill()
 			c.die("", nil)
 			return nil
 		case *mqtt.Connect:
@@ -403,8 +403,11 @@ func (c *Client) onSubscribe(p *mqtt.Subscribe) error {
 	}
 
 	sa, subs := c.genSuback(p)
-	c.session.subscribe(subs, c.authorize)
-	err := c.send(sa, false)
+	err := c.session.subscribe(subs, sa, c.authorize)
+	if err != nil {
+		return errors.Trace(err)
+	}
+	err = c.send(sa, false)
 	if err != nil {
 		return errors.Trace(err)
 	}

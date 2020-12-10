@@ -27,16 +27,16 @@ type Config struct {
 
 // Persistence is a persistent queue
 type Persistence struct {
-	id         string
-	cfg        Config
-	counter    *counter
-	events     chan *common.Event
-	edel       chan uint64 // del events with message id
-	bucket     store.BatchBucket
-	recovering bool
+	id              string
+	cfg             Config
+	counter         *counter
+	events          chan *common.Event
+	edel            chan uint64 // del events with message id
+	bucket          store.BatchBucket
+	recovering      bool
 	recoveredOffset uint64
-	disable    bool
-	log        *log.Logger
+	disable         bool
+	log             *log.Logger
 	utils.Tomb
 	sync.Mutex
 }
@@ -94,7 +94,7 @@ func (q *Persistence) Chan() <-chan *common.Event {
 func (q *Persistence) Pop() (*common.Event, error) {
 	select {
 	case e := <-q.events:
-		if ent := q.log.Check(log.InfoLevel, "queue poped a message"); ent != nil {
+		if ent := q.log.Check(log.DebugLevel, "queue poped a message"); ent != nil {
 			ent.Write(log.Any("message", e.String()))
 		}
 		return e, nil
@@ -141,7 +141,7 @@ func (q *Persistence) Push(e *common.Event) (err error) {
 
 	select {
 	case q.events <- ee:
-		if ent := q.log.Check(log.InfoLevel, "queue pushed a message"); ent != nil {
+		if ent := q.log.Check(log.DebugLevel, "queue pushed a message"); ent != nil {
 			ent.Write(log.Any("message", ee.String()))
 		}
 		return nil
@@ -176,7 +176,9 @@ func (q *Persistence) recovery() error {
 		for _, e := range buf {
 			select {
 			case q.events <- e:
-				// TODO: add log
+				if ent := q.log.Check(log.DebugLevel, "queue pushed a message"); ent != nil {
+					ent.Write(log.Any("message", e.String()))
+				}
 			case <-q.Dying():
 				return nil
 			}
