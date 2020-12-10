@@ -98,7 +98,7 @@ func TestSessionMqttConnect(t *testing.T) {
 	fmt.Println("--> sixth connect end  <---")
 }
 
-func TestSessionMqttConnectSameClientID(t *testing.T) {
+func TestSessionMqttConnectSameClientIDWithCleanSessionFalse(t *testing.T) {
 	b := newMockBroker(t, testConfDefault)
 	defer b.closeAndClean()
 
@@ -162,7 +162,7 @@ func TestSessionMqttConnectSameClientID(t *testing.T) {
 	}
 }
 
-func TestSessionMqttConnectSameClientID2(t *testing.T) {
+func TestSessionMqttConnectSameClientIDWithCleanSessionTrue(t *testing.T) {
 	b := newMockBroker(t, testConfDefault)
 	defer b.closeAndClean()
 

@@ -142,7 +142,8 @@ func (m *Manager) addClient(si Info, c *Client) (s *Session, exists bool, err er
 	if v, loaded := m.clients.store(si.ID, c); loaded {
 		err := v.(*Client).close()
 		if err != nil {
-			m.log.Error("failed to close client", log.Any("id", v.(*Client).id), log.Error(err))
+			m.log.Error("failed to close old client", log.Any("id", v.(*Client).id), log.Error(err))
+			return nil, false, errors.Trace(err)
 		}
 	}
 
@@ -222,8 +223,7 @@ func (m *Manager) checkSubscriptions(si *Info) {
 // Close close
 func (m *Manager) Close() error {
 	if err := m.checkQuitState(); err != nil {
-		m.log.Error("failed to checkQuitState", log.Error(err))
-		return nil
+		return errors.Trace(err)
 	}
 
 	m.log.Info("session manager is closing")
