@@ -27,8 +27,9 @@ type DB interface {
 
 // BatchBucket the backend database
 type BatchBucket interface {
-	Put(values [][]byte) error
+	Set(offset uint64, value []byte) error
 	Get(offset uint64, length int, op func([]byte, uint64) error) error
+	MaxOffset() (uint64, error)
 	DelBeforeID(uint64) error
 	DelBeforeTS(ts uint64) error
 	Close(clean bool) (err error)

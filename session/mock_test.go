@@ -170,7 +170,7 @@ func (b *mockBroker) close() {
 
 func (b *mockBroker) closeAndClean() {
 	b.close()
-	os.RemoveAll("./var")
+	os.RemoveAll("var")
 }
 
 // * mqtt mock
@@ -250,7 +250,7 @@ func (c *mockConn) assertS2CPacket(expect string) {
 	case pkt := <-c.s2c:
 		assert.NotNil(c.t, pkt)
 		assert.Equal(c.t, expect, pkt.String())
-	case <-time.After(time.Second * 10):
+	case <-time.After(time.Second * 5):
 		assert.Fail(c.t, "receive common timeout")
 	}
 }

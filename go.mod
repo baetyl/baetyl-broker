@@ -3,7 +3,7 @@ module github.com/baetyl/baetyl-broker/v2
 go 1.13
 
 require (
-	github.com/baetyl/baetyl-go/v2 v2.0.34
+	github.com/baetyl/baetyl-go/v2 v2.1.5
 	github.com/cockroachdb/pebble v0.0.0-20201130172119-f19faf8529d6
 	github.com/docker/distribution v2.7.1+incompatible
 	github.com/gogo/protobuf v1.3.1

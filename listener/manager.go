@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 
+	"github.com/baetyl/baetyl-go/v2/errors"
 	"github.com/baetyl/baetyl-go/v2/log"
 	"github.com/baetyl/baetyl-go/v2/mqtt"
 	"github.com/baetyl/baetyl-go/v2/utils"
@@ -52,16 +53,22 @@ func NewManager(cfg []Listener, handler Handler) (*Manager, error) {
 				c.Certificate.ClientAuthType = tls.VerifyClientCertIfGiven
 				tlsconfig, err = utils.NewTLSConfigServer(c.Certificate)
 				if err != nil {
-					m.Close()
-					return nil, err
+					_err := m.Close()
+					if _err != nil {
+						m.log.Error("failed to close manager", log.Any("address", c.Address), log.Error(err))
+					}
+					return nil, errors.Trace(err)
 				}
 			}
 		}
 
 		svr, err := m.launchMQTTServer(c.Address, tlsconfig, c.Anonymous, handler)
 		if err != nil {
-			m.Close()
-			return nil, err
+			_err := m.Close()
+			if _err != nil {
+				m.log.Error("failed to launch mqtt server", log.Any("address", c.Address), log.Error(err))
+			}
+			return nil, errors.Trace(err)
 		}
 		m.mqtts = append(m.mqtts, svr)
 		m.log.Info("listener has initialized", log.Any("listener", svr.Addr()))
@@ -72,7 +79,7 @@ func NewManager(cfg []Listener, handler Handler) (*Manager, error) {
 func (m *Manager) launchMQTTServer(address string, tlsconfig *tls.Config, anonymous bool, handler Handler) (mqtt.Server, error) {
 	svr, err := mqtt.NewLauncher(tlsconfig).Launch(address)
 	if err != nil {
-		return nil, err
+		return nil, errors.Trace(err)
 	}
 	go func() {
 		for {
@@ -97,7 +104,10 @@ func (m *Manager) Close() error {
 	defer m.log.Info("listener manager has closed")
 
 	for _, svr := range m.mqtts {
-		svr.Close()
+		err := svr.Close()
+		if err != nil {
+			m.log.Error("failed to close mqtt server", log.Any("address", svr.Addr()), log.Error(err))
+		}
 		m.log.Info("listener has stopped", log.Any("listener", svr.Addr()))
 	}
 	return nil

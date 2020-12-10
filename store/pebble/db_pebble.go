@@ -24,19 +24,8 @@ type pebbleDB struct {
 type pebbleBucket struct {
 	db             *pebble.DB
 	name           []byte
-	offset         *counter
 	prefixIterOpts *pebble.IterOptions
 	writeOpts      *pebble.WriteOptions
-}
-
-type counter struct {
-	offset uint64
-}
-
-func (c *counter) Next() uint64 {
-	next := c.offset + 1
-	c.offset = next
-	return next
 }
 
 // New creates a new pebble database
@@ -59,21 +48,11 @@ func newPebbleDB(conf store.Conf) (store.DB, error) {
 
 // NewBucket creates a bucket
 func (d *pebbleDB) NewBatchBucket(name string) (store.BatchBucket, error) {
-	bn, counter := []byte(name), new(counter)
-	prefixOpts := getPrefixIterOptions(bn)
-	iter := d.DB.NewIter(prefixOpts)
-	if iter.Last() {
-		counter.offset, _ = decodeBatchKey(iter.Key(), bn)
-	}
-	if err := iter.Close(); err != nil {
-		return nil, errors.Trace(err)
-	}
-
+	bn := []byte(name)
 	return &pebbleBucket{
 		db:             d.DB,
 		name:           bn,
-		offset:         counter,
-		prefixIterOpts: prefixOpts,
+		prefixIterOpts: getPrefixIterOptions(bn),
 		writeOpts:      pebble.NoSync,
 	}, nil
 }
@@ -89,20 +68,13 @@ func (d *pebbleDB) NewKVBucket(name string) (store.KVBucket, error) {
 	}, nil
 }
 
-func (b *pebbleBucket) Put(values [][]byte) error {
-	if len(values) == 0 {
+func (b *pebbleBucket) Set(offset uint64, value []byte) error {
+	if len(value) == 0 {
 		return nil
 	}
 
-	batch := b.db.NewBatch()
-	for _, v := range values {
-		key := encodeBatchKey(b.name, b.offset.Next())
-		err := batch.Set(key, v, nil)
-		if err != nil {
-			return errors.Trace(err)
-		}
-	}
-	return errors.Trace(b.db.Apply(batch, b.writeOpts))
+	key := encodeBatchKey(b.name, offset)
+	return errors.Trace(b.db.Set(key, value, b.writeOpts))
 }
 
 func (b *pebbleBucket) Get(offset uint64, length int, op func([]byte, uint64) error) error {
@@ -117,6 +89,18 @@ func (b *pebbleBucket) Get(offset uint64, length int, op func([]byte, uint64) er
 		count++
 	}
 	return errors.Trace(iter.Close())
+}
+
+func (b *pebbleBucket) MaxOffset() (uint64, error) {
+	var offset uint64
+	iter := b.db.NewIter(b.prefixIterOpts)
+	if iter.Last() {
+		offset, _ = decodeBatchKey(iter.Key(), b.name)
+	}
+	if err := iter.Close(); err != nil {
+		return offset, errors.Trace(err)
+	}
+	return offset, nil
 }
 
 // DelBeforeID deletes values whose keys are not greater than the given id from DB

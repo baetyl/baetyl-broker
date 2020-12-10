@@ -52,6 +52,7 @@ func TestBrokerMqttConnectErrorMissingAddress(t *testing.T) {
 	dir, err := ioutil.TempDir("", t.Name())
 	assert.NoError(t, err)
 	defer os.RemoveAll(dir)
+	defer os.RemoveAll("var")
 
 	file := path.Join(dir, "conf.yml")
 	err = ioutil.WriteFile(file, []byte(conf), 0644)
@@ -81,6 +82,7 @@ func TestBrokerMqttConnectErrorWrongAddress(t *testing.T) {
 	dir, err := ioutil.TempDir("", t.Name())
 	assert.NoError(t, err)
 	defer os.RemoveAll(dir)
+	defer os.RemoveAll("var")
 
 	file := path.Join(dir, "service.yml")
 	err = ioutil.WriteFile(file, []byte(conf), 0644)
@@ -111,6 +113,7 @@ func TestBrokerMqttConnectErrorMissingClinetID(t *testing.T) {
 	dir, err := ioutil.TempDir("", t.Name())
 	assert.NoError(t, err)
 	defer os.RemoveAll(dir)
+	defer os.RemoveAll("var")
 
 	file := path.Join(dir, "service.yml")
 	err = ioutil.WriteFile(file, []byte(conf), 0644)
@@ -144,6 +147,7 @@ func TestBrokerMqttConnectErrorCertificate(t *testing.T) {
 	dir, err := ioutil.TempDir("", t.Name())
 	assert.NoError(t, err)
 	defer os.RemoveAll(dir)
+	defer os.RemoveAll("var")
 
 	file := path.Join(dir, "service.yml")
 	err = ioutil.WriteFile(file, []byte(conf), 0644)
@@ -175,6 +179,7 @@ func TestBrokerMqttConnectErrorBadUsernameOrPassword1(t *testing.T) {
 	dir, err := ioutil.TempDir("", t.Name())
 	assert.NoError(t, err)
 	defer os.RemoveAll(dir)
+	defer os.RemoveAll("var")
 
 	file := path.Join(dir, "service.yml")
 	err = ioutil.WriteFile(file, []byte(conf), 0644)
@@ -208,6 +213,7 @@ func TestBrokerMqttConnectErrorBadUsernameOrPassword2(t *testing.T) {
 	dir, err := ioutil.TempDir("", t.Name())
 	assert.NoError(t, err)
 	defer os.RemoveAll(dir)
+	defer os.RemoveAll("var")
 
 	file := path.Join(dir, "service.yml")
 	err = ioutil.WriteFile(file, []byte(conf), 0644)
@@ -241,6 +247,7 @@ func TestBrokerMqttConnectErrorBadUsernameOrPassword3(t *testing.T) {
 	dir, err := ioutil.TempDir("", t.Name())
 	assert.NoError(t, err)
 	defer os.RemoveAll(dir)
+	defer os.RemoveAll("var")
 
 	file := path.Join(dir, "service.yml")
 	err = ioutil.WriteFile(file, []byte(conf), 0644)
@@ -274,6 +281,7 @@ func TestBrokerMqttConnectTCPNormal(t *testing.T) {
 	dir, err := ioutil.TempDir("", t.Name())
 	assert.NoError(t, err)
 	defer os.RemoveAll(dir)
+	defer os.RemoveAll("var")
 
 	file := path.Join(dir, "service.yml")
 	err = ioutil.WriteFile(file, []byte(conf), 0644)
@@ -307,6 +315,7 @@ func TestBrokerMqttConnectSSLNormal(t *testing.T) {
 	dir, err := ioutil.TempDir("", t.Name())
 	assert.NoError(t, err)
 	defer os.RemoveAll(dir)
+	defer os.RemoveAll("var")
 
 	file := path.Join(dir, "conf.yml")
 	err = ioutil.WriteFile(file, []byte(conf), 0644)
@@ -347,6 +356,7 @@ func TestBrokerMqttConnectWebsocketNormal(t *testing.T) {
 	dir, err := ioutil.TempDir("", t.Name())
 	assert.NoError(t, err)
 	defer os.RemoveAll(dir)
+	defer os.RemoveAll("var")
 
 	file := path.Join(dir, "service.yml")
 	err = ioutil.WriteFile(file, []byte(conf), 0644)
@@ -381,6 +391,7 @@ func TestBrokerMqttConnectWebSocketSSLNormal(t *testing.T) {
 	dir, err := ioutil.TempDir("", t.Name())
 	assert.NoError(t, err)
 	defer os.RemoveAll(dir)
+	defer os.RemoveAll("var")
 
 	file := path.Join(dir, "service.yml")
 	err = ioutil.WriteFile(file, []byte(conf), 0644)

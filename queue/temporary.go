@@ -10,6 +10,7 @@ import (
 
 // Temporary is an temporary queue in memory
 type Temporary struct {
+	id     string
 	events chan *common.Event
 	push   func(*common.Event) error
 	quit   chan bool
@@ -22,7 +23,7 @@ func NewTemporary(id string, capacity int, dropIfFull bool) Queue {
 	q := &Temporary{
 		events: make(chan *common.Event, capacity),
 		quit:   make(chan bool),
-		log:    log.With(log.Any("queue", "temp"), log.Any("id", id)),
+		log:    log.With(log.Any("queue", "temporary"), log.Any("id", id)),
 	}
 	if dropIfFull {
 		q.push = q.putOrDrop
@@ -30,6 +31,11 @@ func NewTemporary(id string, capacity int, dropIfFull bool) Queue {
 		q.push = q.put
 	}
 	return q
+}
+
+// ID return id
+func (q *Temporary) ID() string {
+	return q.id
 }
 
 // Chan returns message channel
@@ -46,6 +52,9 @@ func (q *Temporary) Pop() (*common.Event, error) {
 		return nil, ErrQueueClosed
 	}
 }
+
+// Disable disable
+func (q *Temporary) Disable() {}
 
 // Push pushes a message to queue
 func (q *Temporary) Push(e *common.Event) error {
@@ -81,7 +90,7 @@ func (q *Temporary) putOrDrop(e *common.Event) error {
 
 // Close closes this queue
 func (q *Temporary) Close(_ bool) error {
-	q.log.Info("queue is closing")
-	defer q.log.Info("queue has closed")
+	q.log.Debug("queue is closing")
+	defer q.log.Debug("queue has closed")
 	return nil
 }
