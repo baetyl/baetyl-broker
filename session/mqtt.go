@@ -7,11 +7,11 @@ import (
 	"sync"
 	"time"
 
+	"github.com/baetyl/baetyl-go/v2/errors"
 	"github.com/baetyl/baetyl-go/v2/log"
 	"github.com/baetyl/baetyl-go/v2/mqtt"
 	"github.com/baetyl/baetyl-go/v2/utils"
 	"github.com/docker/distribution/uuid"
-	"github.com/pingcap/errors"
 
 	"github.com/baetyl/baetyl-broker/v2/common"
 )
@@ -77,17 +77,17 @@ func (c *Client) close() error {
 
 	c.tomb.Kill(nil)
 
+	var err error
 	c.once.Do(func() {
-		err := c.conn.Close()
-		if err != nil {
-			c.log.Error("failed to close conn", log.Error(err))
-		}
+		err = c.conn.Close()
 	})
-
-	err := c.tomb.Wait()
 	if err != nil {
-		c.log.Error("failed to wait tomb goroutine", log.Error(err))
+		c.log.Error("failed to close conn", log.Error(err))
+		return errors.Trace(err)
 	}
+
+	// ignore the error, cause it's just the reason of goroutines' death
+	c.tomb.Wait()
 	return nil
 }
 
@@ -112,7 +112,7 @@ func (c *Client) die(msg string, err error) {
 	}
 
 	c.once.Do(func() {
-		err := c.conn.Close()
+		err = c.conn.Close()
 		if err != nil {
 			c.log.Error("failed to close conn", log.Error(err))
 		}

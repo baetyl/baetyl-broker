@@ -185,7 +185,7 @@ func (q *Persistence) recovery() error {
 
 func (q *Persistence) deleting() error {
 	q.log.Info("queue starts to delete messages from db in batch mode")
-	defer utils.Trace(q.log.Info, "queue has stopped deleting messages")()
+	defer q.log.Info("queue has stopped deleting messages")
 
 	var buf []uint64
 	max := cap(q.edel)
