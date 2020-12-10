@@ -1664,33 +1664,29 @@ func TestCleanExpiredMessages(t *testing.T) {
 	pub.sendC2S(pktpub4)
 	pub.assertS2CPacket("<Puback ID=4>")
 
-	//time.Sleep(4 * time.Second)
-	//
-	//fmt.Println("--> ready to connect again <--")
-	//
-	//sub = newMockConn(t)
-	//b.manager.Handle(sub, false)
-	//sub.sendC2S(&mqtt.Connect{ClientID: "sub", Version: 3})
-	//sub.assertS2CPacket("<Connack SessionPresent=true ReturnCode=0>")
-	//// * auto subscribe when cleansession=false
-	//b.assertSessionStore("sub", "{\"id\":\"sub\",\"subs\":{\"test\":1}}", nil)
-	//b.assertExchangeCount(1)
-	//sub.assertS2CPacket("<Publish ID=2 Message=<Message Topic=\"test\" QOS=1 Retain=false Payload=686932> Dup=false>")
-	//sub.assertS2CPacket("<Publish ID=3 Message=<Message Topic=\"test\" QOS=1 Retain=false Payload=686933> Dup=false>")
-	//// the packet whose id equals to 4 will be cleaned as a expired message
-	//sub.assertS2CPacketTimeout()
-	//
-	//fmt.Println("--> 1111111 <--")
-	//
-	//sub.sendC2S(&mqtt.Disconnect{})
-	//sub.assertS2CPacketTimeout()
-	//sub.assertClosed(true)
-	//
-	//pub.sendC2S(&mqtt.Disconnect{})
-	//pub.assertS2CPacketTimeout()
-	//pub.assertClosed(true)
-	//
-	//fmt.Println("--> tests finished <--")
+	time.Sleep(4 * time.Second)
+
+	fmt.Println("--> ready to connect again <--")
+
+	sub = newMockConn(t)
+	b.manager.Handle(sub, false)
+	sub.sendC2S(&mqtt.Connect{ClientID: "sub", Version: 3})
+	sub.assertS2CPacket("<Connack SessionPresent=true ReturnCode=0>")
+	// * auto subscribe when cleansession=false
+	b.assertSessionStore("sub", "{\"id\":\"sub\",\"subs\":{\"test\":1}}", nil)
+	b.assertExchangeCount(1)
+	// the packet whose id equals to 4 will be cleaned as a expired message
+	sub.assertS2CPacketTimeout()
+
+	sub.sendC2S(&mqtt.Disconnect{})
+	sub.assertS2CPacketTimeout()
+	sub.assertClosed(true)
+
+	pub.sendC2S(&mqtt.Disconnect{})
+	pub.assertS2CPacketTimeout()
+	pub.assertClosed(true)
+
+	fmt.Println("--> tests finished <--")
 }
 
 func genRandomString(n int) string {
