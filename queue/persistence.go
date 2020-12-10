@@ -93,7 +93,7 @@ func (q *Persistence) Chan() <-chan *common.Event {
 func (q *Persistence) Pop() (*common.Event, error) {
 	select {
 	case e := <-q.events:
-		if ent := q.log.Check(log.DebugLevel, "queue poped a message"); ent != nil {
+		if ent := q.log.Check(log.InfoLevel, "queue poped a message"); ent != nil {
 			ent.Write(log.Any("message", e.String()))
 		}
 		return e, nil
@@ -140,7 +140,7 @@ func (q *Persistence) Push(e *common.Event) (err error) {
 
 	select {
 	case q.events <- ee:
-		if ent := q.log.Check(log.DebugLevel, "queue pushed a message"); ent != nil {
+		if ent := q.log.Check(log.InfoLevel, "queue pushed a message"); ent != nil {
 			ent.Write(log.Any("message", ee.String()))
 		}
 		return nil
