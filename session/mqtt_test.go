@@ -599,10 +599,13 @@ func TestSessionMqttCleanSession(t *testing.T) {
 	b.assertSessionStore("sub", "", errors.New("pebble: not found"))
 	b.assertExchangeCount(1)
 
+	pub.assertS2CPacketTimeout()
+	sub.assertS2CPacketTimeout()
+
 	pub.sendC2S(pktpub0)
+	sub.assertS2CPacket("<Publish ID=0 Message=<Message Topic=\"test\" QOS=0 Retain=false Payload=686930> Dup=false>")
 	pub.sendC2S(pktpub1)
 	pub.assertS2CPacket("<Puback ID=1>")
-	sub.assertS2CPacket("<Publish ID=0 Message=<Message Topic=\"test\" QOS=0 Retain=false Payload=686930> Dup=false>")
 	sub.assertS2CPacket("<Publish ID=3 Message=<Message Topic=\"test\" QOS=1 Retain=false Payload=686931> Dup=false>")
 	sub.sendC2S(&mqtt.Puback{ID: 1})
 	sub.sendC2S(&mqtt.Disconnect{})
