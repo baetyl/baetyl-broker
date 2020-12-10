@@ -129,6 +129,7 @@ func TestPersistentQueue(t *testing.T) {
 	})
 	assert.NoError(t, err)
 	assert.Len(t, ms2, 1)
+	fmt.Println("sd: ", ms2[0])
 
 	e3, err := b.Pop()
 	assert.NoError(t, err)
