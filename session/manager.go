@@ -151,7 +151,10 @@ func (m *Manager) addClient(si Info, c *Client) (s *Session, exists bool, err er
 		s = v.(*Session)
 		if !s.info.CleanSession {
 			exists = true
-			s.update(si, c.authorize)
+			err := s.update(si, c.authorize)
+			if err != nil {
+				return nil, false, errors.Trace(err)
+			}
 			return s, exists, errors.Trace(err)
 		}
 
@@ -181,8 +184,7 @@ func (m *Manager) delClient(clientID string) error {
 	}
 
 	s := v.(*Session)
-	// TODO: need lock here ?
-	if s.info.CleanSession {
+	if s.cleanSession() {
 		m.cleanSession(s)
 	}
 
