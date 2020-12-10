@@ -79,21 +79,26 @@ func TestPersistentQueue(t *testing.T) {
 	m.Context.ID = 111
 	m.Context.TS = 123
 	m.Context.QOS = 1
-	m.Context.Topic = "t"
+	m.Context.Topic = "t1"
 	e := common.NewEvent(m, 0, nil)
+
 	err = b.Push(e)
 	assert.NoError(t, err)
+
+	e.Context.Topic = "t2"
 	err = b.Push(e)
 	assert.NoError(t, err)
+
+	e.Context.Topic = "t3"
 	err = b.Push(e)
 	assert.NoError(t, err)
 
 	e1, err := b.Pop()
 	assert.NoError(t, err)
-	assert.Equal(t, "Context:<ID:1 TS:123 QOS:1 Topic:\"t\" > Content:\"hi\" ", e1.String())
+	assert.Equal(t, "Context:<ID:1 TS:123 QOS:1 Topic:\"t1\" > Content:\"hi\" ", e1.String())
 	e2, err := b.Pop()
 	assert.NoError(t, err)
-	assert.Equal(t, "Context:<ID:2 TS:123 QOS:1 Topic:\"t\" > Content:\"hi\" ", e2.String())
+	assert.Equal(t, "Context:<ID:2 TS:123 QOS:1 Topic:\"t2\" > Content:\"hi\" ", e2.String())
 
 	var ms []mqtt.Message
 	err = bucket.Get(1, 10, func(data []byte, offset uint64) error {
@@ -133,7 +138,7 @@ func TestPersistentQueue(t *testing.T) {
 
 	e3, err := b.Pop()
 	assert.NoError(t, err)
-	assert.Equal(t, "Context:<ID:3 TS:123 QOS:1 Topic:\"t\" > Content:\"hi\" ", e3.String())
+	assert.Equal(t, "Context:<ID:3 TS:123 QOS:1 Topic:\"t3\" > Content:\"hi\" ", e3.String())
 
 	e3.Done()
 	time.Sleep(time.Second)
