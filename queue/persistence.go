@@ -1,7 +1,6 @@
 package queue
 
 import (
-	"fmt"
 	"sync"
 	"time"
 
@@ -35,6 +34,7 @@ type Persistence struct {
 	edel       chan uint64 // del events with message id
 	bucket     store.BatchBucket
 	recovering bool
+	recoveredOffset uint64
 	disable    bool
 	log        *log.Logger
 	utils.Tomb
@@ -131,7 +131,7 @@ func (q *Persistence) Push(e *common.Event) (err error) {
 	e.Done()
 
 	q.Lock()
-	if q.recovering || q.disable {
+	if q.recovering || q.disable || ee.Context.ID < q.recoveredOffset {
 		// if in recovery mode, send the msg to db, and do not pass to out channel
 		// otherwise send to the db and pass to out channel
 		q.Unlock()
@@ -168,6 +168,7 @@ func (q *Persistence) recovery() error {
 		length = len(buf)
 		if length == 0 {
 			q.recovering = false
+			q.recoveredOffset = offset
 			q.Unlock()
 			return nil
 		}
@@ -175,7 +176,7 @@ func (q *Persistence) recovery() error {
 		for _, e := range buf {
 			select {
 			case q.events <- e:
-				fmt.Println("recovery put a message to queue:", e)
+				// TODO: add log
 			case <-q.Dying():
 				return nil
 			}
