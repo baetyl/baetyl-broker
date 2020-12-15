@@ -153,7 +153,7 @@ func (q *Persistence) Push(e *common.Event) (err error) {
 // recovery from db
 func (q *Persistence) recovery() error {
 	q.log.Info("queue starts to recovery msgs from db in batch mode")
-	defer utils.Trace(q.log.Info, "queue has finished reading messages from db in batch mode")()
+	defer utils.Trace(q.log.Info, "queue has finished recovery msgs from db in batch mode")()
 
 	var err error
 	var buf []*common.Event

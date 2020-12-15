@@ -149,7 +149,6 @@ func TestPersistentQueue(t *testing.T) {
 	})
 	assert.NoError(t, err)
 	assert.Len(t, ms2, 1)
-	fmt.Println("sd: ", ms2[0])
 
 	e3, err = b.Pop()
 	assert.NoError(t, err)
@@ -157,28 +156,25 @@ func TestPersistentQueue(t *testing.T) {
 
 	e3.Done()
 
-	//e3, err = b.Pop()
-	//assert.NoError(t, err)
-	//assert.Equal(t, "Context:<ID:3 TS:123 QOS:1 Topic:\"t3\" > Content:\"hi3\" ", e3.String())
-	//time.Sleep(time.Second)
-	//
-	//var ms4 []mqtt.Message
-	//err = bucket.Get(1, 10, func(data []byte, offset uint64) error {
-	//	if len(data) == 0 {
-	//		return store.ErrDataNotFound
-	//	}
-	//	v := mqtt.Message{}
-	//	if err := proto.Unmarshal(data, &v); err != nil {
-	//		return err
-	//	}
-	//	ms4 = append(ms4, v)
-	//	return nil
-	//})
-	//assert.NoError(t, err)
-	//assert.Len(t, ms4, 0)
-	//
-	//err = b.Close(false)
-	//assert.NoError(t, err)
+	time.Sleep(time.Second)
+
+	var ms4 []mqtt.Message
+	err = bucket.Get(1, 10, func(data []byte, offset uint64) error {
+		if len(data) == 0 {
+			return store.ErrDataNotFound
+		}
+		v := mqtt.Message{}
+		if err := proto.Unmarshal(data, &v); err != nil {
+			return err
+		}
+		ms4 = append(ms4, v)
+		return nil
+	})
+	assert.NoError(t, err)
+	assert.Len(t, ms4, 0)
+
+	err = b.Close(false)
+	assert.NoError(t, err)
 }
 
 func BenchmarkPersistentQueue(b *testing.B) {

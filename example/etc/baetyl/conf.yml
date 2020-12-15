@@ -1,47 +1,15 @@
 listeners:
-  - address: tcp://0.0.0.0:1883
-  - address: ssl://0.0.0.0:1884
-    ca: example/var/lib/baetyl/testcert/ca.crt
-    key: example/var/lib/baetyl/testcert/server.key
-    cert: example/var/lib/baetyl/testcert/server.crt
-    anonymous: true
-  - address: ws://0.0.0.0:8883/mqtt
-  - address: wss://0.0.0.0:8884/mqtt
-    ca: example/var/lib/baetyl/testcert/ca.crt
-    key: example/var/lib/baetyl/testcert/server.key
-    cert: example/var/lib/baetyl/testcert/server.crt
-    anonymous: false
-principals:
-  - username: test
-    password: hahaha
-    permissions:
-      - action: pub
-        permit: ["test"]
-      - action: sub
-        permit: ["test"]
-  - username: client
-    permissions:
-      - action: pub
-        permit: ["#"]
-      - action: sub
-        permit: ["#"]
+  - address: tcp://0.0.0.0:8003
+
 session:
-  maxClients: 0
-  maxMessagePayloadSize: 32768
   maxInflightQOS0Messages: 100
-  maxInflightQOS1Messages: 20
-  resendInterval: 20s
+  maxInflightQOS1Messages: 100
+  resendInterval: 200s
   persistence:
-    store:
-      driver: boltdb
-      source: var/lib/baetyl/broker.db
     queue:
-      batchSize: 10
-      expireTime: 24h
-      cleanInterval: 1h
-      writeTimeout: 100ms
-      deleteTimeout: 500ms
-  sysTopics: ["$link", "$baidu"]
+      batchSize: 100
+      deleteTimeout: 10s
 
 logger:
   level: info
+  encoding: console
