@@ -1,6 +1,7 @@
 package pebble
 
 import (
+	"bytes"
 	"os"
 	"time"
 
@@ -68,25 +69,32 @@ func (d *pebbleDB) NewKVBucket(name string) (store.KVBucket, error) {
 	}, nil
 }
 
-func (b *pebbleBucket) Set(offset uint64, value []byte) error {
-	if len(value) == 0 {
+func (b *pebbleBucket) Put(offset uint64, values [][]byte) error {
+	if len(values) == 0 {
 		return nil
 	}
 
-	key := encodeBatchKey(b.name, offset)
-	return errors.Trace(b.db.Set(key, value, b.writeOpts))
+	batch := b.db.NewBatch()
+	for _, v := range values {
+		key := encodeBatchKey(b.name, offset)
+		err := batch.Set(key, v, nil)
+		if err != nil {
+			return errors.Trace(err)
+		}
+		offset++
+	}
+	return errors.Trace(b.db.Apply(batch, b.writeOpts))
 }
 
-func (b *pebbleBucket) Get(offset uint64, length int, op func([]byte, uint64) error) error {
+func (b *pebbleBucket) Get(begin, end uint64, op func([]byte, uint64) error) error {
 	iter := b.db.NewIter(b.prefixIterOpts)
-	key, count := append(b.name, store.U64ToByte(offset)...), 0
-	for iter.SeekGE(key); iter.Valid() && count < length; iter.Next() {
+	beginKey, endKey := append(b.name, store.U64ToByte(begin)...), append(b.name, store.U64ToByte(end)...)
+	for iter.SeekGE(beginKey); iter.Valid() && bytes.Compare(iter.Key(), endKey) < 0; iter.Next() {
 		offset, _ := decodeBatchKey(iter.Key(), b.name)
 		err := op(iter.Value(), offset)
 		if err != nil {
 			return errors.Trace(err)
 		}
-		count++
 	}
 	return errors.Trace(iter.Close())
 }
@@ -95,6 +103,18 @@ func (b *pebbleBucket) MaxOffset() (uint64, error) {
 	var offset uint64
 	iter := b.db.NewIter(b.prefixIterOpts)
 	if iter.Last() {
+		offset, _ = decodeBatchKey(iter.Key(), b.name)
+	}
+	if err := iter.Close(); err != nil {
+		return offset, errors.Trace(err)
+	}
+	return offset, nil
+}
+
+func (b *pebbleBucket) MinOffset() (uint64, error) {
+	var offset uint64
+	iter := b.db.NewIter(b.prefixIterOpts)
+	if iter.First() {
 		offset, _ = decodeBatchKey(iter.Key(), b.name)
 	}
 	if err := iter.Close(); err != nil {
