@@ -17,14 +17,18 @@ import (
 
 // Config queue config
 type Config struct {
-	Name                 string        `yaml:"name" json:"name"`
-	BatchSize            int           `yaml:"batchSize" json:"batchSize" default:"10"`
-	BatchCacheSize       int           `yaml:"batchCacheSize" json:"batchCacheSize" default:"5"`
-	BatchCacheExpireTime time.Duration `yaml:"batchCacheExpireTime" json:"batchCacheExpireTime" default:"1min"`
-	ExpireTime           time.Duration `yaml:"expireTime" json:"expireTime" default:"168h"`
-	CleanInterval        time.Duration `yaml:"cleanInterval" json:"cleanInterval" default:"1h"`
-	WriteTimeout         time.Duration `yaml:"writeTimeout" json:"writeTimeout" default:"100ms"`
-	DeleteTimeout        time.Duration `yaml:"deleteTimeout" json:"deleteTimeout" default:"500ms"`
+	Name              string        `yaml:"name" json:"name"`
+	BatchSize         int           `yaml:"batchSize" json:"batchSize" default:"10"`
+	MaxBatchCacheSize int           `yaml:"maxBatchCacheSize" json:"maxBatchCacheSize" default:"5"`
+	ExpireTime        time.Duration `yaml:"expireTime" json:"expireTime" default:"168h"`
+	CleanInterval     time.Duration `yaml:"cleanInterval" json:"cleanInterval" default:"1h"`
+	WriteTimeout      time.Duration `yaml:"writeTimeout" json:"writeTimeout" default:"100ms"`
+	DeleteTimeout     time.Duration `yaml:"deleteTimeout" json:"deleteTimeout" default:"500ms"`
+}
+
+type batchMsgs struct {
+	offset uint64
+	data   []*common.Event
 }
 
 // Persistence is a persistent queue
@@ -32,7 +36,7 @@ type Persistence struct {
 	id      string
 	cfg     Config
 	offset  uint64
-	cache   []*BatchMsg
+	cache   []*batchMsgs
 	bucket  store.BatchBucket
 	disable bool
 	input   chan *common.Event
@@ -42,11 +46,6 @@ type Persistence struct {
 	log     *log.Logger
 	utils.Tomb
 	sync.Mutex
-}
-
-type BatchMsg struct {
-	offset uint64
-	data   []*common.Event
 }
 
 // NewPersistence creates a new persistent queue
@@ -65,7 +64,7 @@ func NewPersistence(cfg Config, bucket store.BatchBucket) (Queue, error) {
 		output: make(chan *common.Event, cfg.BatchSize),
 		edel:   make(chan uint64, cfg.BatchSize),
 		eget:   make(chan bool, 1),
-		cache:  []*BatchMsg{},
+		cache:  []*batchMsgs{},
 		log:    log.With(log.Any("queue", "persistence"), log.Any("id", cfg.Name)),
 	}
 
@@ -93,7 +92,6 @@ func (q *Persistence) writing() error {
 
 	var buf []*common.Event
 	interval := cap(q.input)
-	// ? Is it possible to remove the timer?
 	timer := time.NewTimer(q.cfg.WriteTimeout)
 	defer timer.Stop()
 
@@ -186,6 +184,42 @@ func (q *Persistence) reading() error {
 	}
 }
 
+func (q *Persistence) deleting() error {
+	q.log.Info("queue starts to delete messages from db in batch mode")
+	defer q.log.Info("queue has stopped deleting messages")
+
+	var buf []uint64
+	max := cap(q.edel)
+	cleanDuration := q.cfg.CleanInterval
+	timer := time.NewTimer(q.cfg.DeleteTimeout)
+	cleanTimer := time.NewTicker(cleanDuration)
+	defer timer.Stop()
+	defer cleanTimer.Stop()
+
+	for {
+		select {
+		case e := <-q.edel:
+			q.log.Debug("queue received a delete event")
+			buf = append(buf, e)
+			if len(buf) == max {
+				buf = q.delete(buf)
+			}
+			timer.Reset(q.cfg.DeleteTimeout)
+		case <-timer.C:
+			q.log.Debug("queue deletes message from db when timeout")
+			buf = q.delete(buf)
+		case <-cleanTimer.C:
+			q.log.Debug("queue starts to clean expired messages from db")
+			q.clean()
+			//q.log.Info(fmt.Sprintf("queue state: input size %d, events size %d, deletion size %d", len(q.input), len(q.events), len(q.edel)))
+		case <-q.Dying():
+			q.log.Debug("queue deletes message from db during closing")
+			buf = q.delete(buf)
+			return nil
+		}
+	}
+}
+
 func (q *Persistence) add(buf []*common.Event) []*common.Event {
 	if len(buf) == 0 {
 		return buf
@@ -231,8 +265,8 @@ func (q *Persistence) add(buf []*common.Event) []*common.Event {
 			q.Unlock()
 			return []*common.Event{}
 		}
-		if len(q.cache) < q.cfg.BatchCacheSize {
-			batch := &BatchMsg{
+		if len(q.cache) < q.cfg.MaxBatchCacheSize {
+			batch := &batchMsgs{
 				offset: begin,
 				data:   msgs,
 			}
@@ -282,6 +316,22 @@ func (q *Persistence) get(begin, end uint64) ([]*common.Event, error) {
 	return events, nil
 }
 
+// deletes all acknowledged message from db in batch mode
+func (q *Persistence) delete(buf []uint64) []uint64 {
+	if len(buf) == 0 {
+		return buf
+	}
+
+	id := buf[len(buf)-1]
+	defer utils.Trace(q.log.Debug, "queue has deleted message from db", log.Any("count", len(buf)), log.Any("id", id))
+
+	err := q.bucket.DelBeforeID(id)
+	if err != nil {
+		q.log.Error("failed to delete messages from db", log.Any("count", len(buf)), log.Any("id", id), log.Error(err))
+	}
+	return []uint64{}
+}
+
 // triggers an event to get message from backend database in batch mode
 func (q *Persistence) trigger() {
 	select {
@@ -313,65 +363,20 @@ func (q *Persistence) Pop() (*common.Event, error) {
 	}
 }
 
-func (q *Persistence) deleting() error {
-	q.log.Info("queue starts to delete messages from db in batch mode")
-	defer q.log.Info("queue has stopped deleting messages")
-
-	var buf []uint64
-	max := cap(q.edel)
-	// ? Is it possible to remove the timer?
-	cleanDuration := q.cfg.CleanInterval
-	timer := time.NewTimer(q.cfg.DeleteTimeout)
-	cleanTimer := time.NewTicker(cleanDuration)
-	defer timer.Stop()
-	defer cleanTimer.Stop()
-
-	for {
-		select {
-		case e := <-q.edel:
-			q.log.Debug("queue received a delete event")
-			buf = append(buf, e)
-			if len(buf) == max {
-				buf = q.delete(buf)
-			}
-			timer.Reset(q.cfg.DeleteTimeout)
-		case <-timer.C:
-			q.log.Debug("queue deletes message from db when timeout")
-			buf = q.delete(buf)
-		case <-cleanTimer.C:
-			q.log.Debug("queue starts to clean expired messages from db")
-			q.clean()
-			//q.log.Info(fmt.Sprintf("queue state: input size %d, events size %d, deletion size %d", len(q.input), len(q.events), len(q.edel)))
-		case <-q.Dying():
-			q.log.Debug("queue deletes message from db during closing")
-			buf = q.delete(buf)
-			return nil
-		}
-	}
-}
-
-// deletes all acknowledged message from db in batch mode
-func (q *Persistence) delete(buf []uint64) []uint64 {
-	if len(buf) == 0 {
-		return buf
-	}
-
-	id := buf[len(buf)-1]
-	defer utils.Trace(q.log.Debug, "queue has deleted message from db", log.Any("count", len(buf)), log.Any("id", id))
-
-	err := q.bucket.DelBeforeID(id)
-	if err != nil {
-		q.log.Error("failed to delete messages from db", log.Any("count", len(buf)), log.Any("id", id), log.Error(err))
-	}
-	return []uint64{}
-}
-
 // clean expired messages
 func (q *Persistence) clean() {
 	defer utils.Trace(q.log.Debug, "queue has cleaned expired messages from db")
 
-	// TODO: how to compact msg cache ?
-	// get timestamp, if timestamp more than expire time clean it
+	q.Lock()
+	var index int
+	for i, v := range q.cache {
+		if v.data[len(v.data)-1].Context.TS >= uint64(time.Now().Add(-q.cfg.ExpireTime).Unix()) {
+			index = i
+			break
+		}
+	}
+	q.cache = q.cache[index:]
+	q.Unlock()
 
 	err := q.bucket.DelBeforeTS(uint64(time.Now().Add(-q.cfg.ExpireTime).Unix()))
 	if err != nil {

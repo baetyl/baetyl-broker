@@ -387,7 +387,6 @@ func TestBrokerMqttConnectWebsocketNormal(t *testing.T) {
 }
 
 func TestBrokerMqttConnectWebSocketSSLNormal(t *testing.T) {
-	t.Skip(t.Name())
 	dir, err := ioutil.TempDir("", t.Name())
 	assert.NoError(t, err)
 	defer os.RemoveAll(dir)

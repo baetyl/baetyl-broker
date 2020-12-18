@@ -24,7 +24,7 @@ type pebbleDB struct {
 // pebbleBucket the bucket to save data
 type pebbleBucket struct {
 	db             *pebble.DB
-	name           []byte
+	name           string
 	prefixIterOpts *pebble.IterOptions
 	writeOpts      *pebble.WriteOptions
 }
@@ -49,22 +49,20 @@ func newPebbleDB(conf store.Conf) (store.DB, error) {
 
 // NewBucket creates a bucket
 func (d *pebbleDB) NewBatchBucket(name string) (store.BatchBucket, error) {
-	bn := []byte(name)
 	return &pebbleBucket{
 		db:             d.DB,
-		name:           bn,
-		prefixIterOpts: getPrefixIterOptions(bn),
-		writeOpts: pebble.Sync,
+		name:           name,
+		prefixIterOpts: getPrefixIterOptions([]byte(name)),
+		writeOpts:      pebble.Sync,
 	}, nil
 }
 
 // NewBucket creates a bucket
 func (d *pebbleDB) NewKVBucket(name string) (store.KVBucket, error) {
-	bn := []byte(name)
 	return &pebbleBucket{
 		db:             d.DB,
-		name:           bn,
-		prefixIterOpts: getPrefixIterOptions(bn),
+		name:           name,
+		prefixIterOpts: getPrefixIterOptions([]byte(name)),
 		writeOpts:      pebble.Sync,
 	}, nil
 }
@@ -76,7 +74,7 @@ func (b *pebbleBucket) Put(offset uint64, values [][]byte) error {
 
 	batch := b.db.NewBatch()
 	for _, v := range values {
-		key := encodeBatchKey(b.name, offset)
+		key := encodeBatchKey([]byte(b.name), offset)
 		err := batch.Set(key, v, nil)
 		if err != nil {
 			return errors.Trace(err)
@@ -88,14 +86,11 @@ func (b *pebbleBucket) Put(offset uint64, values [][]byte) error {
 
 // Get [begin, end)
 func (b *pebbleBucket) Get(begin, end uint64, op func([]byte, uint64) error) error {
-	nn := make([]byte, len(b.name))
-	copy(nn, b.name)
-	endKey := append(nn, store.U64ToByte(end)...)
-
-	beginKey := append(b.name, store.U64ToByte(begin)...)
+	beginKey := append([]byte(b.name), store.U64ToByte(begin)...)
+	endKey := append([]byte(b.name), store.U64ToByte(end)...)
 	iter := b.db.NewIter(b.prefixIterOpts)
 	for iter.SeekGE(beginKey); iter.Valid() && bytes.Compare(iter.Key(), endKey) < 0; iter.Next() {
-		offset, _ := decodeBatchKey(iter.Key(), b.name)
+		offset, _ := decodeBatchKey(iter.Key(), []byte(b.name))
 		err := op(iter.Value(), offset)
 		if err != nil {
 			return errors.Trace(err)
@@ -108,7 +103,7 @@ func (b *pebbleBucket) MaxOffset() (uint64, error) {
 	var offset uint64
 	iter := b.db.NewIter(b.prefixIterOpts)
 	if iter.Last() {
-		offset, _ = decodeBatchKey(iter.Key(), b.name)
+		offset, _ = decodeBatchKey(iter.Key(), []byte(b.name))
 	}
 	if err := iter.Close(); err != nil {
 		return offset, errors.Trace(err)
@@ -120,7 +115,7 @@ func (b *pebbleBucket) MinOffset() (uint64, error) {
 	var offset uint64
 	iter := b.db.NewIter(b.prefixIterOpts)
 	if iter.First() {
-		offset, _ = decodeBatchKey(iter.Key(), b.name)
+		offset, _ = decodeBatchKey(iter.Key(), []byte(b.name))
 	}
 	if err := iter.Close(); err != nil {
 		return offset, errors.Trace(err)
@@ -130,17 +125,16 @@ func (b *pebbleBucket) MinOffset() (uint64, error) {
 
 // DelBeforeID deletes values whose keys are not greater than the given id from DB
 func (b *pebbleBucket) DelBeforeID(id uint64) error {
-	start := b.name
-	end := keyUpperBound(append(start, store.U64ToByte(id)...))
-	return errors.Trace(b.db.DeleteRange(start, end, b.writeOpts))
+	end := keyUpperBound(append([]byte(b.name), store.U64ToByte(id)...))
+	return errors.Trace(b.db.DeleteRange([]byte(b.name), end, b.writeOpts))
 }
 
 // DelBeforeTS deletes expired messages from DB
 func (b *pebbleBucket) DelBeforeTS(ts uint64) error {
-	start, end := b.name, keyUpperBound(b.name)
+	end := keyUpperBound([]byte(b.name))
 	iter := b.db.NewIter(b.prefixIterOpts)
 	for iter.First(); iter.Valid(); iter.Next() {
-		_, kts := decodeBatchKey(iter.Key(), b.name)
+		_, kts := decodeBatchKey(iter.Key(), []byte(b.name))
 		if kts > ts {
 			end = iter.Key()
 			break
@@ -150,7 +144,7 @@ func (b *pebbleBucket) DelBeforeTS(ts uint64) error {
 	if err := iter.Close(); err != nil {
 		return errors.Trace(err)
 	}
-	return errors.Trace(b.db.DeleteRange(start, end, b.writeOpts))
+	return errors.Trace(b.db.DeleteRange([]byte(b.name), end, b.writeOpts))
 }
 
 // Close close
@@ -158,20 +152,19 @@ func (b *pebbleBucket) Close(clean bool) (err error) {
 	if !clean {
 		return nil
 	}
-	start := b.name
-	end := keyUpperBound(start)
-	return b.db.DeleteRange(start, end, b.writeOpts)
+	end := keyUpperBound([]byte(b.name))
+	return b.db.DeleteRange([]byte(b.name), end, b.writeOpts)
 }
 
 // SetKV deletes expired messages from DB
 func (b *pebbleBucket) SetKV(key []byte, value []byte) error {
-	key = encodeKVKey(b.name, key)
+	key = encodeKVKey([]byte(b.name), key)
 	return errors.Trace(b.db.Set(key, value, b.writeOpts))
 }
 
 // SetKV deletes expired messages from DB
 func (b *pebbleBucket) GetKV(key []byte, op func([]byte) error) error {
-	key = encodeKVKey(b.name, key)
+	key = encodeKVKey([]byte(b.name), key)
 	value, closer, err := b.db.Get(key)
 	if err != nil {
 		return errors.Trace(err)
@@ -184,7 +177,7 @@ func (b *pebbleBucket) GetKV(key []byte, op func([]byte) error) error {
 }
 
 func (b *pebbleBucket) DelKV(key []byte) error {
-	key = encodeKVKey(b.name, key)
+	key = encodeKVKey([]byte(b.name), key)
 	return errors.Trace(b.db.Delete(key, b.writeOpts))
 }
 
