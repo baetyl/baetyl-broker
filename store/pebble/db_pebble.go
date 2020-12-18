@@ -55,7 +55,7 @@ func (d *pebbleDB) NewBatchBucket(name string) (store.BatchBucket, error) {
 		name:           bn,
 		prefixIterOpts: getPrefixIterOptions(bn),
 		// TODO: NoSync will lost data ?
-		writeOpts: pebble.NoSync,
+		writeOpts: pebble.Sync,
 	}, nil
 }
 
@@ -66,7 +66,7 @@ func (d *pebbleDB) NewKVBucket(name string) (store.KVBucket, error) {
 		db:             d.DB,
 		name:           bn,
 		prefixIterOpts: getPrefixIterOptions(bn),
-		writeOpts:      pebble.NoSync,
+		writeOpts:      pebble.Sync,
 	}, nil
 }
 
