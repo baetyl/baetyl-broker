@@ -54,7 +54,6 @@ func (d *pebbleDB) NewBatchBucket(name string) (store.BatchBucket, error) {
 		db:             d.DB,
 		name:           bn,
 		prefixIterOpts: getPrefixIterOptions(bn),
-		// TODO: NoSync will lost data ?
 		writeOpts: pebble.Sync,
 	}, nil
 }
