@@ -1,15 +1,15 @@
 listeners:
   - address: tcp://0.0.0.0:8003
 
-session:
-  maxInflightQOS0Messages: 100
-  maxInflightQOS1Messages: 100
-  resendInterval: 200s
-  persistence:
-    queue:
-      batchSize: 100
-      deleteTimeout: 10s
+#session:
+#  maxInflightQOS0Messages: 100
+#  maxInflightQOS1Messages: 100
+#  resendInterval: 200s
+#  persistence:
+#    queue:
+#      batchSize: 100
+#      deleteTimeout: 10s
 
 logger:
-  level: info
+  level: debug
   encoding: console

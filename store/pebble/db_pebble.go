@@ -86,6 +86,7 @@ func (b *pebbleBucket) Put(offset uint64, values [][]byte) error {
 	return errors.Trace(b.db.Apply(batch, b.writeOpts))
 }
 
+// 左闭右开
 func (b *pebbleBucket) Get(begin, end uint64, op func([]byte, uint64) error) error {
 	iter := b.db.NewIter(b.prefixIterOpts)
 	beginKey, endKey := append(b.name, store.U64ToByte(begin)...), append(b.name, store.U64ToByte(end)...)

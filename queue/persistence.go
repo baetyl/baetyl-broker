@@ -91,13 +91,13 @@ func (q *Persistence) writing() error {
 	q.log.Info("queue starts to write messages into backend in batch mode")
 	defer utils.Trace(q.log.Info, "queue has stopped writing messages")()
 
+	var buf []*common.Event
 	interval := cap(q.input)
 	// ? Is it possible to remove the timer?
 	timer := time.NewTimer(q.cfg.WriteTimeout)
 	defer timer.Stop()
 
 	for {
-		var buf []*common.Event
 		select {
 		case e := <-q.input:
 			if ent := q.log.Check(log.DebugLevel, "queue received a message"); ent != nil {
@@ -105,16 +105,16 @@ func (q *Persistence) writing() error {
 			}
 			buf = append(buf, e)
 			if len(buf) == interval {
-				q.add(buf)
+				buf = q.add(buf)
 			}
 			//  if receive timeout to add messages in buffer
 			timer.Reset(q.cfg.WriteTimeout)
 		case <-timer.C:
 			q.log.Debug("queue writes message to backend when timeout")
-			q.add(buf)
+			buf = q.add(buf)
 		case <-q.Dying():
 			q.log.Debug("queue writes message to backend during closing")
-			q.add(buf)
+			buf = q.add(buf)
 			return nil
 		}
 	}
@@ -125,10 +125,14 @@ func (q *Persistence) reading() error {
 	defer utils.Trace(q.log.Info, "queue has stopped reading messages")()
 
 	interval := cap(q.output)
+	// begin means offset which is ready to read
 	begin, err := q.bucket.MinOffset()
 	if err != nil {
 		q.log.Debug("failed to get min offset of bucket")
 		return errors.Trace(err)
+	}
+	if begin == 0 {
+		begin = 1
 	}
 
 	for {
@@ -148,9 +152,9 @@ func (q *Persistence) reading() error {
 			}
 			if end == 0 {
 				end = q.offset + 1
-			}
-			if t := begin + uint64(interval); t < end {
-				end = t
+				if t := begin + uint64(interval); t < end {
+					end = t
+				}
 			}
 			q.Unlock()
 
@@ -182,9 +186,9 @@ func (q *Persistence) reading() error {
 	}
 }
 
-func (q *Persistence) add(buf []*common.Event) {
+func (q *Persistence) add(buf []*common.Event) []*common.Event {
 	if len(buf) == 0 {
-		return
+		return buf
 	}
 	defer utils.Trace(q.log.Debug, "queue has written message to backend", log.Any("count", len(buf)))()
 
@@ -209,7 +213,7 @@ func (q *Persistence) add(buf []*common.Event) {
 		if err != nil {
 			// TODO: how to process marshal properly ?
 			q.log.Error("failed to add messages to backend database", log.Error(err))
-			return
+			return []*common.Event{}
 		}
 		ds = append(ds, data)
 		msgs = append(msgs, ee)
@@ -225,7 +229,7 @@ func (q *Persistence) add(buf []*common.Event) {
 		q.Lock()
 		if q.disable {
 			q.Unlock()
-			return
+			return []*common.Event{}
 		}
 		if len(q.cache) < q.cfg.BatchCacheSize {
 			batch := &BatchMsg{
@@ -242,8 +246,7 @@ func (q *Persistence) add(buf []*common.Event) {
 	} else {
 		q.log.Error("failed to add messages to backend database", log.Error(err))
 	}
-
-	return
+	return []*common.Event{}
 }
 
 // get gets messages from db in batch mode
