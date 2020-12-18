@@ -54,7 +54,8 @@ func (d *pebbleDB) NewBatchBucket(name string) (store.BatchBucket, error) {
 		db:             d.DB,
 		name:           bn,
 		prefixIterOpts: getPrefixIterOptions(bn),
-		writeOpts:      pebble.NoSync,
+		// TODO: NoSync will lost data ?
+		writeOpts: pebble.NoSync,
 	}, nil
 }
 
@@ -86,10 +87,14 @@ func (b *pebbleBucket) Put(offset uint64, values [][]byte) error {
 	return errors.Trace(b.db.Apply(batch, b.writeOpts))
 }
 
-// 左闭右开
+// Get [begin, end)
 func (b *pebbleBucket) Get(begin, end uint64, op func([]byte, uint64) error) error {
+	nn := make([]byte, len(b.name))
+	copy(nn, b.name)
+	endKey := append(nn, store.U64ToByte(end)...)
+
+	beginKey := append(b.name, store.U64ToByte(begin)...)
 	iter := b.db.NewIter(b.prefixIterOpts)
-	beginKey, endKey := append(b.name, store.U64ToByte(begin)...), append(b.name, store.U64ToByte(end)...)
 	for iter.SeekGE(beginKey); iter.Valid() && bytes.Compare(iter.Key(), endKey) < 0; iter.Next() {
 		offset, _ := decodeBatchKey(iter.Key(), b.name)
 		err := op(iter.Value(), offset)
@@ -128,7 +133,7 @@ func (b *pebbleBucket) MinOffset() (uint64, error) {
 func (b *pebbleBucket) DelBeforeID(id uint64) error {
 	start := b.name
 	end := keyUpperBound(append(start, store.U64ToByte(id)...))
-	return errors.Trace(b.db.DeleteRange(start, end, pebble.NoSync))
+	return errors.Trace(b.db.DeleteRange(start, end, b.writeOpts))
 }
 
 // DelBeforeTS deletes expired messages from DB

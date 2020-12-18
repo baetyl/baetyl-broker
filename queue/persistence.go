@@ -152,9 +152,9 @@ func (q *Persistence) reading() error {
 			}
 			if end == 0 {
 				end = q.offset + 1
-				if t := begin + uint64(interval); t < end {
-					end = t
-				}
+			}
+			if t := begin + uint64(interval); t < end {
+				end = t
 			}
 			q.Unlock()
 
