@@ -44,7 +44,7 @@ func (m *Manager) Handle(conn mqtt.Connection, anonymous bool) {
 		manager:   m,
 		conn:      conn,
 		anonymous: anonymous,
-		log:       log.With(log.Any("type", "mqtt"), log.Any("id", id)),
+		log:       log.With(log.Any("type", "mqtt"), log.Any("cid", id)),
 	}
 
 	max := m.cfg.MaxClients
@@ -61,9 +61,7 @@ func (m *Manager) Handle(conn mqtt.Connection, anonymous bool) {
 
 func (c *Client) setSession(sid string, s *Session) {
 	c.session = s
-	if c.id != sid {
-		c.log = c.log.With(log.Any("sid", sid))
-	}
+	c.log = c.log.With(log.Any("sid", sid))
 }
 
 // closes client by session
