@@ -52,7 +52,7 @@ func (d *pebbleDB) NewBatchBucket(name string) (store.BatchBucket, error) {
 	return &pebbleBucket{
 		db:             d.DB,
 		name:           name,
-		prefixIterOpts: getPrefixIterOptions([]byte(name)),
+		prefixIterOpts: getPrefixIterOptions(name),
 		writeOpts:      pebble.Sync,
 	}, nil
 }
@@ -62,7 +62,7 @@ func (d *pebbleDB) NewKVBucket(name string) (store.KVBucket, error) {
 	return &pebbleBucket{
 		db:             d.DB,
 		name:           name,
-		prefixIterOpts: getPrefixIterOptions([]byte(name)),
+		prefixIterOpts: getPrefixIterOptions(name),
 		writeOpts:      pebble.Sync,
 	}, nil
 }
@@ -74,7 +74,7 @@ func (b *pebbleBucket) Put(offset uint64, values [][]byte) error {
 
 	batch := b.db.NewBatch()
 	for _, v := range values {
-		key := encodeBatchKey([]byte(b.name), offset)
+		key := encodeBatchKey(b.name, offset)
 		err := batch.Set(key, v, nil)
 		if err != nil {
 			return errors.Trace(err)
@@ -86,11 +86,11 @@ func (b *pebbleBucket) Put(offset uint64, values [][]byte) error {
 
 // Get [begin, end)
 func (b *pebbleBucket) Get(begin, end uint64, op func([]byte, uint64) error) error {
-	beginKey := append([]byte(b.name), store.U64ToByte(begin)...)
-	endKey := append([]byte(b.name), store.U64ToByte(end)...)
+	beginKey := concatBucketName(b.name, store.U64ToByte(begin))
+	endKey := concatBucketName(b.name, store.U64ToByte(end))
 	iter := b.db.NewIter(b.prefixIterOpts)
 	for iter.SeekGE(beginKey); iter.Valid() && bytes.Compare(iter.Key(), endKey) < 0; iter.Next() {
-		offset, _ := decodeBatchKey(iter.Key(), []byte(b.name))
+		offset, _ := decodeBatchKey(b.name, iter.Key())
 		err := op(iter.Value(), offset)
 		if err != nil {
 			return errors.Trace(err)
@@ -103,7 +103,7 @@ func (b *pebbleBucket) MaxOffset() (uint64, error) {
 	var offset uint64
 	iter := b.db.NewIter(b.prefixIterOpts)
 	if iter.Last() {
-		offset, _ = decodeBatchKey(iter.Key(), []byte(b.name))
+		offset, _ = decodeBatchKey(b.name, iter.Key())
 	}
 	if err := iter.Close(); err != nil {
 		return offset, errors.Trace(err)
@@ -115,7 +115,7 @@ func (b *pebbleBucket) MinOffset() (uint64, error) {
 	var offset uint64
 	iter := b.db.NewIter(b.prefixIterOpts)
 	if iter.First() {
-		offset, _ = decodeBatchKey(iter.Key(), []byte(b.name))
+		offset, _ = decodeBatchKey(b.name, iter.Key())
 	}
 	if err := iter.Close(); err != nil {
 		return offset, errors.Trace(err)
@@ -125,7 +125,7 @@ func (b *pebbleBucket) MinOffset() (uint64, error) {
 
 // DelBeforeID deletes values whose keys are not greater than the given id from DB
 func (b *pebbleBucket) DelBeforeID(id uint64) error {
-	end := keyUpperBound(append([]byte(b.name), store.U64ToByte(id)...))
+	end := keyUpperBound(concatBucketName(b.name, store.U64ToByte(id)))
 	return errors.Trace(b.db.DeleteRange([]byte(b.name), end, b.writeOpts))
 }
 
@@ -134,7 +134,7 @@ func (b *pebbleBucket) DelBeforeTS(ts uint64) error {
 	end := keyUpperBound([]byte(b.name))
 	iter := b.db.NewIter(b.prefixIterOpts)
 	for iter.First(); iter.Valid(); iter.Next() {
-		_, kts := decodeBatchKey(iter.Key(), []byte(b.name))
+		_, kts := decodeBatchKey(b.name, iter.Key())
 		if kts > ts {
 			end = iter.Key()
 			break
@@ -158,13 +158,13 @@ func (b *pebbleBucket) Close(clean bool) (err error) {
 
 // SetKV deletes expired messages from DB
 func (b *pebbleBucket) SetKV(key []byte, value []byte) error {
-	key = encodeKVKey([]byte(b.name), key)
+	key = encodeKVKey(b.name, key)
 	return errors.Trace(b.db.Set(key, value, b.writeOpts))
 }
 
 // SetKV deletes expired messages from DB
 func (b *pebbleBucket) GetKV(key []byte, op func([]byte) error) error {
-	key = encodeKVKey([]byte(b.name), key)
+	key = encodeKVKey(b.name, key)
 	value, closer, err := b.db.Get(key)
 	if err != nil {
 		return errors.Trace(err)
@@ -177,7 +177,7 @@ func (b *pebbleBucket) GetKV(key []byte, op func([]byte) error) error {
 }
 
 func (b *pebbleBucket) DelKV(key []byte) error {
-	key = encodeKVKey([]byte(b.name), key)
+	key = encodeKVKey(b.name, key)
 	return errors.Trace(b.db.Delete(key, b.writeOpts))
 }
 
@@ -204,30 +204,35 @@ func keyUpperBound(b []byte) []byte {
 	return nil // no upper-bound
 }
 
-func getPrefixIterOptions(prefix []byte) *pebble.IterOptions {
+func getPrefixIterOptions(prefix string) *pebble.IterOptions {
+	b := []byte(prefix)
 	return &pebble.IterOptions{
-		LowerBound: prefix,
-		UpperBound: keyUpperBound(prefix),
+		LowerBound: b,
+		UpperBound: keyUpperBound(b),
 	}
 }
 
-func encodeBatchKey(name []byte, offset uint64) []byte {
+func encodeBatchKey(name string, offset uint64) []byte {
 	// key = name + sid + ts (16 bytes)
 	ts := uint64(time.Now().Unix())
-	return append(name, store.U64U64ToByte(offset, ts)...)
+	return concatBucketName(name, store.U64U64ToByte(offset, ts))
 }
 
-func decodeBatchKey(key, name []byte) (uint64, uint64) {
+func decodeBatchKey(name string, key []byte) (uint64, uint64) {
 	length := len(name)
 	return store.ByteToU64(key[length : length+8]), store.ByteToU64(key[length+8:])
 }
 
-func encodeKVKey(name, key []byte) []byte {
+func encodeKVKey(name string, key []byte) []byte {
 	// key = name + kvkey (8 bytes)
-	return append(name, key...)
+	return concatBucketName(name, key)
 }
 
 func decodeKVKey(key, name []byte) []byte {
 	length := len(name)
 	return key[length : length+8]
+}
+
+func concatBucketName(name string, key []byte) []byte {
+	return append([]byte(name), key...)
 }
