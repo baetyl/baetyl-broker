@@ -2,7 +2,6 @@ package pebble
 
 import (
 	"encoding/json"
-	"fmt"
 	"io/ioutil"
 	"os"
 	"path"
@@ -137,6 +136,24 @@ func TestDatabasePebbleDB(t *testing.T) {
 	})
 	assert.NoError(t, err)
 	assert.Len(t, values3, 1)
+
+	err = bucket.Close(true)
+	assert.NoError(t, err)
+
+	values4 := make([]mockStruct, 0)
+	err = bucket.Get(1, 10, func(data []byte, offset uint64) error {
+		if len(data) == 0 {
+			return store.ErrDataNotFound
+		}
+		v := mockStruct{}
+		if err := json.Unmarshal(data, &v); err != nil {
+			return err
+		}
+		values4 = append(values4, v)
+		return nil
+	})
+	assert.NoError(t, err)
+	assert.Len(t, values4, 0)
 }
 
 func TestDatabasePebbleDelBeforeTs(t *testing.T) {
@@ -643,12 +660,14 @@ func TestDatabasePebbleReopen(t *testing.T) {
 	})
 	assert.NoError(t, err)
 	assert.Len(t, values3, 3+count)
-	fmt.Println(len(values3))
 
 	err = db2.Close()
 	assert.NoError(t, err)
 }
 
+// TODO: benchmark is very slow compared to rocksdb, why ?
+// 1. rocksdb not set sync ?
+// 2. pebble put have bugs ?
 func BenchmarkDatabasePebble(b *testing.B) {
 	dir, err := ioutil.TempDir("", b.Name())
 	assert.NoError(b, err)

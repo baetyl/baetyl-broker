@@ -19,6 +19,7 @@ type Conf struct {
 }
 
 type DB interface {
+	// create bucket if not exists
 	NewBatchBucket(name string) (BatchBucket, error)
 	NewKVBucket(name string) (KVBucket, error)
 

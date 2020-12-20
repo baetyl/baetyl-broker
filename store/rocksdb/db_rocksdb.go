@@ -3,12 +3,19 @@ package rocksdb
 import (
 	"bytes"
 	"os"
+	"sync"
 	"time"
 
 	"github.com/baetyl/baetyl-go/v2/errors"
 	rocksdb "github.com/tecbot/gorocksdb"
 
 	"github.com/baetyl/baetyl-broker/v2/store"
+)
+
+const (
+	IndexPrefix = "_indexer"
+	// uint64 is 8 bytes
+	FixedPrefixLength = 8
 )
 
 func init() {
@@ -18,15 +25,72 @@ func init() {
 // rocksdbDB the backend rocksdbDB to persist values
 type rocksdbDB struct {
 	*rocksdb.DB
-	conf store.Conf
+	indexer *indexer
+	conf    store.Conf
 }
 
 // rocksdbBucket the bucket to save data
 type rocksdbBucket struct {
 	db        *rocksdb.DB
-	name      string
+	id        []byte
 	readOpts  *rocksdb.ReadOptions
 	writeOpts *rocksdb.WriteOptions
+}
+
+// indexer ...
+type indexer struct {
+	offset    uint64
+	name      []byte
+	db        *rocksdb.DB
+	readOpts  *rocksdb.ReadOptions
+	writeOpts *rocksdb.WriteOptions
+	sync.Mutex
+}
+
+func (i *indexer) getBucketID(bucketName string) ([]byte, error) {
+	key := encodeKVKey(i.name, []byte(bucketName))
+	slice, err := i.db.Get(i.readOpts, key)
+	if err != nil {
+		return nil, errors.Trace(err)
+	}
+
+	id := slice.Data()
+	if len(id) == 0 {
+		i.Lock()
+		i.offset++
+		offset := i.offset
+		i.Unlock()
+		key = encodeKVKey([]byte(i.name), []byte(bucketName))
+		id = store.U64ToByte(offset)
+
+		err := i.db.Put(i.writeOpts, key, id)
+		if err != nil {
+			return nil, errors.Trace(err)
+		}
+	}
+	return id, nil
+}
+
+func newIndexer(d *rocksdb.DB) (*indexer, error) {
+	bn := []byte(IndexPrefix)
+	readOpt := rocksdb.NewDefaultReadOptions()
+	slice, err := d.Get(readOpt, bn)
+	if err != nil {
+		return nil, errors.Trace(err)
+	}
+
+	var offset uint64
+	if len(slice.Data()) != 0 {
+		offset = store.ByteToU64(slice.Data())
+	}
+
+	return &indexer{
+		offset:    offset,
+		name:      bn,
+		db:        d,
+		readOpts:  readOpt,
+		writeOpts: rocksdb.NewDefaultWriteOptions(),
+	}, nil
 }
 
 // New creates a new rocksdb database
@@ -40,57 +104,63 @@ func newRocksDB(conf store.Conf) (store.DB, error) {
 	opts.SetCreateIfMissingColumnFamilies(true)
 	opts.SetCreateIfMissing(true)
 
+	// Set up bloom filter
+	// https://github.com/facebook/rocksdb/wiki/Prefix-Seek
+	// will prefix bloom filter affect Get() in whole order
+
+	opts.SetPrefixExtractor(rocksdb.NewFixedPrefixTransform(FixedPrefixLength))
+
 	db, err := rocksdb.OpenDb(opts, conf.Path)
 	if err != nil {
 		return nil, err
 	}
-	rocksdb.NewFixedPrefixTransform()
+
+	indexer, err := newIndexer(db)
+	if err != nil {
+		return nil, errors.Trace(err)
+	}
 
 	return &rocksdbDB{
-		DB:   db,
-		conf: conf,
+		DB:      db,
+		indexer: indexer,
+		conf:    conf,
 	}, nil
 }
 
 // NewBucket creates a bucket
 func (d *rocksdbDB) NewBatchBucket(name string) (store.BatchBucket, error) {
-	indexId, err := d.allocateBatchBucketID(name)
+	id, err := d.indexer.getBucketID(name)
 	if err != nil {
 		return nil, errors.Trace(err)
 	}
 
 	return &rocksdbBucket{
-		db:   d.DB,
-		name: name,
-		// TODO: update
-		prefixIterOpts: getPrefixIterOptions([]byte(name)),
-		writeOpts:      rocksdb.NewDefaultWriteOptions(),
+		db:        d.DB,
+		id:        id,
+		readOpts:  rocksdb.NewDefaultReadOptions(),
+		writeOpts: rocksdb.NewDefaultWriteOptions(),
 	}, nil
-}
-
-type indexBucket struct {
-	offset uint64
-	name   string
-}
-
-func (d *rocksdbDB) getBucketID(name string) ([]byte, error) {
-
-}
-
-// NewBucket creates a bucket
-func (d *rocksdbDB) allocateBatchBucketID(name string) (int, error) {
-
-	return 0, nil
 }
 
 // NewBucket creates a bucket
 func (d *rocksdbDB) NewKVBucket(name string) (store.KVBucket, error) {
+	id, err := d.indexer.getBucketID(name)
+	if err != nil {
+		return nil, errors.Trace(err)
+	}
+
 	return &rocksdbBucket{
-		db:             d.DB,
-		name:           name,
-		prefixIterOpts: getPrefixIterOptions([]byte(name)),
-		writeOpts:      rocksdb.NewDefaultWriteOptions(),
+		db:        d.DB,
+		id:        id,
+		readOpts:  rocksdb.NewDefaultReadOptions(),
+		writeOpts: rocksdb.NewDefaultWriteOptions(),
 	}, nil
+}
+
+// NewBucket creates a bucket
+func (d *rocksdbDB) Close() error {
+	d.DB.Close()
+	return nil
 }
 
 func (b *rocksdbBucket) Put(offset uint64, values [][]byte) error {
@@ -101,7 +171,7 @@ func (b *rocksdbBucket) Put(offset uint64, values [][]byte) error {
 	batch := rocksdb.NewWriteBatch()
 	defer batch.Destroy()
 	for _, value := range values {
-		key := encodeBatchKey([]byte(b.name), offset)
+		key := encodeBatchKey(b.id, offset)
 		batch.Put(key, value)
 		offset++
 	}
@@ -110,11 +180,11 @@ func (b *rocksdbBucket) Put(offset uint64, values [][]byte) error {
 
 // Get [begin, end)
 func (b *rocksdbBucket) Get(begin, end uint64, op func([]byte, uint64) error) error {
-	beginKey := append([]byte(b.name), store.U64ToByte(begin)...)
-	endKey := append([]byte(b.name), store.U64ToByte(end)...)
-	iter := b.db.NewIterator(b.prefixIterOpts)
+	beginKey := concatBucketName(b.id, store.U64ToByte(begin))
+	endKey := concatBucketName(b.id, store.U64ToByte(end))
+	iter := b.db.NewIterator(b.readOpts)
 	for iter.Seek(beginKey); iter.Valid() && bytes.Compare(iter.Key().Data(), endKey) < 0; iter.Next() {
-		offset, _ := decodeBatchKey(iter.Key().Data(), []byte(b.name))
+		offset, _ := decodeBatchKey(b.id, iter.Key().Data())
 		err := op(iter.Value().Data(), offset)
 		if err != nil {
 			return errors.Trace(err)
@@ -126,9 +196,9 @@ func (b *rocksdbBucket) Get(begin, end uint64, op func([]byte, uint64) error) er
 
 func (b *rocksdbBucket) MaxOffset() (uint64, error) {
 	var offset uint64
-	iter := b.db.NewIterator(b.prefixIterOpts)
+	iter := b.db.NewIterator(b.readOpts)
 	if iter.SeekToLast(); iter.Valid() {
-		offset, _ = decodeBatchKey(iter.Key().Data(), []byte(b.name))
+		offset, _ = decodeBatchKey(b.id, iter.Key().Data())
 	}
 	iter.Close()
 	return offset, nil
@@ -136,9 +206,9 @@ func (b *rocksdbBucket) MaxOffset() (uint64, error) {
 
 func (b *rocksdbBucket) MinOffset() (uint64, error) {
 	var offset uint64
-	iter := b.db.NewIterator(b.prefixIterOpts)
+	iter := b.db.NewIterator(b.readOpts)
 	if iter.SeekToFirst(); iter.Valid() {
-		offset, _ = decodeBatchKey(iter.Key().Data(), []byte(b.name))
+		offset, _ = decodeBatchKey(b.id, iter.Key().Data())
 	}
 	iter.Close()
 	return offset, nil
@@ -146,26 +216,32 @@ func (b *rocksdbBucket) MinOffset() (uint64, error) {
 
 // DelBeforeID deletes values whose keys are not greater than the given id from DB
 func (b *rocksdbBucket) DelBeforeID(id uint64) error {
-	end := keyUpperBound(append([]byte(b.name), store.U64ToByte(id)...))
-	// TODO: to fix
-	return errors.Trace(b.db.Delete([]byte(b.name), end, b.writeOpts))
+	end := keyUpperBound(append(b.id, store.U64ToByte(id)...))
+	batch := rocksdb.NewWriteBatch()
+	defer batch.Destroy()
+
+	batch.DeleteRange(b.id, end)
+	return errors.Trace(b.db.Write(b.writeOpts, batch))
 }
 
 // DelBeforeTS deletes expired messages from DB
 func (b *rocksdbBucket) DelBeforeTS(ts uint64) error {
-	end := keyUpperBound([]byte(b.name))
-	iter := b.db.NewIterator(b.prefixIterOpts)
+	end := keyUpperBound(b.id)
+	iter := b.db.NewIterator(b.readOpts)
+	defer iter.Close()
+
 	for iter.SeekToFirst(); iter.Valid(); iter.Next() {
-		_, kts := decodeBatchKey(iter.Key().Data(), []byte(b.name))
+		_, kts := decodeBatchKey(b.id, iter.Key().Data())
 		if kts > ts {
 			end = iter.Key().Data()
 			break
 		}
 	}
 
-	iter.Close()
-	// TODO: fix
-	return errors.Trace(b.db.DeleteRange([]byte(b.name), end, b.writeOpts))
+	batch := rocksdb.NewWriteBatch()
+	defer batch.Destroy()
+	batch.DeleteRange(b.id, end)
+	return errors.Trace(b.db.Write(b.writeOpts, batch))
 }
 
 // Close close
@@ -173,35 +249,41 @@ func (b *rocksdbBucket) Close(clean bool) (err error) {
 	if !clean {
 		return nil
 	}
-	end := keyUpperBound([]byte(b.name))
-	// TOOD: fix
-	return b.db.DeleteRange([]byte(b.name), end, b.writeOpts)
+	end := keyUpperBound(b.id)
+
+	batch := rocksdb.NewWriteBatch()
+	defer batch.Destroy()
+	batch.DeleteRange(b.id, end)
+	return errors.Trace(b.db.Write(b.writeOpts, batch))
 }
 
 // SetKV deletes expired messages from DB
 func (b *rocksdbBucket) SetKV(key []byte, value []byte) error {
-	key = encodeKVKey([]byte(b.name), key)
+	key = encodeKVKey(b.id, key)
 	return errors.Trace(b.db.Put(b.writeOpts, key, value))
 }
 
 // SetKV deletes expired messages from DB
 func (b *rocksdbBucket) GetKV(key []byte, op func([]byte) error) error {
-	key = encodeKVKey([]byte(b.name), key)
+	key = encodeKVKey(b.id, key)
 	slice, err := b.db.Get(b.readOpts, key)
 	if err != nil {
 		return errors.Trace(err)
+	}
+	if slice.Size() == 0 {
+		return errors.New("rocksdb: not found")
 	}
 	return errors.Trace(op(slice.Data()))
 }
 
 func (b *rocksdbBucket) DelKV(key []byte) error {
-	key = encodeKVKey([]byte(b.name), key)
+	key = encodeKVKey(b.id, key)
 	return errors.Trace(b.db.Delete(b.writeOpts, key))
 }
 
 func (b *rocksdbBucket) ListKV(op func([]byte) error) error {
-	iter := b.db.NewIterator(b.prefixIterOpts)
-	for iter.SeekToFirst(); iter.Valid(); iter.Next() {
+	iter := b.db.NewIterator(b.readOpts)
+	for iter.SeekToFirst(); iter.Valid() && bytes.HasPrefix(iter.Key().Data(), b.id); iter.Next() {
 		err := op(iter.Value().Data())
 		if err != nil {
 			return errors.Trace(err)
@@ -223,30 +305,29 @@ func keyUpperBound(b []byte) []byte {
 	return nil // no upper-bound
 }
 
-func getPrefixIterOptions(prefix []byte) *rocksdb.IterOptions {
-	return &rocksdb.IterOptions{
-		LowerBound: prefix,
-		UpperBound: keyUpperBound(prefix),
-	}
-}
-
 func encodeBatchKey(name []byte, offset uint64) []byte {
-	// key = name + sid + ts (16 bytes)
+	// key = id + sid + ts (16 bytes)
 	ts := uint64(time.Now().Unix())
-	return append(name, store.U64U64ToByte(offset, ts)...)
+	return concatBucketName(name, store.U64U64ToByte(offset, ts))
 }
 
-func decodeBatchKey(key, name []byte) (uint64, uint64) {
+func decodeBatchKey(name, key []byte) (uint64, uint64) {
 	length := len(name)
 	return store.ByteToU64(key[length : length+8]), store.ByteToU64(key[length+8:])
 }
 
 func encodeKVKey(name, key []byte) []byte {
-	// key = name + kvkey (8 bytes)
-	return append(name, key...)
+	// key = id + kvkey (8 bytes)
+	return concatBucketName(name, key)
 }
 
 func decodeKVKey(key, name []byte) []byte {
 	length := len(name)
 	return key[length : length+8]
+}
+
+func concatBucketName(name, key []byte) []byte {
+	prefix := make([]byte, len(name))
+	copy(prefix, name)
+	return append(prefix, key...)
 }
