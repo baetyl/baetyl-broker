@@ -290,7 +290,9 @@ func (q *Persistence) get(begin, end uint64) ([]*common.Event, error) {
 	var msgs []*mqtt.Message
 	if err := q.bucket.Get(begin, end, func(data []byte, offset uint64) error {
 		if len(data) == 0 {
-			return store.ErrDataNotFound
+			err := store.ErrDataNotFound
+			q.log.Error(err.Error(), log.Any("offset", offset))
+			return err
 		}
 		v := new(mqtt.Message)
 		err := proto.Unmarshal(data, v)
