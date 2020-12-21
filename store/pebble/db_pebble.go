@@ -54,7 +54,9 @@ func (d *pebbleDB) NewBatchBucket(name string) (store.BatchBucket, error) {
 		db:             d.DB,
 		name:           b,
 		prefixIterOpts: getPrefixIterOptions(b),
-		writeOpts:      pebble.Sync,
+		// need using Sync opt, Sync is slow on darwin
+		// see: https://github.com/cockroachdb/pebble/issues/1028
+		writeOpts: pebble.Sync,
 	}, nil
 }
 

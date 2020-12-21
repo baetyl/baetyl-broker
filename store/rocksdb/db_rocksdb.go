@@ -134,11 +134,16 @@ func (d *rocksdbDB) NewBatchBucket(name string) (store.BatchBucket, error) {
 		return nil, errors.Trace(err)
 	}
 
+	// rocksdb defaultly not to sync writes to the WAL
+	// see: https://github.com/cockroachdb/pebble/issues/1028
+	wo := rocksdb.NewDefaultWriteOptions()
+	wo.SetSync(true)
+
 	return &rocksdbBucket{
 		db:        d.DB,
 		id:        id,
 		readOpts:  rocksdb.NewDefaultReadOptions(),
-		writeOpts: rocksdb.NewDefaultWriteOptions(),
+		writeOpts: wo,
 	}, nil
 }
 
@@ -149,11 +154,14 @@ func (d *rocksdbDB) NewKVBucket(name string) (store.KVBucket, error) {
 		return nil, errors.Trace(err)
 	}
 
+	wo := rocksdb.NewDefaultWriteOptions()
+	wo.SetSync(true)
+
 	return &rocksdbBucket{
 		db:        d.DB,
 		id:        id,
 		readOpts:  rocksdb.NewDefaultReadOptions(),
-		writeOpts: rocksdb.NewDefaultWriteOptions(),
+		writeOpts: wo,
 	}, nil
 }
 

@@ -1,6 +1,6 @@
 module github.com/baetyl/baetyl-broker/v2
 
-go 1.13
+go 1.15
 
 require (
 	github.com/baetyl/baetyl-go/v2 v2.1.5
