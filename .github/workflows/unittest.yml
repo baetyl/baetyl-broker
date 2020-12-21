@@ -14,6 +14,16 @@ jobs:
         uses: actions/checkout@v1
       - name: Build
         run: make all
+      - name: Dependency
+        run: |
+          apt-get install libgflags-dev libsnappy-dev zlib1g-dev libbz2-dev liblz4-dev libzstd-dev
+          git clone https://github.com/facebook/rocksdb.git
+          cd rocksdb
+          make shared_lib
+          cp librocksdb.so /usr/local/lib
+          mkdir -p /usr/local/include/rocksdb/
+          cp -r ./include/* /usr/local/include/
+          cd ..
       - name: Run unittest
         run: make test
       - name: Upload coverage to Codecov
