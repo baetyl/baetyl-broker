@@ -8,7 +8,8 @@ import (
 
 	"github.com/baetyl/baetyl-broker/v2/broker"
 	_ "github.com/baetyl/baetyl-broker/v2/store/pebble"
-	_ "github.com/baetyl/baetyl-broker/v2/store/rocksdb"
+	// rocksdb compile on different arch haven't support
+	//_ "github.com/baetyl/baetyl-broker/v2/store/rocksdb"
 )
 
 func main() {
