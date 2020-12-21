@@ -23,9 +23,9 @@ jobs:
           sudo cp -r ./include/* /usr/local/include/
           cd ..
       - name: Build
-        run: env CGO_CFLAGS="-I/usr/local/include/rocksdb" CGO_LDFLAGS="-L/usr/local/lib -lrocksdb" make all
+        run: make all
       - name: Run unittest
-        run: env CGO_CFLAGS="-I/usr/include/rocksdb" CGO_LDFLAGS="-L/usr/lib -lrocksdb" make test
+        run: make test
       - name: Upload coverage to Codecov
         uses: codecov/codecov-action@v1
         with:
