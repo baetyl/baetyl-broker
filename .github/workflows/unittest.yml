@@ -22,6 +22,7 @@ jobs:
           sudo mkdir -p /usr/local/include/rocksdb/
           sudo cp -r ./include/* /usr/local/include/
           cd ..
+          ldconfig
       - name: Build
         run: CGO_LDFLAGS="-L/usr/local/lib -lrocksdb" CGO_CFLAGS="-I/usr/local/include" make all
       - name: Run unittest
