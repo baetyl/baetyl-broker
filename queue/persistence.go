@@ -224,7 +224,8 @@ func (q *Persistence) add(buf []*common.Event) []*common.Event {
 	if len(buf) == 0 {
 		return buf
 	}
-	defer utils.Trace(q.log.Debug, "queue has written message to backend", log.Any("count", len(buf)))()
+	defer utils.Trace(q.log.Info, "queue has written message to backend", log.Any("count", len(buf)))()
+	//defer utils.Trace(q.log.Debug, "queue has written message to backend", log.Any("count", len(buf)))()
 
 	begin := q.offset
 	var ds [][]byte
@@ -285,6 +286,8 @@ func (q *Persistence) add(buf []*common.Event) []*common.Event {
 
 // get gets messages from db in batch mode
 func (q *Persistence) get(begin, end uint64) ([]*common.Event, error) {
+	defer utils.Trace(q.log.Info, "queue has get message from backend")()
+
 	start := time.Now()
 
 	var msgs []*mqtt.Message
