@@ -110,7 +110,9 @@ func (c *Client) die(msg string, err error) {
 	}
 
 	c.once.Do(func() {
+		c.log.Info("ready to close conn")
 		err = c.conn.Close()
+		c.log.Info("ready to close conn end", log.Any("err", err.Error()))
 		if err != nil {
 			c.log.Error("failed to close conn", log.Error(err))
 		}

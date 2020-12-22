@@ -3,6 +3,7 @@ package session
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net"
 	"os"
@@ -311,6 +312,7 @@ func (c *mockStream) RecvMsg(m interface{}) error  { return nil }
 
 func (c *mockStream) Close() {
 	c.Lock()
+	fmt.Println("mock conn closed = true")
 	c.closed = true
 	c.Unlock()
 	c.err <- io.EOF

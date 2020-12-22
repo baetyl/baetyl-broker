@@ -111,6 +111,7 @@ func (q *Persistence) writing() error {
 			q.log.Debug("queue writes message to backend when timeout")
 			buf = q.add(buf)
 		case <-q.Dying():
+			// TODO: add when close ?
 			q.log.Debug("queue writes message to backend during closing")
 			buf = q.add(buf)
 			return nil
@@ -213,6 +214,7 @@ func (q *Persistence) deleting() error {
 			q.clean()
 			//q.log.Info(fmt.Sprintf("queue state: input size %d, events size %d, deletion size %d", len(q.input), len(q.events), len(q.edel)))
 		case <-q.Dying():
+			// TODO: need delete ?
 			q.log.Debug("queue deletes message from db during closing")
 			buf = q.delete(buf)
 			return nil
