@@ -30,7 +30,13 @@ type pebbleBucket struct {
 }
 
 // New creates a new pebble database
+// pebble support is experimental, DO NOT USE IN PRODUCTION
 func newPebbleDB(conf store.Conf) (store.DB, error) {
+	var cfg DBConfig
+	if err := store.LoadConfig(&cfg); err != nil {
+		return nil, err
+	}
+
 	err := os.MkdirAll(conf.Path, 0755)
 	if err != nil {
 		return nil, errors.Trace(err)

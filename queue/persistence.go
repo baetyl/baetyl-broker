@@ -17,13 +17,15 @@ import (
 
 // Config queue config
 type Config struct {
-	Name              string        `yaml:"name" json:"name"`
-	BatchSize         int           `yaml:"batchSize" json:"batchSize" default:"10"`
-	MaxBatchCacheSize int           `yaml:"maxBatchCacheSize" json:"maxBatchCacheSize" default:"5"`
-	ExpireTime        time.Duration `yaml:"expireTime" json:"expireTime" default:"168h"`
-	CleanInterval     time.Duration `yaml:"cleanInterval" json:"cleanInterval" default:"1h"`
-	WriteTimeout      time.Duration `yaml:"writeTimeout" json:"writeTimeout" default:"100ms"`
-	DeleteTimeout     time.Duration `yaml:"deleteTimeout" json:"deleteTimeout" default:"500ms"`
+	Name                 string        `yaml:"name" json:"name"`
+	WriteBufferSize      int           `yaml:"writeBufferSize" json:"writeBufferSize" default:"10"`
+	MaxWriteBufferNumber int           `yaml:"maxWriteBufferNumber" json:"maxWriteBufferNumber" default:"10"`
+	ReadBufferSize       int           `yaml:"readBufferSize" json:"readBufferSize" default:"10"`
+	DeleteBufferSize     int           `yaml:"deleteBufferSize" json:"deleteBufferSize" default:"10"`
+	ExpireTime           time.Duration `yaml:"expireTime" json:"expireTime" default:"168h"`
+	CleanInterval        time.Duration `yaml:"cleanInterval" json:"cleanInterval" default:"1h"`
+	WriteTimeout         time.Duration `yaml:"writeTimeout" json:"writeTimeout" default:"100ms"`
+	DeleteTimeout        time.Duration `yaml:"deleteTimeout" json:"deleteTimeout" default:"500ms"`
 }
 
 type batchMsgs struct {
@@ -60,9 +62,9 @@ func NewPersistence(cfg Config, bucket store.BatchBucket) (Queue, error) {
 		bucket: bucket,
 		offset: offset,
 		cfg:    cfg,
-		input:  make(chan *common.Event, cfg.BatchSize),
-		output: make(chan *common.Event, cfg.BatchSize),
-		edel:   make(chan uint64, cfg.BatchSize),
+		input:  make(chan *common.Event, cfg.WriteBufferSize),
+		output: make(chan *common.Event, cfg.ReadBufferSize),
+		edel:   make(chan uint64, cfg.DeleteBufferSize),
 		eget:   make(chan bool, 1),
 		cache:  []*batchMsgs{},
 		log:    log.With(log.Any("queue", "persistence"), log.Any("id", cfg.Name)),
@@ -111,7 +113,6 @@ func (q *Persistence) writing() error {
 			q.log.Debug("queue writes message to backend when timeout")
 			buf = q.add(buf)
 		case <-q.Dying():
-			// TODO: add when close ?
 			q.log.Debug("queue writes message to backend during closing")
 			buf = q.add(buf)
 			return nil
@@ -214,7 +215,6 @@ func (q *Persistence) deleting() error {
 			q.clean()
 			//q.log.Info(fmt.Sprintf("queue state: input size %d, events size %d, deletion size %d", len(q.input), len(q.events), len(q.edel)))
 		case <-q.Dying():
-			// TODO: need delete ?
 			q.log.Debug("queue deletes message from db during closing")
 			buf = q.delete(buf)
 			return nil
@@ -226,8 +226,7 @@ func (q *Persistence) add(buf []*common.Event) []*common.Event {
 	if len(buf) == 0 {
 		return buf
 	}
-	defer utils.Trace(q.log.Info, "queue has written message to backend", log.Any("count", len(buf)))()
-	//defer utils.Trace(q.log.Debug, "queue has written message to backend", log.Any("count", len(buf)))()
+	defer utils.Trace(q.log.Debug, "queue has written message to backend", log.Any("count", len(buf)))()
 
 	begin := q.offset
 	var ds [][]byte
@@ -268,7 +267,7 @@ func (q *Persistence) add(buf []*common.Event) []*common.Event {
 			q.Unlock()
 			return []*common.Event{}
 		}
-		if len(q.cache) < q.cfg.MaxBatchCacheSize {
+		if len(q.cache) < q.cfg.MaxWriteBufferNumber {
 			batch := &batchMsgs{
 				offset: begin,
 				data:   msgs,
@@ -288,7 +287,7 @@ func (q *Persistence) add(buf []*common.Event) []*common.Event {
 
 // get gets messages from db in batch mode
 func (q *Persistence) get(begin, end uint64) ([]*common.Event, error) {
-	defer utils.Trace(q.log.Info, "queue has get message from backend")()
+	//defer utils.Trace(q.log.Info, "queue has get message from backend")()
 
 	start := time.Now()
 
@@ -320,6 +319,8 @@ func (q *Persistence) get(begin, end uint64) ([]*common.Event, error) {
 	if ent := q.log.Check(log.DebugLevel, "queue has read message from db"); ent != nil {
 		ent.Write(log.Any("count", len(msgs)), log.Any("cost", time.Since(start)))
 	}
+	//utils.Trace(q.log.Info, "queue has get message from backend")()
+	q.log.Info("queue has get message from backend", log.Any("count", len(msgs)), log.Any("cost", time.Since(start)))
 	return events, nil
 }
 

@@ -14,7 +14,7 @@ var Factories = map[string]func(conf Conf) (DB, error){}
 
 // Conf the configuration of database
 type Conf struct {
-	Driver string `yaml:"driver" json:"driver" default:"pebble"`
+	Driver string `yaml:"driver" json:"driver" default:"rocksdb"`
 	Path   string `yaml:"path" json:"path" default:"var/lib/baetyl/db"`
 }
 
@@ -43,6 +43,7 @@ type KVBucket interface {
 	GetKV(key []byte, op func([]byte) error) error
 	DelKV(key []byte) error
 	ListKV(op func([]byte) error) error
+	Close(clean bool) (err error)
 }
 
 // New DB by given name

@@ -2,6 +2,7 @@ package rocksdb
 
 import (
 	"bytes"
+	"fmt"
 	"os"
 	"sync"
 	"time"
@@ -27,6 +28,9 @@ type rocksdbDB struct {
 	*rocksdb.DB
 	indexer *indexer
 	conf    store.Conf
+	bbto    *rocksdb.BlockBasedTableOptions
+	cache   *rocksdb.Cache
+	opts    *rocksdb.Options
 }
 
 // rocksdbBucket the bucket to save data
@@ -60,7 +64,7 @@ func (i *indexer) getBucketID(bucketName string) ([]byte, error) {
 		i.offset++
 		offset := i.offset
 		i.Unlock()
-		key = encodeKVKey([]byte(i.name), []byte(bucketName))
+		key = encodeKVKey(i.name, []byte(bucketName))
 		id = store.U64ToByte(offset)
 
 		err := i.db.Put(i.writeOpts, key, id)
@@ -69,6 +73,15 @@ func (i *indexer) getBucketID(bucketName string) ([]byte, error) {
 		}
 	}
 	return id, nil
+}
+
+func (i *indexer) close() {
+	if i.readOpts != nil {
+		i.readOpts.Destroy()
+	}
+	if i.writeOpts != nil {
+		i.writeOpts.Destroy()
+	}
 }
 
 func newIndexer(d *rocksdb.DB) (*indexer, error) {
@@ -93,23 +106,90 @@ func newIndexer(d *rocksdb.DB) (*indexer, error) {
 	}, nil
 }
 
+func getRocksDBOptions(config RocksDB) (*rocksdb.Options,
+	*rocksdb.BlockBasedTableOptions, *rocksdb.Cache) {
+	blockSize := int(config.KVBlockSize)
+	logDBLRUCacheSize := config.KVLRUCacheSize
+	maxBackgroundCompactions := int(config.KVMaxBackgroundCompactions)
+	maxBackgroundFlushes := int(config.KVMaxBackgroundFlushes)
+	keepLogFileNum := int(config.KVKeepLogFileNum)
+	writeBufferSize := int(config.KVWriteBufferSize)
+	maxWriteBufferNumber := int(config.KVMaxWriteBufferNumber)
+	minWriteBufferNumberToMerge := int(config.KVMinWriteBufferNumberToMerge)
+	l0FileNumCompactionTrigger := int(config.KVLevel0FileNumCompactionTrigger)
+	l0SlowdownWritesTrigger := int(config.KVLevel0SlowdownWritesTrigger)
+	l0StopWritesTrigger := int(config.KVLevel0StopWritesTrigger)
+	numOfLevels := int(config.KVNumOfLevels)
+	maxBytesForLevelBase := config.KVMaxBytesForLevelBase
+	maxBytesForLevelMultiplier := float64(config.KVMaxBytesForLevelMultiplier)
+	targetFileSizeBase := config.KVTargetFileSizeBase
+	targetFileSizeMultiplier := int(config.KVTargetFileSizeMultiplier)
+	dynamicLevelBytes := config.KVLevelCompactionDynamicLevelBytes
+	// generate the options
+	bbto := rocksdb.NewDefaultBlockBasedTableOptions()
+	bbto.SetWholeKeyFiltering(false)
+	// Set up bloom filter
+	// https://github.com/facebook/rocksdb/wiki/Prefix-Seek
+	bbto.SetFilterPolicy(rocksdb.NewBloomFilter(10))
+	bbto.SetBlockSize(blockSize)
+
+	var cache *rocksdb.Cache
+	if logDBLRUCacheSize > 0 {
+		cache = rocksdb.NewLRUCache(logDBLRUCacheSize)
+		bbto.SetBlockCache(cache)
+	} else {
+		bbto.SetNoBlockCache(true)
+	}
+
+	opts := rocksdb.NewDefaultOptions()
+	opts.SetMaxManifestFileSize(config.MaxManifestFileSize)
+	opts.SetMaxLogFileSize(int(config.MaxLogFileSize))
+	opts.SetKeepLogFileNum(keepLogFileNum)
+	opts.SetBlockBasedTableFactory(bbto)
+	opts.SetCreateIfMissingColumnFamilies(true)
+	opts.SetCreateIfMissing(true)
+	opts.SetUseFsync(true)
+
+	opts.SetCompression(rocksdb.NoCompression)
+	opts.SetWriteBufferSize(writeBufferSize)
+	opts.SetMaxWriteBufferNumber(maxWriteBufferNumber)
+	opts.SetMinWriteBufferNumberToMerge(minWriteBufferNumberToMerge)
+	opts.SetLevel0FileNumCompactionTrigger(l0FileNumCompactionTrigger)
+	opts.SetLevel0SlowdownWritesTrigger(l0SlowdownWritesTrigger)
+	opts.SetLevel0StopWritesTrigger(l0StopWritesTrigger)
+
+	opts.SetMaxBackgroundCompactions(maxBackgroundCompactions)
+	opts.SetMaxBackgroundFlushes(maxBackgroundFlushes)
+
+	opts.SetMaxBytesForLevelBase(maxBytesForLevelBase)
+	opts.SetMaxBytesForLevelMultiplier(maxBytesForLevelMultiplier)
+	opts.SetTargetFileSizeBase(targetFileSizeBase)
+	opts.SetTargetFileSizeMultiplier(targetFileSizeMultiplier)
+	opts.SetNumLevels(numOfLevels)
+
+	opts.SetPrefixExtractor(rocksdb.NewFixedPrefixTransform(FixedPrefixLength))
+	opts.SetWALRecoveryMode(rocksdb.TolerateCorruptedTailRecordsRecovery)
+	if dynamicLevelBytes != 0 {
+		opts.SetLevelCompactionDynamicLevelBytes(true)
+	}
+	return opts, bbto, cache
+}
+
 // New creates a new rocksdb database
 func newRocksDB(conf store.Conf) (store.DB, error) {
+	var internalConf DBConfig
+	if err := store.LoadConfig(&internalConf); err != nil {
+		return nil, err
+	}
+
+	fmt.Println("config", internalConf)
+
 	err := os.MkdirAll(conf.Path, 0755)
 	if err != nil {
 		return nil, errors.Trace(err)
 	}
 
-	opts := rocksdb.NewDefaultOptions()
-	opts.SetCreateIfMissingColumnFamilies(true)
-	opts.SetCreateIfMissing(true)
-
-	// Set up bloom filter
-	// https://github.com/facebook/rocksdb/wiki/Prefix-Seek
-	// will prefix bloom filter affect Get() in whole order
-
-	opts.SetPrefixExtractor(rocksdb.NewFixedPrefixTransform(FixedPrefixLength))
-
+	opts, bbto, cache := getRocksDBOptions(internalConf.rocksDB)
 	db, err := rocksdb.OpenDb(opts, conf.Path)
 	if err != nil {
 		return nil, err
@@ -124,6 +204,9 @@ func newRocksDB(conf store.Conf) (store.DB, error) {
 		DB:      db,
 		indexer: indexer,
 		conf:    conf,
+		bbto:    bbto,
+		cache:   cache,
+		opts:    opts,
 	}, nil
 }
 
@@ -167,7 +250,21 @@ func (d *rocksdbDB) NewKVBucket(name string) (store.KVBucket, error) {
 
 // NewBucket creates a bucket
 func (d *rocksdbDB) Close() error {
-	d.DB.Close()
+	if d.DB != nil {
+		d.DB.Close()
+	}
+	if d.indexer != nil {
+		d.indexer.close()
+	}
+	if d.cache != nil {
+		d.cache.Destroy()
+	}
+	if d.bbto != nil {
+		d.bbto.Destroy()
+	}
+	if d.opts != nil {
+		d.opts.Destroy()
+	}
 	return nil
 }
 
@@ -205,7 +302,7 @@ func (b *rocksdbBucket) Get(begin, end uint64, op func([]byte, uint64) error) er
 func (b *rocksdbBucket) MaxOffset() (uint64, error) {
 	var offset uint64
 	iter := b.db.NewIterator(b.readOpts)
-	if iter.SeekToLast(); iter.Valid() {
+	if iter.SeekToLast(); iter.Valid() && bytes.HasPrefix(iter.Key().Data(), b.id) {
 		offset, _ = decodeBatchKey(b.id, iter.Key().Data())
 	}
 	iter.Close()
@@ -215,7 +312,7 @@ func (b *rocksdbBucket) MaxOffset() (uint64, error) {
 func (b *rocksdbBucket) MinOffset() (uint64, error) {
 	var offset uint64
 	iter := b.db.NewIterator(b.readOpts)
-	if iter.SeekToFirst(); iter.Valid() {
+	if iter.SeekToFirst(); iter.Valid() && bytes.HasPrefix(iter.Key().Data(), b.id) {
 		offset, _ = decodeBatchKey(b.id, iter.Key().Data())
 	}
 	iter.Close()
@@ -245,19 +342,6 @@ func (b *rocksdbBucket) DelBeforeTS(ts uint64) error {
 			break
 		}
 	}
-
-	batch := rocksdb.NewWriteBatch()
-	defer batch.Destroy()
-	batch.DeleteRange(b.id, end)
-	return errors.Trace(b.db.Write(b.writeOpts, batch))
-}
-
-// Close close
-func (b *rocksdbBucket) Close(clean bool) (err error) {
-	if !clean {
-		return nil
-	}
-	end := keyUpperBound(b.id)
 
 	batch := rocksdb.NewWriteBatch()
 	defer batch.Destroy()
@@ -299,6 +383,31 @@ func (b *rocksdbBucket) ListKV(op func([]byte) error) error {
 	}
 	iter.Close()
 	return nil
+}
+
+// Close close
+func (b *rocksdbBucket) Close(clean bool) (err error) {
+	defer func() {
+		if b.writeOpts != nil {
+			b.writeOpts.Destroy()
+		}
+		if b.readOpts != nil {
+			b.readOpts.Destroy()
+		}
+	}()
+	if !clean {
+		return nil
+	}
+	end := keyUpperBound(b.id)
+
+	batch := rocksdb.NewWriteBatch()
+	defer batch.Destroy()
+	batch.DeleteRange(b.id, end)
+	err = b.db.Write(b.writeOpts, batch)
+	if err != nil {
+		return errors.Trace(err)
+	}
+	return
 }
 
 func keyUpperBound(b []byte) []byte {

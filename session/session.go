@@ -56,7 +56,6 @@ func newSession(i Info, m *Manager) (*Session, error) {
 
 	qc := m.cfg.Persistence.Queue
 	qc.Name = i.ID
-	qc.BatchSize = m.cfg.MaxInflightQOS1Messages
 	qbk, err := m.store.NewBatchBucket(qc.Name)
 	if err != nil {
 		s.log.Error("failed to create qos1 bucket", log.Error(err))
@@ -129,7 +128,6 @@ func (s *Session) update(si Info, auth func(action, topic string) bool) error {
 
 	qc := s.manager.cfg.Persistence.Queue
 	qc.Name = si.ID
-	qc.BatchSize = s.manager.cfg.MaxInflightQOS1Messages
 	qbk, err := s.manager.store.NewBatchBucket(qc.Name)
 	if err != nil {
 		s.log.Error("failed to create qos1 bucket", log.Error(err))
