@@ -29,7 +29,6 @@ func ByteToU64(v []byte) uint64 {
 	return binary.BigEndian.Uint64(v)
 }
 
-// TODO: remove to baetyl-go
 func LoadConfig(cfg interface{}) error {
 	f := os.Getenv(context.KeyConfFile)
 	if utils.FileExists(f) {

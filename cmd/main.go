@@ -3,6 +3,7 @@ package main
 import (
 	"net/http"
 	_ "net/http/pprof"
+	"os"
 
 	"github.com/baetyl/baetyl-go/v2/context"
 
@@ -25,6 +26,11 @@ func main() {
 
 		var cfg broker.Config
 		err := ctx.LoadCustomConfig(&cfg)
+		if err != nil {
+			return err
+		}
+
+		err = os.Setenv(context.KeyConfFile, ctx.ConfFile())
 		if err != nil {
 			return err
 		}

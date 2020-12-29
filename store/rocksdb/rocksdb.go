@@ -108,23 +108,24 @@ func newIndexer(d *rocksdb.DB) (*indexer, error) {
 
 func getRocksDBOptions(config RocksDB) (*rocksdb.Options,
 	*rocksdb.BlockBasedTableOptions, *rocksdb.Cache) {
-	blockSize := int(config.KVBlockSize)
+	blockSize := config.KVBlockSize
 	logDBLRUCacheSize := config.KVLRUCacheSize
-	maxBackgroundCompactions := int(config.KVMaxBackgroundCompactions)
-	maxBackgroundFlushes := int(config.KVMaxBackgroundFlushes)
-	keepLogFileNum := int(config.KVKeepLogFileNum)
-	writeBufferSize := int(config.KVWriteBufferSize)
-	maxWriteBufferNumber := int(config.KVMaxWriteBufferNumber)
-	minWriteBufferNumberToMerge := int(config.KVMinWriteBufferNumberToMerge)
-	l0FileNumCompactionTrigger := int(config.KVLevel0FileNumCompactionTrigger)
-	l0SlowdownWritesTrigger := int(config.KVLevel0SlowdownWritesTrigger)
-	l0StopWritesTrigger := int(config.KVLevel0StopWritesTrigger)
-	numOfLevels := int(config.KVNumOfLevels)
+	maxBackgroundCompactions := config.KVMaxBackgroundCompactions
+	maxBackgroundFlushes := config.KVMaxBackgroundFlushes
+	keepLogFileNum := config.KVKeepLogFileNum
+	writeBufferSize := config.KVWriteBufferSize
+	maxWriteBufferNumber := config.KVMaxWriteBufferNumber
+	minWriteBufferNumberToMerge := config.KVMinWriteBufferNumberToMerge
+	l0FileNumCompactionTrigger := config.KVLevel0FileNumCompactionTrigger
+	l0SlowdownWritesTrigger := config.KVLevel0SlowdownWritesTrigger
+	l0StopWritesTrigger := config.KVLevel0StopWritesTrigger
+	numOfLevels := config.KVNumOfLevels
 	maxBytesForLevelBase := config.KVMaxBytesForLevelBase
 	maxBytesForLevelMultiplier := float64(config.KVMaxBytesForLevelMultiplier)
 	targetFileSizeBase := config.KVTargetFileSizeBase
-	targetFileSizeMultiplier := int(config.KVTargetFileSizeMultiplier)
+	targetFileSizeMultiplier := config.KVTargetFileSizeMultiplier
 	dynamicLevelBytes := config.KVLevelCompactionDynamicLevelBytes
+
 	// generate the options
 	bbto := rocksdb.NewDefaultBlockBasedTableOptions()
 	bbto.SetWholeKeyFiltering(false)
@@ -189,7 +190,7 @@ func newRocksDB(conf store.Conf) (store.DB, error) {
 		return nil, errors.Trace(err)
 	}
 
-	opts, bbto, cache := getRocksDBOptions(internalConf.rocksDB)
+	opts, bbto, cache := getRocksDBOptions(internalConf.RocksDB)
 	db, err := rocksdb.OpenDb(opts, conf.Path)
 	if err != nil {
 		return nil, err
