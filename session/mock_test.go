@@ -3,6 +3,7 @@ package session
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net"
 	"os"
@@ -170,7 +171,7 @@ func (b *mockBroker) close() {
 
 func (b *mockBroker) closeAndClean() {
 	b.close()
-	os.RemoveAll("./var")
+	os.RemoveAll("var")
 }
 
 // * mqtt mock
@@ -250,7 +251,7 @@ func (c *mockConn) assertS2CPacket(expect string) {
 	case pkt := <-c.s2c:
 		assert.NotNil(c.t, pkt)
 		assert.Equal(c.t, expect, pkt.String())
-	case <-time.After(time.Second * 10):
+	case <-time.After(time.Second * 5):
 		assert.Fail(c.t, "receive common timeout")
 	}
 }
@@ -311,6 +312,7 @@ func (c *mockStream) RecvMsg(m interface{}) error  { return nil }
 
 func (c *mockStream) Close() {
 	c.Lock()
+	fmt.Println("mock conn closed = true")
 	c.closed = true
 	c.Unlock()
 	c.err <- io.EOF

@@ -7,6 +7,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/baetyl/baetyl-go/v2/errors"
 	"github.com/baetyl/baetyl-go/v2/log"
 	"github.com/baetyl/baetyl-go/v2/mqtt"
 	"github.com/baetyl/baetyl-go/v2/utils"
@@ -43,13 +44,16 @@ func (m *Manager) Handle(conn mqtt.Connection, anonymous bool) {
 		manager:   m,
 		conn:      conn,
 		anonymous: anonymous,
-		log:       log.With(log.Any("type", "mqtt"), log.Any("id", id)),
+		log:       log.With(log.Any("type", "mqtt"), log.Any("cid", id)),
 	}
 
 	max := m.cfg.MaxClients
 	if max > 0 && m.clients.count() >= max {
 		c.log.Error("number of clients exceeds the limit", log.Any("max", max))
-		conn.Close()
+		err := conn.Close()
+		if err != nil {
+			c.log.Error("failed to close conn", log.Error(err))
+		}
 		return
 	}
 	c.tomb.Go(c.receiving)
@@ -57,9 +61,7 @@ func (m *Manager) Handle(conn mqtt.Connection, anonymous bool) {
 
 func (c *Client) setSession(sid string, s *Session) {
 	c.session = s
-	if c.id != sid {
-		c.log = c.log.With(log.Any("sid", sid))
-	}
+	c.log = c.log.With(log.Any("sid", sid))
 }
 
 // closes client by session
@@ -73,10 +75,16 @@ func (c *Client) close() error {
 
 	c.tomb.Kill(nil)
 
+	var err error
 	c.once.Do(func() {
-		c.conn.Close()
+		err = c.conn.Close()
 	})
+	if err != nil {
+		c.log.Error("failed to close conn", log.Error(err))
+		return errors.Trace(err)
+	}
 
+	// ignore the error, cause it's just the reason of goroutines' death
 	c.tomb.Wait()
 	return nil
 }
@@ -102,11 +110,19 @@ func (c *Client) die(msg string, err error) {
 	}
 
 	c.once.Do(func() {
-		c.conn.Close()
+		c.log.Info("ready to close conn")
+		err = c.conn.Close()
+		c.log.Info("ready to close conn end")
+		if err != nil {
+			c.log.Error("failed to close conn", log.Error(err))
+		}
 	})
 
 	if c.session != nil {
-		c.manager.delClient(c.session.info.ID)
+		err := c.manager.delClient(c.session.ID())
+		if err != nil {
+			c.log.Error("failed to del client from manager", log.Error(err))
+		}
 	}
 }
 
@@ -148,7 +164,7 @@ func (c *Client) sendRetainMessage() error {
 	}
 	msgs, err := c.manager.listRetainedMessages()
 	if err != nil || len(msgs) == 0 {
-		return err
+		return errors.Trace(err)
 	}
 	// TODO: improve
 	for _, msg := range msgs {
@@ -159,7 +175,7 @@ func (c *Client) sendRetainMessage() error {
 			e := common.NewEvent(msg, 0, nil)
 			err = c.session.Push(e)
 			if err != nil {
-				return err
+				return errors.Trace(err)
 			}
 		}
 	}
@@ -175,7 +191,7 @@ func (c *Client) receiving() error {
 	pkt, err := c.conn.Receive()
 	if err != nil {
 		c.die("failed to receive packet at first time", err)
-		return err
+		return errors.Trace(err)
 	}
 	if ent := c.log.Check(log.DebugLevel, "client received a packet"); ent != nil {
 		data := pkt.String()
@@ -191,14 +207,14 @@ func (c *Client) receiving() error {
 	}
 	if err = c.onConnect(p); err != nil {
 		c.die("failed to handle connect packet", err)
-		return err
+		return errors.Trace(err)
 	}
 
 	for {
 		pkt, err = c.conn.Receive()
 		if err != nil {
 			c.die("failed to receive packet", err)
-			return err
+			return errors.Trace(err)
 		}
 		if ent := c.log.Check(log.DebugLevel, "client received a packet"); ent != nil {
 			data := pkt.String()
@@ -221,7 +237,7 @@ func (c *Client) receiving() error {
 		case *mqtt.Pingresp:
 			err = nil // just ignore
 		case *mqtt.Disconnect:
-			c.session.cleanWill()
+			err = c.session.cleanWill()
 			c.die("", nil)
 			return nil
 		case *mqtt.Connect:
@@ -240,7 +256,10 @@ func (c *Client) receiving() error {
 func (c *Client) onConnect(p *mqtt.Connect) error {
 	if p.ClientID == "" {
 		if p.CleanSession == false {
-			c.sendConnack(mqtt.IdentifierRejected, false)
+			err := c.sendConnack(mqtt.IdentifierRejected, false)
+			if err != nil {
+				c.log.Error("faile to sen connack", log.Error(err))
+			}
 			return ErrConnectionRefuse
 		}
 		p.ClientID = c.id
@@ -252,12 +271,18 @@ func (c *Client) onConnect(p *mqtt.Connect) error {
 	}
 
 	if p.Version != mqtt.Version31 && p.Version != mqtt.Version311 {
-		c.sendConnack(mqtt.InvalidProtocolVersion, false)
+		err := c.sendConnack(mqtt.InvalidProtocolVersion, false)
+		if err != nil {
+			c.log.Error("faile to sen connack", log.Error(err))
+		}
 		return ErrSessionProtocolVersionInvalid
 	}
 
 	if !checkClientID(si.ID) {
-		c.sendConnack(mqtt.IdentifierRejected, false)
+		err := c.sendConnack(mqtt.IdentifierRejected, false)
+		if err != nil {
+			c.log.Error("faile to sen connack", log.Error(err))
+		}
 		return ErrSessionClientIDInvalid
 	}
 
@@ -265,12 +290,18 @@ func (c *Client) onConnect(p *mqtt.Connect) error {
 		if p.Password != "" {
 			// username/password authentication
 			if p.Username == "" {
-				c.sendConnack(mqtt.BadUsernameOrPassword, false)
+				err := c.sendConnack(mqtt.BadUsernameOrPassword, false)
+				if err != nil {
+					c.log.Error("faile to sen connack", log.Error(err))
+				}
 				return ErrSessionUsernameNotSet
 			}
 			c.auth = c.manager.auth.AuthenticateAccount(p.Username, p.Password)
 			if c.auth == nil {
-				c.sendConnack(mqtt.BadUsernameOrPassword, false)
+				err := c.sendConnack(mqtt.BadUsernameOrPassword, false)
+				if err != nil {
+					c.log.Error("faile to sen connack", log.Error(err))
+				}
 				return ErrSessionUsernameNotPermitted
 			}
 		} else {
@@ -278,11 +309,17 @@ func (c *Client) onConnect(p *mqtt.Connect) error {
 				// if it is bidirectional authentication, will use certificate authentication
 				c.auth = c.manager.auth.AuthenticateCertificate(cn)
 				if c.auth == nil {
-					c.sendConnack(mqtt.BadUsernameOrPassword, false)
+					err := c.sendConnack(mqtt.BadUsernameOrPassword, false)
+					if err != nil {
+						c.log.Error("faile to sen connack", log.Error(err))
+					}
 					return ErrSessionCertificateCommonNameNotPermitted
 				}
 			} else {
-				c.sendConnack(mqtt.BadUsernameOrPassword, false)
+				err := c.sendConnack(mqtt.BadUsernameOrPassword, false)
+				if err != nil {
+					c.log.Error("faile to sen connack", log.Error(err))
+				}
 				return ErrSessionCertificateCommonNameNotFound
 			}
 		}
@@ -299,7 +336,10 @@ func (c *Client) onConnect(p *mqtt.Connect) error {
 			return ErrSessionWillMessageTopicInvalid
 		}
 		if !c.authorize(Publish, p.Will.Topic) {
-			c.sendConnack(mqtt.NotAuthorized, false)
+			err := c.sendConnack(mqtt.NotAuthorized, false)
+			if err != nil {
+				c.log.Error("faile to sen connack", log.Error(err))
+			}
 			return ErrSessionWillMessageTopicNotPermitted
 		}
 		si.WillMessage = common.NewMessage(&mqtt.Publish{Message: *p.Will})
@@ -307,7 +347,7 @@ func (c *Client) onConnect(p *mqtt.Connect) error {
 
 	s, exists, err := c.manager.addClient(si, c)
 	if err != nil {
-		return err
+		return errors.Trace(err)
 	}
 
 	c.wrap = func(m *common.Event) *eventWrapper {
@@ -316,7 +356,7 @@ func (c *Client) onConnect(p *mqtt.Connect) error {
 
 	err = c.sendConnack(mqtt.ConnectionAccepted, exists)
 	if err != nil {
-		return err
+		return errors.Trace(err)
 	}
 	c.log.Info("client is connected")
 
@@ -343,7 +383,7 @@ func (c *Client) onPublish(p *mqtt.Publish) error {
 	if msg.Context.Flags&0x1 == 0x1 {
 		err := c.retainMessage(msg)
 		if err != nil {
-			return err
+			return errors.Trace(err)
 		}
 		// change to normal message before exch
 		msg.Context.Flags &^= 0x1
@@ -363,10 +403,13 @@ func (c *Client) onSubscribe(p *mqtt.Subscribe) error {
 	}
 
 	sa, subs := c.genSuback(p)
-	c.session.subscribe(subs, c.authorize)
-	err := c.send(sa, false)
+	err := c.session.subscribe(subs, sa, c.authorize)
 	if err != nil {
-		return err
+		return errors.Trace(err)
+	}
+	err = c.send(sa, false)
+	if err != nil {
+		return errors.Trace(err)
 	}
 	return c.sendRetainMessage()
 }
@@ -383,7 +426,10 @@ func (c *Client) onPingreq(_ *mqtt.Pingreq) error {
 }
 
 func (c *Client) callback(id uint64) {
-	c.send(&mqtt.Puback{ID: mqtt.ID(id)}, true)
+	err := c.send(&mqtt.Puback{ID: mqtt.ID(id)}, true)
+	if err != nil {
+		c.log.Error("faile to sen puback", log.Any("id", id), log.Error(err))
+	}
 }
 
 func (c *Client) genSuback(p *mqtt.Subscribe) (*mqtt.Suback, []mqtt.Subscription) {

@@ -83,7 +83,7 @@ func TestDatabasePebbleDB(t *testing.T) {
 
 	msgs = append(msgs, data1, data2, data3)
 
-	err = bucket.Put(msgs)
+	err = bucket.Put(1, msgs)
 	assert.NoError(t, err)
 
 	values := make([]mockStruct, 0)
@@ -105,7 +105,7 @@ func TestDatabasePebbleDB(t *testing.T) {
 	assert.Equal(t, values[2], obj3)
 
 	values2 := make([]mockStruct, 0)
-	err = bucket.Get(1, 2, func(data []byte, offset uint64) error {
+	err = bucket.Get(1, 3, func(data []byte, offset uint64) error {
 		if len(data) == 0 {
 			return store.ErrDataNotFound
 		}
@@ -136,6 +136,24 @@ func TestDatabasePebbleDB(t *testing.T) {
 	})
 	assert.NoError(t, err)
 	assert.Len(t, values3, 1)
+
+	err = bucket.Close(true)
+	assert.NoError(t, err)
+
+	values4 := make([]mockStruct, 0)
+	err = bucket.Get(1, 10, func(data []byte, offset uint64) error {
+		if len(data) == 0 {
+			return store.ErrDataNotFound
+		}
+		v := mockStruct{}
+		if err := json.Unmarshal(data, &v); err != nil {
+			return err
+		}
+		values4 = append(values4, v)
+		return nil
+	})
+	assert.NoError(t, err)
+	assert.Len(t, values4, 0)
 }
 
 func TestDatabasePebbleDelBeforeTs(t *testing.T) {
@@ -191,7 +209,7 @@ func TestDatabasePebbleDelBeforeTs(t *testing.T) {
 
 	msgs = append(msgs, data1, data2, data3)
 
-	err = bucket.Put(msgs)
+	err = bucket.Put(1, msgs)
 	assert.NoError(t, err)
 
 	values := make([]mockStruct, 0)
@@ -232,7 +250,7 @@ func TestDatabasePebbleDelBeforeTs(t *testing.T) {
 	assert.NoError(t, err)
 	assert.Len(t, values2, 0)
 
-	err = bucket.Put(msgs)
+	err = bucket.Put(1, msgs)
 	assert.NoError(t, err)
 
 	values3 := make([]mockStruct, 0)
@@ -297,11 +315,11 @@ func TestDatabasePebbleLarge(t *testing.T) {
 		iis = append(iis, data)
 	}
 
-	err = bucket.Put(iis)
+	err = bucket.Put(1, iis)
 	assert.NoError(t, err)
 
 	var values []mockStruct
-	err = bucket.Get(1, count, func(data []byte, offset uint64) error {
+	err = bucket.Get(1, uint64(count), func(data []byte, offset uint64) error {
 		if len(data) == 0 {
 			return store.ErrDataNotFound
 		}
@@ -325,7 +343,7 @@ func TestDatabasePebbleLarge(t *testing.T) {
 	assert.NoError(t, err)
 
 	var values2 []mockStruct
-	err = bucket.Get(1, count, func(data []byte, offset uint64) error {
+	err = bucket.Get(1, uint64(count), func(data []byte, offset uint64) error {
 		if len(data) == 0 {
 			return store.ErrDataNotFound
 		}
@@ -351,11 +369,11 @@ func TestDatabasePebbleLarge(t *testing.T) {
 		iis2 = append(iis2, data)
 	}
 
-	err = bucket.Put(iis2)
+	err = bucket.Put(1, iis2)
 	assert.NoError(t, err)
 
 	var values3 []mockStruct
-	err = bucket.Get(1, ncount, func(data []byte, offset uint64) error {
+	err = bucket.Get(1, uint64(ncount), func(data []byte, offset uint64) error {
 		if len(data) == 0 {
 			return store.ErrDataNotFound
 		}
@@ -379,7 +397,7 @@ func TestDatabasePebbleLarge(t *testing.T) {
 	assert.NoError(t, err)
 
 	var values4 []mockStruct
-	err = bucket.Get(1, ncount, func(data []byte, offset uint64) error {
+	err = bucket.Get(1, uint64(ncount), func(data []byte, offset uint64) error {
 		if len(data) == 0 {
 			return store.ErrDataNotFound
 		}
@@ -471,47 +489,47 @@ func TestDatabasePebbleKV(t *testing.T) {
 	assert.Equal(t, values3[0], obj1)
 	assert.Equal(t, values3[1], obj2)
 
-	//err = bucket.DelKV(key1)
-	//assert.NoError(t, err)
-	//
-	//var value4 mockStruct
-	//err = bucket.GetKV(key1, func(data []byte) error {
-	//	return json.Unmarshal(data, &value4)
-	//})
-	//assert.Error(t, err)
-	//assert.Equal(t, err.Error(), "No data found for this key")
-	//
-	//var value5 mockStruct
-	//err = bucket.GetKV(key2, func(data []byte) error {
-	//	return json.Unmarshal(data, &value5)
-	//})
-	//assert.NoError(t, err)
-	//assert.Equal(t, value5, obj2)
-	//
-	//err = bucket.DelKV(key2)
-	//assert.NoError(t, err)
-	//
-	//var value6 mockStruct
-	//err = bucket.GetKV(key2, func(data []byte) error {
-	//	return json.Unmarshal(data, &value6)
-	//})
-	//assert.Error(t, err)
-	//assert.Equal(t, err.Error(), "No data found for this key")
-	//
-	//var values7 []mockStruct
-	//err = bucket.ListKV(func(data []byte) error {
-	//	if len(data) == 0 {
-	//		return store.ErrDataNotFound
-	//	}
-	//	v := mockStruct{}
-	//	if err := json.Unmarshal(data, &v); err != nil {
-	//		return err
-	//	}
-	//	values7 = append(values7, v)
-	//	return nil
-	//})
-	//assert.NoError(t, err)
-	//assert.Len(t, values3, 0)
+	err = bucket.DelKV(key1)
+	assert.NoError(t, err)
+
+	var value4 mockStruct
+	err = bucket.GetKV(key1, func(data []byte) error {
+		return json.Unmarshal(data, &value4)
+	})
+	assert.Error(t, err)
+	assert.Equal(t, err.Error(), "pebble: not found")
+
+	var value5 mockStruct
+	err = bucket.GetKV(key2, func(data []byte) error {
+		return json.Unmarshal(data, &value5)
+	})
+	assert.NoError(t, err)
+	assert.Equal(t, value5, obj2)
+
+	err = bucket.DelKV(key2)
+	assert.NoError(t, err)
+
+	var value6 mockStruct
+	err = bucket.GetKV(key2, func(data []byte) error {
+		return json.Unmarshal(data, &value6)
+	})
+	assert.Error(t, err)
+	assert.Equal(t, err.Error(), "pebble: not found")
+
+	var values7 []mockStruct
+	err = bucket.ListKV(func(data []byte) error {
+		if len(data) == 0 {
+			return store.ErrDataNotFound
+		}
+		v := mockStruct{}
+		if err := json.Unmarshal(data, &v); err != nil {
+			return err
+		}
+		values7 = append(values7, v)
+		return nil
+	})
+	assert.NoError(t, err)
+	assert.Len(t, values7, 0)
 }
 
 func TestDatabasePebbleReopen(t *testing.T) {
@@ -526,9 +544,6 @@ func TestDatabasePebbleReopen(t *testing.T) {
 	bucket, err := db.NewBatchBucket(t.Name())
 	assert.NoError(t, err)
 	assert.NotNil(t, bucket)
-
-	bucketimpl := bucket.(*pebbleBucket)
-	assert.Equal(t, bucketimpl.offset.offset, uint64(0))
 
 	obj1 := mockStruct{
 		ID:    1,
@@ -569,7 +584,7 @@ func TestDatabasePebbleReopen(t *testing.T) {
 
 	msgs = append(msgs, data1, data2, data3)
 
-	err = bucket.Put(msgs)
+	err = bucket.Put(1, msgs)
 	assert.NoError(t, err)
 
 	values := make([]mockStruct, 0)
@@ -601,9 +616,6 @@ func TestDatabasePebbleReopen(t *testing.T) {
 	assert.NoError(t, err)
 	assert.NotNil(t, bucket2)
 
-	bucket2impl := bucket2.(*pebbleBucket)
-	assert.Equal(t, bucket2impl.offset.offset, uint64(3))
-
 	count := 10000
 	var iis [][]byte
 	for i := 0; i < count; i++ {
@@ -616,183 +628,46 @@ func TestDatabasePebbleReopen(t *testing.T) {
 		iis = append(iis, data)
 	}
 
-	err = bucket2.Put(iis)
+	err = bucket2.Put(4, iis)
 	assert.NoError(t, err)
 
-	assert.Equal(t, bucket2impl.offset.offset, uint64(3+count))
+	values2 := make([]mockStruct, 0)
+	err = bucket2.Get(1, uint64(3+count), func(data []byte, offset uint64) error {
+		if len(data) == 0 {
+			return store.ErrDataNotFound
+		}
+		v := mockStruct{}
+		if err := json.Unmarshal(data, &v); err != nil {
+			return err
+		}
+		values2 = append(values2, v)
+		return nil
+	})
+	assert.NoError(t, err)
+	assert.Len(t, values2, 2+count)
+
+	values3 := make([]mockStruct, 0)
+	err = bucket2.Get(1, uint64(3+count+1), func(data []byte, offset uint64) error {
+		if len(data) == 0 {
+			return store.ErrDataNotFound
+		}
+		v := mockStruct{}
+		if err := json.Unmarshal(data, &v); err != nil {
+			return err
+		}
+		values3 = append(values3, v)
+		return nil
+	})
+	assert.NoError(t, err)
+	assert.Len(t, values3, 3+count)
 
 	err = db2.Close()
 	assert.NoError(t, err)
-
-	db3, err := store.New(store.Conf{Driver: "pebble", Path: path.Join(dir, t.Name())})
-	assert.NoError(t, err)
-	assert.NotNil(t, db3)
-
-	bucket3, err := db3.NewBatchBucket(t.Name())
-	assert.NoError(t, err)
-	assert.NotNil(t, bucket3)
-
-	bucket3impl := bucket3.(*pebbleBucket)
-	assert.Equal(t, bucket3impl.offset.offset, uint64(3+count))
-
-	err = bucket3.DelBeforeID(uint64(3 + count))
-	assert.NoError(t, err)
-
-	var values4 []mockStruct
-	err = bucket3.Get(1, 3+count, func(data []byte, offset uint64) error {
-		if len(data) == 0 {
-			return store.ErrDataNotFound
-		}
-		v := mockStruct{}
-		if err := json.Unmarshal(data, &v); err != nil {
-			return err
-		}
-		values4 = append(values4, v)
-		return nil
-	})
-	assert.NoError(t, err)
-	assert.Len(t, values4, 0)
-
-	err = db3.Close()
-	assert.NoError(t, err)
-
-	db4, err := store.New(store.Conf{Driver: "pebble", Path: path.Join(dir, t.Name())})
-	assert.NoError(t, err)
-	assert.NotNil(t, db4)
-
-	bucket4, err := db4.NewBatchBucket(t.Name())
-	assert.NoError(t, err)
-	assert.NotNil(t, bucket4)
-
-	bucket4impl := bucket4.(*pebbleBucket)
-	assert.Equal(t, bucket4impl.offset.offset, uint64(0))
-
-	err = bucket4.Put(iis)
-	assert.NoError(t, err)
-
-	assert.Equal(t, bucket4impl.offset.offset, uint64(count))
-
-	var values5 []mockStruct
-	err = bucket4.Get(1, count, func(data []byte, offset uint64) error {
-		if len(data) == 0 {
-			return store.ErrDataNotFound
-		}
-		v := mockStruct{}
-		if err := json.Unmarshal(data, &v); err != nil {
-			return err
-		}
-		values5 = append(values5, v)
-		return nil
-	})
-	assert.NoError(t, err)
-	assert.Len(t, values5, count)
-
-	err = db4.Close()
-	assert.NoError(t, err)
-
-	db5, err := store.New(store.Conf{Driver: "pebble", Path: path.Join(dir, t.Name())})
-	assert.NoError(t, err)
-	assert.NotNil(t, db5)
-
-	bucket5, err := db5.NewBatchBucket(t.Name())
-	assert.NoError(t, err)
-	assert.NotNil(t, bucket5)
-
-	bucket5impl := bucket5.(*pebbleBucket)
-	assert.Equal(t, bucket5impl.offset.offset, uint64(count))
-
-	var values6 []mockStruct
-	err = bucket5.Get(1, count, func(data []byte, offset uint64) error {
-		if len(data) == 0 {
-			return store.ErrDataNotFound
-		}
-		v := mockStruct{}
-		if err := json.Unmarshal(data, &v); err != nil {
-			return err
-		}
-		values6 = append(values6, v)
-		return nil
-	})
-	assert.NoError(t, err)
-	assert.Len(t, values6, count)
-	for k, v := range values6 {
-		m := mockStruct{}
-		err := json.Unmarshal(iis[k], &m)
-		assert.NoError(t, err)
-		assert.Equal(t, m, v)
-	}
 }
 
-//
-//func TestDatabasePebbleDeleteBucket(t *testing.T) {
-//	dir, err := ioutil.TempDir("", t.Name())
-//	assert.NoError(t, err)
-//	defer os.RemoveAll(dir)
-//
-//	db, err := store.New(store.Conf{Driver: "pebble", Path: path.Join(dir, t.Name())})
-//	assert.NoError(t, err)
-//	assert.NotNil(t, db)
-//	defer db.Close()
-//
-//	bucket, err := db.NewBatchBucket(t.Name())
-//	assert.NoError(t, err)
-//	assert.NotNil(t, bucket)
-//
-//	count := 10000
-//	var iis [][]byte
-//	for i := 1; i < count; i++ {
-//		v := mockStruct{
-//			ID:    i,
-//			Dummy: "aa",
-//		}
-//		data, err := json.Marshal(&v)
-//		assert.NoError(t, err)
-//		iis = append(iis, data)
-//	}
-//
-//	err = bucket.Put(iis)
-//	assert.NoError(t, err)
-//
-//	var values []mockStruct
-//	err = bucket.Get(1, count, func(data []byte, offset uint64) error {
-//		if len(data) == 0 {
-//			return store.ErrDataNotFound
-//		}
-//		v := mockStruct{}
-//		if err := json.Unmarshal(data, &v); err != nil {
-//			return err
-//		}
-//		values = append(values, v)
-//		return nil
-//	})
-//	assert.NoError(t, err)
-//	assert.Len(t, values, count-1)
-//	for k, v := range values {
-//		m := mockStruct{}
-//		err := json.Unmarshal(iis[k], &m)
-//		assert.NoError(t, err)
-//		assert.Equal(t, m, v)
-//	}
-//
-//	err = db.DeleteBucket(t.Name())
-//	assert.NoError(t, err)
-//
-//	var values2 []mockStruct
-//	err = bucket.Get(1, count, func(data []byte, offset uint64) error {
-//		if len(data) == 0 {
-//			return store.ErrDataNotFound
-//		}
-//		v := mockStruct{}
-//		if err := json.Unmarshal(data, &v); err != nil {
-//			return err
-//		}
-//		values2 = append(values2, v)
-//		return nil
-//	})
-//	assert.NoError(t, err)
-//	assert.Len(t, values2, 0)
-//}
-
+// TODO: benchmark is very slow compared to rocksdb, why ?
+// 1. rocksdb not set sync ?
+// 2. pebble put have bugs ?
 func BenchmarkDatabasePebble(b *testing.B) {
 	dir, err := ioutil.TempDir("", b.Name())
 	assert.NoError(b, err)
@@ -822,7 +697,7 @@ func BenchmarkDatabasePebble(b *testing.B) {
 	b.ResetTimer()
 	b.Run("Put", func(b *testing.B) {
 		for i := 0; i < b.N; i++ {
-			bucket.Put(ds)
+			bucket.Put(uint64(i), ds)
 		}
 	})
 	// Get is slow because using json.Unmarshal here, should using protobuf instead

@@ -9,13 +9,24 @@ jobs:
       - name: Setup Go
         uses: actions/setup-go@v1
         with:
-          go-version: 1.13
+          go-version: 1.15
       - name: Checkout code
         uses: actions/checkout@v1
+      - name: Dependency
+        run: |
+          sudo apt-get install -y libgflags-dev libsnappy-dev zlib1g-dev libbz2-dev liblz4-dev libzstd-dev
+          git clone https://github.com/facebook/rocksdb.git
+          cd rocksdb
+          make shared_lib
+          sudo cp librocksdb.so /usr/local/lib
+          sudo mkdir -p /usr/local/include/rocksdb/
+          sudo cp -r ./include/* /usr/local/include/
+          cd ..
+          ldconfig
       - name: Build
-        run: make all
+        run: CGO_LDFLAGS="-L/usr/local/lib -lrocksdb" CGO_CFLAGS="-I/usr/local/include" make all
       - name: Run unittest
-        run: make test
+        run: CGO_LDFLAGS="-L/usr/local/lib -lrocksdb" CGO_CFLAGS="-I/usr/local/include" make test
       - name: Upload coverage to Codecov
         uses: codecov/codecov-action@v1
         with:

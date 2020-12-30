@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"sync"
 
+	"github.com/baetyl/baetyl-go/v2/errors"
 	"github.com/baetyl/baetyl-go/v2/log"
 	"github.com/baetyl/baetyl-go/v2/mqtt"
 
@@ -55,13 +56,16 @@ func newSession(i Info, m *Manager) (*Session, error) {
 
 	qc := m.cfg.Persistence.Queue
 	qc.Name = i.ID
-	qc.BatchSize = m.cfg.MaxInflightQOS1Messages
 	qbk, err := m.store.NewBatchBucket(qc.Name)
 	if err != nil {
 		s.log.Error("failed to create qos1 bucket", log.Error(err))
 		return nil, err
 	}
-	s.qos1msg = queue.NewPersistence(qc, qbk)
+	s.qos1msg, err = queue.NewPersistence(qc, qbk)
+	if err != nil {
+		s.log.Error("failed to create qos1 persistent", log.Error(err))
+		return nil, err
+	}
 
 	for topic, qos := range i.Subscriptions {
 		s.subs.Set(topic, qos)
@@ -69,8 +73,10 @@ func newSession(i Info, m *Manager) (*Session, error) {
 		s.info.Subscriptions[topic] = qos
 	}
 
-	s.persistent()
-
+	err = s.persistent()
+	if err != nil {
+		return nil, errors.Trace(err)
+	}
 	return s, nil
 }
 
@@ -79,17 +85,23 @@ func (s *Session) close() {
 	defer s.log.Info("session has closed")
 
 	if s.qos0msg != nil {
-		s.qos0msg.Close(s.info.CleanSession)
+		err := s.qos0msg.Close(s.info.CleanSession)
+		if err != nil {
+			s.log.Error("failed to clase qos0 queue", log.Error(err))
+		}
 	}
 
 	if s.qos1msg != nil {
-		s.qos1msg.Close(s.info.CleanSession)
+		err := s.qos1msg.Close(s.info.CleanSession)
+		if err != nil {
+			s.log.Error("failed to clase qos1 queue", log.Error(err))
+		}
 	}
 }
 
 // * the following operations need lock
 
-func (s *Session) update(si Info, auth func(action, topic string) bool) {
+func (s *Session) update(si Info, auth func(action, topic string) bool) error {
 	s.mut.Lock()
 	defer s.mut.Unlock()
 
@@ -105,7 +117,38 @@ func (s *Session) update(si Info, auth func(action, topic string) bool) {
 		}
 	}
 
-	s.persistent()
+	// reset qos1 queue
+	if s.qos1msg != nil {
+		err := s.qos1msg.Close(si.CleanSession)
+		if err != nil {
+			s.log.Error("failed to close qos1 queue when update", log.Error(err))
+			return errors.Trace(err)
+		}
+	}
+
+	qc := s.manager.cfg.Persistence.Queue
+	qc.Name = si.ID
+	qbk, err := s.manager.store.NewBatchBucket(qc.Name)
+	if err != nil {
+		s.log.Error("failed to create qos1 bucket", log.Error(err))
+		return errors.Trace(err)
+	}
+	s.qos1msg, err = queue.NewPersistence(qc, qbk)
+	if err != nil {
+		s.log.Error("failed to create qos1 persistent", log.Error(err))
+		return errors.Trace(err)
+	}
+
+	return errors.Trace(s.persistent())
+}
+
+func (s *Session) disableQos1() {
+	s.mut.Lock()
+	defer s.mut.Unlock()
+
+	if s.qos1msg != nil {
+		s.qos1msg.Disable()
+	}
 }
 
 // Push pushes source message to session queue
@@ -136,11 +179,19 @@ func (s *Session) Push(e *common.Event) error {
 	return s.qos0msg.Push(e)
 }
 
+// ID id
+func (s *Session) ID() string {
+	s.mut.Lock()
+	defer s.mut.Unlock()
+
+	return s.info.ID
+}
+
 // * the following operations are only used by mqtt client
 
-func (s *Session) subscribe(subs []mqtt.Subscription, auth func(action, topic string) bool) {
+func (s *Session) subscribe(subs []mqtt.Subscription, sa *mqtt.Suback, auth func(action, topic string) bool) error {
 	if len(subs) == 0 {
-		return
+		return nil
 	}
 
 	s.mut.Lock()
@@ -150,9 +201,10 @@ func (s *Session) subscribe(subs []mqtt.Subscription, auth func(action, topic st
 		s.info.Subscriptions = make(map[string]mqtt.QOS)
 	}
 
-	for _, v := range subs {
+	for i, v := range subs {
 		if auth != nil && !auth(Subscribe, v.Topic) {
 			s.log.Warn(ErrSessionMessageTopicNotPermitted.Error(), log.Any("topic", v.Topic))
+			sa.ReturnCodes[i] = mqtt.QOSFailure
 			continue
 		}
 		s.subs.Set(v.Topic, v.QOS)
@@ -160,12 +212,12 @@ func (s *Session) subscribe(subs []mqtt.Subscription, auth func(action, topic st
 		s.info.Subscriptions[v.Topic] = v.QOS
 	}
 
-	s.persistent()
+	return errors.Trace(s.persistent())
 }
 
-func (s *Session) unsubscribe(topics []string) {
+func (s *Session) unsubscribe(topics []string) error {
 	if len(topics) == 0 {
-		return
+		return nil
 	}
 
 	s.mut.Lock()
@@ -177,7 +229,7 @@ func (s *Session) unsubscribe(topics []string) {
 		delete(s.info.Subscriptions, topic)
 	}
 
-	s.persistent()
+	return errors.Trace(s.persistent())
 }
 
 func (s *Session) will() *mqtt.Message {
@@ -186,11 +238,17 @@ func (s *Session) will() *mqtt.Message {
 	return s.info.WillMessage
 }
 
-func (s *Session) cleanWill() {
+func (s *Session) cleanSession() bool {
+	s.mut.RLock()
+	defer s.mut.RUnlock()
+	return s.info.CleanSession
+}
+
+func (s *Session) cleanWill() error {
 	s.mut.Lock()
 	defer s.mut.Unlock()
 	s.info.WillMessage = nil
-	s.persistent()
+	return errors.Trace(s.persistent())
 }
 
 func (s *Session) matchQOS(topic string) (bool, uint32) {
@@ -209,22 +267,24 @@ func (s *Session) acknowledge(id uint64) {
 	}
 }
 
-func (s *Session) persistent() {
+func (s *Session) persistent() error {
 	if s.info.CleanSession {
 		err := s.manager.sessionBucket.DelKV([]byte(s.info.ID))
 		if err != nil {
 			s.log.Error("failed to delete session", log.Error(err))
+			return errors.Trace(err)
 		}
-		return
+		return nil
 	}
 
 	data, err := json.Marshal(s.info)
 	if err != nil {
-		s.log.Error("failed to marshal session info", log.Error(err))
-		return
+		return errors.Trace(err)
 	}
 	err = s.manager.sessionBucket.SetKV([]byte(s.info.ID), data)
 	if err != nil {
-		s.log.Error("failed to persist session", log.Error(err))
+		s.log.Error("failed to set session", log.Error(err))
+		return errors.Trace(err)
 	}
+	return nil
 }

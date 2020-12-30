@@ -1,6 +1,7 @@
 package pebble
 
 import (
+	"bytes"
 	"os"
 	"time"
 
@@ -24,23 +25,18 @@ type pebbleDB struct {
 type pebbleBucket struct {
 	db             *pebble.DB
 	name           []byte
-	offset         *counter
 	prefixIterOpts *pebble.IterOptions
 	writeOpts      *pebble.WriteOptions
 }
 
-type counter struct {
-	offset uint64
-}
-
-func (c *counter) Next() uint64 {
-	next := c.offset + 1
-	c.offset = next
-	return next
-}
-
 // New creates a new pebble database
+// pebble support is experimental, DO NOT USE IN PRODUCTION
 func newPebbleDB(conf store.Conf) (store.DB, error) {
+	var cfg DBConfig
+	if err := store.LoadConfig(&cfg); err != nil {
+		return nil, err
+	}
+
 	err := os.MkdirAll(conf.Path, 0755)
 	if err != nil {
 		return nil, errors.Trace(err)
@@ -59,79 +55,96 @@ func newPebbleDB(conf store.Conf) (store.DB, error) {
 
 // NewBucket creates a bucket
 func (d *pebbleDB) NewBatchBucket(name string) (store.BatchBucket, error) {
-	bn, counter := []byte(name), new(counter)
-	prefixOpts := getPrefixIterOptions(bn)
-	iter := d.DB.NewIter(prefixOpts)
-	if iter.Last() {
-		counter.offset, _ = decodeBatchKey(iter.Key(), bn)
-	}
-	if err := iter.Close(); err != nil {
-		return nil, errors.Trace(err)
-	}
-
+	b := []byte(name)
 	return &pebbleBucket{
 		db:             d.DB,
-		name:           bn,
-		offset:         counter,
-		prefixIterOpts: prefixOpts,
-		writeOpts:      pebble.NoSync,
+		name:           b,
+		prefixIterOpts: getPrefixIterOptions(b),
+		// need using Sync opt, Sync is slow on darwin
+		// see: https://github.com/cockroachdb/pebble/issues/1028
+		writeOpts: pebble.Sync,
 	}, nil
 }
 
 // NewBucket creates a bucket
 func (d *pebbleDB) NewKVBucket(name string) (store.KVBucket, error) {
-	bn := []byte(name)
+	b := []byte(name)
 	return &pebbleBucket{
 		db:             d.DB,
-		name:           bn,
-		prefixIterOpts: getPrefixIterOptions(bn),
-		writeOpts:      pebble.NoSync,
+		name:           b,
+		prefixIterOpts: getPrefixIterOptions(b),
+		writeOpts:      pebble.Sync,
 	}, nil
 }
 
-func (b *pebbleBucket) Put(values [][]byte) error {
+func (b *pebbleBucket) Put(offset uint64, values [][]byte) error {
 	if len(values) == 0 {
 		return nil
 	}
 
 	batch := b.db.NewBatch()
 	for _, v := range values {
-		key := encodeBatchKey(b.name, b.offset.Next())
+		key := encodeBatchKey(b.name, offset)
 		err := batch.Set(key, v, nil)
 		if err != nil {
 			return errors.Trace(err)
 		}
+		offset++
 	}
 	return errors.Trace(b.db.Apply(batch, b.writeOpts))
 }
 
-func (b *pebbleBucket) Get(offset uint64, length int, op func([]byte, uint64) error) error {
+// Get [begin, end)
+func (b *pebbleBucket) Get(begin, end uint64, op func([]byte, uint64) error) error {
+	beginKey := concatBucketName(b.name, store.U64ToByte(begin))
+	endKey := concatBucketName(b.name, store.U64ToByte(end))
 	iter := b.db.NewIter(b.prefixIterOpts)
-	key, count := append(b.name, store.U64ToByte(offset)...), 0
-	for iter.SeekGE(key); iter.Valid() && count < length; iter.Next() {
-		offset, _ := decodeBatchKey(iter.Key(), b.name)
+	for iter.SeekGE(beginKey); iter.Valid() && bytes.Compare(iter.Key(), endKey) < 0; iter.Next() {
+		offset, _ := decodeBatchKey(b.name, iter.Key())
 		err := op(iter.Value(), offset)
 		if err != nil {
 			return errors.Trace(err)
 		}
-		count++
 	}
 	return errors.Trace(iter.Close())
 }
 
+func (b *pebbleBucket) MaxOffset() (uint64, error) {
+	var offset uint64
+	iter := b.db.NewIter(b.prefixIterOpts)
+	if iter.Last() {
+		offset, _ = decodeBatchKey(b.name, iter.Key())
+	}
+	if err := iter.Close(); err != nil {
+		return offset, errors.Trace(err)
+	}
+	return offset, nil
+}
+
+func (b *pebbleBucket) MinOffset() (uint64, error) {
+	var offset uint64
+	iter := b.db.NewIter(b.prefixIterOpts)
+	if iter.First() {
+		offset, _ = decodeBatchKey(b.name, iter.Key())
+	}
+	if err := iter.Close(); err != nil {
+		return offset, errors.Trace(err)
+	}
+	return offset, nil
+}
+
 // DelBeforeID deletes values whose keys are not greater than the given id from DB
 func (b *pebbleBucket) DelBeforeID(id uint64) error {
-	start := b.name
-	end := keyUpperBound(append(start, store.U64ToByte(id)...))
-	return errors.Trace(b.db.DeleteRange(start, end, pebble.NoSync))
+	end := keyUpperBound(concatBucketName(b.name, store.U64ToByte(id)))
+	return errors.Trace(b.db.DeleteRange(b.name, end, b.writeOpts))
 }
 
 // DelBeforeTS deletes expired messages from DB
 func (b *pebbleBucket) DelBeforeTS(ts uint64) error {
-	start, end := b.name, keyUpperBound(b.name)
+	end := keyUpperBound(b.name)
 	iter := b.db.NewIter(b.prefixIterOpts)
 	for iter.First(); iter.Valid(); iter.Next() {
-		_, kts := decodeBatchKey(iter.Key(), b.name)
+		_, kts := decodeBatchKey(b.name, iter.Key())
 		if kts > ts {
 			end = iter.Key()
 			break
@@ -141,7 +154,7 @@ func (b *pebbleBucket) DelBeforeTS(ts uint64) error {
 	if err := iter.Close(); err != nil {
 		return errors.Trace(err)
 	}
-	return errors.Trace(b.db.DeleteRange(start, end, b.writeOpts))
+	return errors.Trace(b.db.DeleteRange(b.name, end, b.writeOpts))
 }
 
 // Close close
@@ -149,9 +162,8 @@ func (b *pebbleBucket) Close(clean bool) (err error) {
 	if !clean {
 		return nil
 	}
-	start := b.name
-	end := keyUpperBound(start)
-	return b.db.DeleteRange(start, end, b.writeOpts)
+	end := keyUpperBound(b.name)
+	return b.db.DeleteRange(b.name, end, b.writeOpts)
 }
 
 // SetKV deletes expired messages from DB
@@ -212,20 +224,26 @@ func getPrefixIterOptions(prefix []byte) *pebble.IterOptions {
 func encodeBatchKey(name []byte, offset uint64) []byte {
 	// key = name + sid + ts (16 bytes)
 	ts := uint64(time.Now().Unix())
-	return append(name, store.U64U64ToByte(offset, ts)...)
+	return concatBucketName(name, store.U64U64ToByte(offset, ts))
 }
 
-func decodeBatchKey(key, name []byte) (uint64, uint64) {
+func decodeBatchKey(name, key []byte) (uint64, uint64) {
 	length := len(name)
 	return store.ByteToU64(key[length : length+8]), store.ByteToU64(key[length+8:])
 }
 
 func encodeKVKey(name, key []byte) []byte {
 	// key = name + kvkey (8 bytes)
-	return append(name, key...)
+	return concatBucketName(name, key)
 }
 
 func decodeKVKey(key, name []byte) []byte {
 	length := len(name)
 	return key[length : length+8]
+}
+
+func concatBucketName(name, key []byte) []byte {
+	prefix := make([]byte, len(name))
+	copy(prefix, name)
+	return append(prefix, key...)
 }

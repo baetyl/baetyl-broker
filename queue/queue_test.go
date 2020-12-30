@@ -70,29 +70,50 @@ func TestPersistentQueue(t *testing.T) {
 	utils.SetDefaults(&cfg)
 	cfg.Name = t.Name()
 
-	b := NewPersistence(cfg, bucket)
+	b, err := NewPersistence(cfg, bucket)
+	assert.NoError(t, err)
 	assert.NotNil(t, b)
 
-	m := new(mqtt.Message)
-	m.Content = []byte("hi")
-	m.Context.ID = 111
-	m.Context.TS = 123
-	m.Context.QOS = 1
-	m.Context.Topic = "t"
-	e := common.NewEvent(m, 0, nil)
-	err = b.Push(e)
-	assert.NoError(t, err)
-	err = b.Push(e)
-	assert.NoError(t, err)
-	err = b.Push(e)
+	m1 := new(mqtt.Message)
+	m1.Content = []byte("hi")
+	m1.Context.ID = 111
+	m1.Context.TS = 121
+	m1.Context.QOS = 1
+	m1.Context.Topic = "t1"
+	e1 := common.NewEvent(m1, 0, nil)
+
+	m2 := new(mqtt.Message)
+	m2.Content = []byte("hi2")
+	m2.Context.ID = 111
+	m2.Context.TS = 122
+	m2.Context.QOS = 1
+	m2.Context.Topic = "t2"
+	e2 := common.NewEvent(m2, 0, nil)
+
+	m3 := new(mqtt.Message)
+	m3.Content = []byte("hi3")
+	m3.Context.ID = 111
+	m3.Context.TS = 123
+	m3.Context.QOS = 1
+	m3.Context.Topic = "t3"
+	e3 := common.NewEvent(m3, 0, nil)
+
+	err = b.Push(e1)
 	assert.NoError(t, err)
 
-	e1, err := b.Pop()
+	err = b.Push(e2)
 	assert.NoError(t, err)
-	assert.Equal(t, "Context:<ID:1 TS:123 QOS:1 Topic:\"t\" > Content:\"hi\" ", e1.String())
-	e2, err := b.Pop()
+
+	err = b.Push(e3)
 	assert.NoError(t, err)
-	assert.Equal(t, "Context:<ID:2 TS:123 QOS:1 Topic:\"t\" > Content:\"hi\" ", e2.String())
+
+	e1, err = b.Pop()
+	assert.NoError(t, err)
+	assert.Equal(t, "Context:<ID:1 TS:121 QOS:1 Topic:\"t1\" > Content:\"hi\" ", e1.String())
+
+	e2, err = b.Pop()
+	assert.NoError(t, err)
+	assert.Equal(t, "Context:<ID:2 TS:122 QOS:1 Topic:\"t2\" > Content:\"hi2\" ", e2.String())
 
 	var ms []mqtt.Message
 	err = bucket.Get(1, 10, func(data []byte, offset uint64) error {
@@ -129,11 +150,12 @@ func TestPersistentQueue(t *testing.T) {
 	assert.NoError(t, err)
 	assert.Len(t, ms2, 1)
 
-	e3, err := b.Pop()
+	e3, err = b.Pop()
 	assert.NoError(t, err)
-	assert.Equal(t, "Context:<ID:3 TS:123 QOS:1 Topic:\"t\" > Content:\"hi\" ", e3.String())
+	assert.Equal(t, "Context:<ID:3 TS:123 QOS:1 Topic:\"t3\" > Content:\"hi3\" ", e3.String())
 
 	e3.Done()
+
 	time.Sleep(time.Second)
 
 	var ms4 []mqtt.Message
@@ -172,7 +194,8 @@ func BenchmarkPersistentQueue(b *testing.B) {
 	utils.SetDefaults(&cfg)
 	cfg.Name = b.Name()
 
-	q := NewPersistence(cfg, bucket)
+	q, err := NewPersistence(cfg, bucket)
+	assert.NoError(b, err)
 	assert.NotNil(b, q)
 	defer q.Close(false)
 
@@ -222,7 +245,8 @@ func BenchmarkPersistentQueueParallel(b *testing.B) {
 	assert.NoError(b, err)
 	assert.NotNil(b, bucket)
 
-	q := NewPersistence(cfg, bucket)
+	q, err := NewPersistence(cfg, bucket)
+	assert.NoError(b, err)
 	assert.NotNil(b, q)
 	defer q.Close(false)
 

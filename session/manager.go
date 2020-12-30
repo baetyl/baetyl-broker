@@ -68,16 +68,22 @@ func NewManager(cfg Config) (m *Manager, err error) {
 	}
 	m.store, err = store.New(cfg.Persistence.Store)
 	if err != nil {
-		return nil, err
+		return nil, errors.Trace(err)
 	}
 	m.sessionBucket, err = m.store.NewKVBucket("#session")
 	if err != nil {
-		m.Close()
+		_err := m.Close()
+		if _err != nil {
+			m.log.Error("failed to close manager", log.Error(_err))
+		}
 		return
 	}
 	m.retainBucket, err = m.store.NewKVBucket("#retain")
 	if err != nil {
-		m.Close()
+		_err := m.Close()
+		if _err != nil {
+			m.log.Error("failed to close manager", log.Error(_err))
+		}
 		return
 	}
 	var ss []Info
@@ -94,7 +100,10 @@ func NewManager(cfg Config) (m *Manager, err error) {
 		return nil
 	})
 	if err != nil {
-		m.Close()
+		_err := m.Close()
+		if _err != nil {
+			m.log.Error("failed to close manager", log.Error(_err))
+		}
 		return
 	}
 
@@ -104,7 +113,10 @@ func NewManager(cfg Config) (m *Manager, err error) {
 		var s *Session
 		s, err = newSession(si, m)
 		if err != nil {
-			m.Close()
+			_err := m.Close()
+			if _err != nil {
+				m.log.Error("failed to close manager", log.Error(_err))
+			}
 			return
 		}
 
@@ -116,7 +128,7 @@ func NewManager(cfg Config) (m *Manager, err error) {
 
 func (m *Manager) addClient(si Info, c *Client) (s *Session, exists bool, err error) {
 	if err = m.checkQuitState(); err != nil {
-		return
+		return s, exists, errors.Trace(err)
 	}
 
 	defer func() {
@@ -128,15 +140,22 @@ func (m *Manager) addClient(si Info, c *Client) (s *Session, exists bool, err er
 	}()
 
 	if v, loaded := m.clients.store(si.ID, c); loaded {
-		v.(*Client).close()
+		err := v.(*Client).close()
+		if err != nil {
+			m.log.Error("failed to close old client", log.Any("id", v.(*Client).id), log.Error(err))
+			return nil, false, errors.Trace(err)
+		}
 	}
 
 	if v, loaded := m.sessions.load(si.ID); loaded {
 		s = v.(*Session)
 		if !s.info.CleanSession {
 			exists = true
-			s.update(si, c.authorize)
-			return
+			err := s.update(si, c.authorize)
+			if err != nil {
+				return nil, false, errors.Trace(err)
+			}
+			return s, exists, errors.Trace(err)
 		}
 
 		// If CleanSession is set to 1, the Client and Server MUST discard any previous Session and start a new one. [MQTT-3.1.2-6]
@@ -145,7 +164,7 @@ func (m *Manager) addClient(si Info, c *Client) (s *Session, exists bool, err er
 
 	s, err = newSession(si, m)
 	if err != nil {
-		return
+		return s, exists, errors.Trace(err)
 	}
 
 	m.sessions.store(si.ID, s)
@@ -154,7 +173,7 @@ func (m *Manager) addClient(si Info, c *Client) (s *Session, exists bool, err er
 
 func (m *Manager) delClient(clientID string) error {
 	if err := m.checkQuitState(); err != nil {
-		return err
+		return errors.Trace(err)
 	}
 
 	m.clients.delete(clientID)
@@ -165,9 +184,11 @@ func (m *Manager) delClient(clientID string) error {
 	}
 
 	s := v.(*Session)
-	if s.info.CleanSession {
+	if s.cleanSession() {
 		m.cleanSession(s)
 	}
+
+	s.disableQos1()
 	return nil
 }
 
@@ -204,7 +225,7 @@ func (m *Manager) checkSubscriptions(si *Info) {
 // Close close
 func (m *Manager) Close() error {
 	if err := m.checkQuitState(); err != nil {
-		return nil
+		return errors.Trace(err)
 	}
 
 	m.log.Info("session manager is closing")
@@ -217,11 +238,17 @@ func (m *Manager) Close() error {
 	}
 
 	for _, c := range m.clients.empty() {
-		c.(*Client).close()
+		err := c.(*Client).close()
+		if err != nil {
+			m.log.Error("failed to close client", log.Any("id", c.(*Client).id), log.Error(err))
+		}
 	}
 
 	if m.store != nil {
-		m.store.Close()
+		err := m.store.Close()
+		if err != nil {
+			m.log.Error("failed to close store", log.Error(err))
+		}
 	}
 	return nil
 }
@@ -242,7 +269,7 @@ func (m *Manager) listRetainedMessages() ([]*mqtt.Message, error) {
 		return nil
 	})
 	if err != nil {
-		return nil, err
+		return nil, errors.Trace(err)
 	}
 	return msgs, nil
 }

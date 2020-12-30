@@ -1,6 +1,7 @@
 package broker
 
 import (
+	"github.com/baetyl/baetyl-go/v2/errors"
 	"github.com/baetyl/baetyl-go/v2/log"
 
 	"github.com/baetyl/baetyl-broker/v2/listener"
@@ -30,13 +31,13 @@ func NewBroker(cfg Config) (*Broker, error) {
 	}
 	b.ses, err = session.NewManager(cfg.Session)
 	if err != nil {
-		return nil, err
+		return nil, errors.Trace(err)
 	}
 
 	b.lis, err = listener.NewManager(cfg.Listeners, b.ses)
 	if err != nil {
 		b.Close()
-		return nil, err
+		return nil, errors.Trace(err)
 	}
 	return b, nil
 }
@@ -44,9 +45,15 @@ func NewBroker(cfg Config) (*Broker, error) {
 // Close closes broker
 func (b *Broker) Close() {
 	if b.lis != nil {
-		b.lis.Close()
+		err := b.lis.Close()
+		if err != nil {
+			b.log.Info("failed to close listener", log.Error(err))
+		}
 	}
 	if b.ses != nil {
-		b.ses.Close()
+		err := b.ses.Close()
+		if err != nil {
+			b.log.Info("failed to close listener", log.Error(err))
+		}
 	}
 }

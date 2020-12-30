@@ -1,10 +1,10 @@
 package session
 
 import (
-	"fmt"
 	"reflect"
 	"strings"
 
+	"github.com/baetyl/baetyl-go/v2/errors"
 	"github.com/baetyl/baetyl-go/v2/mqtt"
 	"gopkg.in/validator.v2"
 )
@@ -170,7 +170,7 @@ func principalsValidate(v interface{}, param string) error {
 		for _, permission := range principal.Permissions {
 			for _, permit := range permission.Permits {
 				if !mqtt.CheckTopic(permit, true) {
-					return fmt.Errorf("%s topic(%s) invalid", permission.Action, permit)
+					return errors.Errorf("%s topic(%s) invalid", permission.Action, permit)
 				}
 			}
 		}
@@ -183,7 +183,7 @@ func userValidate(principals []Principal) error {
 	userMap := make(map[string]struct{})
 	for _, principal := range principals {
 		if _, ok := userMap[principal.Username]; ok {
-			return fmt.Errorf("username (%s) duplicate", principal.Username)
+			return errors.Errorf("username (%s) duplicate", principal.Username)
 		}
 		userMap[principal.Username] = struct{}{}
 	}
