@@ -40,7 +40,7 @@ func main() {
 
 		cert := ctx.SystemConfig().Certificate
 		cfg.Listeners = append(cfg.Listeners, listener.Listener{
-			Address:     "ssl://0.0.0.0:" + ctx.BrokerPort(),
+			Address:     "ssl://0.0.0.0:" + context.BrokerPort(),
 			Anonymous:   true,
 			Certificate: cert,
 		})
